@@ -227,6 +227,16 @@ main(int argc, char** argv)
                 ros::TransportHints().tcpNoDelay());
 
   QuadrotorSimulator::Quadrotor quad;
+  double drag_coeff, motor_time_constant, max_rpm;
+  n.param("simulator/drag_coeff", drag_coeff, 0.1);
+  n.param("simulator/motor_time_constant", motor_time_constant, 1.0 / 30.0);
+  n.param("simulator/max_rpm", max_rpm, 35000.0);
+  quad.setDragCoefficient(drag_coeff);
+  quad.setMotorTimeConstant(motor_time_constant);
+  quad.setMaxRPM(max_rpm);
+  ROS_INFO("Simulator params: drag_coeff=%.4f, motor_time_constant=%.4f, max_rpm=%.1f",
+           drag_coeff, motor_time_constant, max_rpm);
+
   double                        _init_x, _init_y, _init_z;
   n.param("simulator/init_state_x", _init_x, 0.0);
   n.param("simulator/init_state_y", _init_y, 0.0);

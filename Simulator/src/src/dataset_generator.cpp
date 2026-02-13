@@ -10,6 +10,9 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <limits>
+#include <cmath>
+#include <algorithm>
 #include "sensor_simulator.cuh"
 #include "maps.hpp"
 
@@ -105,6 +108,7 @@ int main(int argc, char **argv)
     int sizeX = config["x_length"].as<int>();
     int sizeY = config["y_length"].as<int>();
     int sizeZ = config["z_length"].as<int>();
+    int maze_type = config["maze_type"].as<int>();
     double scale = 1 / resolution;
     sizeX *= scale;
     sizeY *= scale;
@@ -116,12 +120,28 @@ int main(int argc, char **argv)
     int image_num = config["image_num"].as<int>();
     float roll_range = config["roll_range"].as<float>();
     float pitch_range = config["pitch_range"].as<float>();
+    float attitude_aggressive_ratio = config["attitude_aggressive_ratio"] ? config["attitude_aggressive_ratio"].as<float>() : 0.0f;
+    float aggressive_roll_range = config["aggressive_roll_range"] ? config["aggressive_roll_range"].as<float>() : roll_range;
+    float aggressive_pitch_range = config["aggressive_pitch_range"] ? config["aggressive_pitch_range"].as<float>() : pitch_range;
     float x_range = config["x_range"].as<float>();
     float y_range = config["y_range"].as<float>();
     float z_min = config["z_range"][0].as<float>();
     float z_max = config["z_range"][1].as<float>();
     float safe_dist = config["safe_dist"].as<float>();
+    float max_obs_dist = config["max_obs_dist"] ? config["max_obs_dist"].as<float>() : std::numeric_limits<float>::infinity();
+    float near_obs_sample_ratio = config["near_obstacle_sample_ratio"] ? config["near_obstacle_sample_ratio"].as<float>() : 0.0f;
+    float near_obs_dist_min = config["near_obstacle_min_dist"] ? config["near_obstacle_min_dist"].as<float>() : std::max(1.0f, 0.35f * safe_dist);
+    float near_obs_dist_max = config["near_obstacle_max_dist"] ? config["near_obstacle_max_dist"].as<float>() : safe_dist;
+    float city_inside_reject_margin = config["city_inside_reject_margin"] ? config["city_inside_reject_margin"].as<float>() : 0.5f;
     float ply_res = config["ply_res"].as<float>();
+    if (!std::isfinite(max_obs_dist) || max_obs_dist <= safe_dist)
+        max_obs_dist = std::numeric_limits<float>::infinity();
+    attitude_aggressive_ratio = std::clamp(attitude_aggressive_ratio, 0.0f, 1.0f);
+    aggressive_roll_range = std::max(aggressive_roll_range, roll_range);
+    aggressive_pitch_range = std::max(aggressive_pitch_range, pitch_range);
+    near_obs_sample_ratio = std::clamp(near_obs_sample_ratio, 0.0f, 0.95f);
+    if (near_obs_dist_max <= near_obs_dist_min)
+        near_obs_sample_ratio = 0.0f;
 
     // 中心对齐，计算偏移量
     int dataset_num = env_num * image_num;
@@ -142,6 +162,26 @@ int main(int argc, char **argv)
               << "Roll: [" << -roll_range << ", " << roll_range << "], "
               << "Pitch: [" << -pitch_range << ", " << pitch_range << "], "
               << "Yaw: [0, 360]" << std::endl;
+    if (attitude_aggressive_ratio > 0.0f)
+    {
+        std::cout << "激进姿态采样: ratio=" << attitude_aggressive_ratio
+                  << ", roll=[" << -aggressive_roll_range << ", " << aggressive_roll_range << "]"
+                  << ", pitch=[" << -aggressive_pitch_range << ", " << aggressive_pitch_range << "]"
+                  << std::endl;
+    }
+    if (std::isfinite(max_obs_dist))
+    {
+        std::cout << "采样约束 (m): nearest obstacle in [" << safe_dist << ", " << max_obs_dist << "]" << std::endl;
+    }
+    else
+    {
+        std::cout << "采样约束 (m): nearest obstacle >= " << safe_dist << std::endl;
+    }
+    if (near_obs_sample_ratio > 0.0f)
+    {
+        std::cout << "近障碍采样 (m): ratio=" << near_obs_sample_ratio
+                  << ", nearest obstacle in [" << near_obs_dist_min << ", " << near_obs_dist_max << "]" << std::endl;
+    }
 
     // 收集所有数据
     std::default_random_engine generator(std::random_device{}());
@@ -162,7 +202,11 @@ int main(int argc, char **argv)
         mocka::Maps map;
         map.setParam(config);
         map.setInfo(info);
-        map.generate(config["maze_type"].as<int>());
+        map.generate(maze_type);
+        if (maze_type == 8)
+        {
+            std::cout << "Map " << map_i << " city blocks: " << map.getCityBlockCount() << std::endl;
+        }
 
         // 构建 GridMap
         GridMap grid_map(cloud, resolution, occupy_threshold);
@@ -187,23 +231,83 @@ int main(int argc, char **argv)
         // 收集当前环境的数据
         std::ofstream pose_file(save_path + "pose-" + std::to_string(map_i) + ".csv");
         pose_file << "px,py,pz,qw,qx,qy,qz\n";
+        int reject_inside_building = 0;
+        int reject_near_obstacle = 0;
+        int reject_far_obstacle = 0;
+        int reject_near_band = 0;
+        int accept_near_band = 0;
+        int accept_far_band = 0;
+        int sample_attempts = 0;
         for (int image_i = 0; image_i < image_num; ++image_i)
         {
             Eigen::Vector3f pos;
             float dist;
-            do{
+            while (true){
+                sample_attempts++;
                 pos.x() = x_min + uniform_uniform(generator) * x_range;
                 pos.y() = y_min + uniform_uniform(generator) * y_range;
                 pos.z() = z_min + uniform_uniform(generator) * (z_max - z_min);
+                const bool target_near_band = (near_obs_sample_ratio > 0.0f) &&
+                                              (uniform_uniform(generator) < near_obs_sample_ratio);
+
+                // Reject states inside city-building interiors (maze_type=8),
+                // while preserving hollow-shell modeling for rendering.
+                if (maze_type == 8 && map.getCityBlockCount() > 0 && map.isInsideCityBlock(pos, city_inside_reject_margin))
+                {
+                    reject_inside_building++;
+                    continue;
+                }
+
                 pcl::PointXYZ searchPoint(pos.x(), pos.y(), pos.z());
                 std::vector<int> pointIdxNKNSearch(1);
                 std::vector<float> pointNKNSquaredDistance(1);
                 int found_num = kdtree.nearestKSearch(searchPoint, 1, pointIdxNKNSearch, pointNKNSquaredDistance);
+                if (found_num <= 0)
+                {
+                    reject_near_obstacle++;
+                    continue;
+                }
                 dist = sqrt(pointNKNSquaredDistance[0]);
-            } while (dist < safe_dist);
+                if (target_near_band)
+                {
+                    if (dist < near_obs_dist_min || dist > near_obs_dist_max)
+                    {
+                        reject_near_band++;
+                        continue;
+                    }
+                    accept_near_band++;
+                }
+                else
+                {
+                    if (dist < safe_dist)
+                    {
+                        reject_near_obstacle++;
+                        continue;
+                    }
+                    if (dist > max_obs_dist)
+                    {
+                        reject_far_obstacle++;
+                        continue;
+                    }
+                    accept_far_band++;
+                }
+                break;
+            }
 
-            float roll = normal_distribution(generator) * roll_range / 3.0f;   // 3 * sigmoid = range
-            float pitch = normal_distribution(generator) * pitch_range / 3.0f; // 3 * sigmoid = range
+            float roll = 0.0f;
+            float pitch = 0.0f;
+            const bool aggressive_attitude = (attitude_aggressive_ratio > 0.0f) &&
+                                             (uniform_uniform(generator) < attitude_aggressive_ratio);
+            if (aggressive_attitude)
+            {
+                roll = (uniform_uniform(generator) * 2.0f - 1.0f) * aggressive_roll_range;
+                pitch = (uniform_uniform(generator) * 2.0f - 1.0f) * aggressive_pitch_range;
+            }
+            else
+            {
+                roll = normal_distribution(generator) * roll_range / 3.0f;   // 3 * sigma ~= range
+                pitch = normal_distribution(generator) * pitch_range / 3.0f; // 3 * sigma ~= range
+            }
             float yaw = uniform_uniform(generator) * 360.0f;
 
             Eigen::Quaternionf quat = RPY2Quat(roll, pitch, yaw);
@@ -225,6 +329,15 @@ int main(int argc, char **argv)
 
             printProgressBar(map_i * image_num + image_i + 1, dataset_num);
         }
+        std::cout << "\nMap " << map_i
+                  << " sampling rejects: inside_city=" << reject_inside_building
+                  << ", near_obstacle=" << reject_near_obstacle
+                  << ", far_obstacle=" << reject_far_obstacle
+                  << ", near_band=" << reject_near_band
+                  << ", accepted_near=" << accept_near_band
+                  << ", accepted_far=" << accept_far_band
+                  << ", acceptance=" << std::fixed << std::setprecision(2)
+                  << (100.0 * image_num / std::max(1, sample_attempts)) << "%" << std::endl;
         pose_file.close();
         grid_map.freeGridMap();
     }

@@ -17,15 +17,25 @@ class SafetyLoss(nn.Module):
         self.map_expand_max = np.array(cfg['map_expand_max'])
         self.d0 = cfg["d0"]
         self.r = cfg["r"]
+        self.inside_weight = float(cfg.get("safety_inside_weight", 0.0))
+        self.inside_margin = float(cfg.get("safety_inside_margin", 0.0))
+        self.surface_weight = float(cfg.get("safety_surface_weight", 0.0))
+        self.surface_margin = float(cfg.get("safety_surface_margin", 0.0))
+        self.exp_clip = float(cfg.get("safety_exp_clip", 50.0))
 
         self._L = L
         self.sgm_time = cfg["sgm_time"]
-        self.eval_points = 30
+        self.eval_points = int(cfg.get("safety_eval_points", 30))
+        sample_spacing = float(cfg.get("safety_sample_spacing", 0.0))
+        if sample_spacing > 1e-6:
+            max_speed = float(cfg.get("vel_max_train", 6.0))
+            auto_eval_points = int(np.ceil(self.sgm_time * max_speed / sample_spacing))
+            self.eval_points = max(self.eval_points, auto_eval_points)
         self.device = self._L.device
         self.time_integral = True
 
         # SDF
-        self.voxel_size = 0.2
+        self.voxel_size = float(cfg.get("esdf_voxel_size", 0.2))
         self.min_bounds = None  # shape: (N, 3)
         self.max_bounds = None  # shape: (N, 3)
         self.sdf_shapes = None  # shape: (N, 3)
@@ -103,7 +113,20 @@ class SafetyLoss(nn.Module):
         return cost, dist_query
 
     def cost_function(self, d):
-        return th.exp(-(d - self.d0) / self.r)
+        # Base exponential barrier around the safe distance d0.
+        exp_arg = th.clamp(-(d - self.d0) / max(self.r, 1e-6), min=-self.exp_clip, max=self.exp_clip)
+        cost = th.exp(exp_arg)
+
+        # Additional signed-distance penalties near/inside obstacles for stronger anti-penetration supervision.
+        if self.surface_weight > 0.0 and self.surface_margin > 0.0:
+            near_violation = th.relu(self.surface_margin - d)
+            cost = cost + self.surface_weight * near_violation * near_violation
+
+        if self.inside_weight > 0.0 and self.inside_margin > 0.0:
+            inside_violation = th.relu(self.inside_margin - d)
+            cost = cost + self.inside_weight * inside_violation * inside_violation
+
+        return cost
 
     def get_coefficient_from_derivative(self, Dp, Df, L):
         coefficient = th.zeros(Dp.shape[0], 18, device=self.device)

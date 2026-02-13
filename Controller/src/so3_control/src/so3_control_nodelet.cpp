@@ -219,6 +219,9 @@ SO3ControlNodelet::onInit(void)
   double mass;
   n.param("mass", mass, 0.5);
   controller_.setMass(mass);
+  double max_tilt_deg;
+  n.param("max_tilt_deg", max_tilt_deg, 65.0);
+  controller_.setMaxTiltDeg(max_tilt_deg);
   
   n.param("record_log", record_log_, false);
   n.param("PID_logger_file_name", logger_file_name, std::string("/home/lu/"));

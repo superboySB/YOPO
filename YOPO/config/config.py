@@ -18,5 +18,11 @@ class Config:
     def __setitem__(self, key, value):
         self._data[key] = value
 
+    def __contains__(self, key):
+        return key in self._data
+
+    def get(self, key, default=None):
+        return self._data.get(key, default)
+
 
 cfg = Config()

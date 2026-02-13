@@ -5,6 +5,8 @@ from config.config import cfg
 from loss.safety_loss import SafetyLoss
 from loss.smoothness_loss import SmoothnessLoss
 from loss.guidance_loss import GuidanceLoss
+from loss.altitude_loss import AltitudeLoss
+from loss.dynamics_loss import DynamicsLoss
 
 
 class YOPOLoss(nn.Module):
@@ -26,10 +28,15 @@ class YOPOLoss(nn.Module):
         self.smoothness_loss = SmoothnessLoss(self._RJ, self._RA)
         self.safety_loss = SafetyLoss(self._L)
         self.goal_loss = GuidanceLoss()
+        self.altitude_loss = AltitudeLoss()
+        self.dynamics_loss = DynamicsLoss(self._L)
         print("------ Actual Loss ------")
         print(f"| {'smooth':<12} = {self.smoothness_weight:6.4f} |")
         print(f"| {'safety':<12} = {self.safety_weight:6.4f} |")
         print(f"| {'goal':<12} = {self.goal_weight:6.4f} |")
+        print(f"| {'altitude':<12} = {self.altitude_weight:6.4f} |")
+        print(f"| {'dyn vel':<12} = {self.dynamic_vel_weight:6.4f} |")
+        print(f"| {'dyn acc':<12} = {self.dynamic_acc_weight:6.4f} |")
         print("-------------------------")
 
     def qp_generation(self):
@@ -85,8 +92,17 @@ class YOPOLoss(nn.Module):
         vel_scale = cfg["vel_max_train"] / 1.0
         self.smoothness_weight = cfg["ws"] / vel_scale ** 5
         self.accele_weight = cfg["wa"] / vel_scale ** 3
+        smooth_override = cfg.get("smoothness_weight_override", None)
+        accel_override = cfg.get("acc_weight_override", None)
+        if smooth_override is not None:
+            self.smoothness_weight = float(smooth_override)
+        if accel_override is not None:
+            self.accele_weight = float(accel_override)
         self.safety_weight = cfg["wc"]
         self.goal_weight = cfg["wg"]
+        self.altitude_weight = float(cfg.get("wz", 0.0))
+        self.dynamic_vel_weight = float(cfg.get("wdv", 0.0))
+        self.dynamic_acc_weight = float(cfg.get("wda", 0.0))
 
     def forward(self, state, prediction, goal, map_id):
         """
@@ -107,5 +123,13 @@ class YOPOLoss(nn.Module):
         smoothness_cost, acceleration_cost = self.smoothness_loss(Df, Dp)
         safety_cost = self.safety_loss(Df, Dp, map_id)
         goal_cost = self.goal_loss(Df, Dp, goal)
+        altitude_cost = self.altitude_loss(Df, Dp, goal)
+        dynamic_vel_cost, dynamic_acc_cost = self.dynamics_loss(Df, Dp)
 
-        return self.smoothness_weight * smoothness_cost, self.safety_weight * safety_cost, self.goal_weight * goal_cost, self.accele_weight * acceleration_cost
+        return (self.smoothness_weight * smoothness_cost,
+                self.safety_weight * safety_cost,
+                self.goal_weight * goal_cost,
+                self.accele_weight * acceleration_cost,
+                self.altitude_weight * altitude_cost,
+                self.dynamic_vel_weight * dynamic_vel_cost,
+                self.dynamic_acc_weight * dynamic_acc_cost)

@@ -13,6 +13,9 @@ from config.config import cfg
 class YOPODataset(Dataset):
     def __init__(self, mode='train', val_ratio=0.1):
         super(YOPODataset, self).__init__()
+        self.mode = mode
+        self.deterministic_eval = bool(cfg.get("deterministic_eval", True))
+        self.eval_seed = int(cfg.get("eval_seed", 0))
         # image params
         self.height = int(cfg["image_height"])
         self.width = int(cfg["image_width"])
@@ -28,6 +31,14 @@ class YOPODataset(Dataset):
         self.goal_length = cfg['goal_length']
         self.goal_pitch_std = cfg["goal_pitch_std"]
         self.goal_yaw_std = cfg["goal_yaw_std"]
+        # High-speed curriculum sampling (optional).
+        self.high_speed_ratio = float(np.clip(cfg.get("high_speed_ratio", 0.0), 0.0, 1.0))
+        self.high_speed_min_ratio = float(np.clip(cfg.get("high_speed_min_ratio", 0.7), 0.0, 1.0))
+        self.high_speed_yaw_std = float(max(cfg.get("high_speed_yaw_std", 8.0), 0.0))
+        self.high_speed_pitch_std = float(max(cfg.get("high_speed_pitch_std", 3.0), 0.0))
+        self.tilt_speed_ref_deg = float(max(cfg.get("tilt_speed_ref_deg", 25.0), 1.0))
+        self.tilt_high_speed_bonus = float(np.clip(cfg.get("tilt_high_speed_bonus", 0.0), 0.0, 1.0))
+        self.near_goal_prob = float(np.clip(cfg.get("near_goal_prob", 0.1), 0.0, 1.0))
         if mode == 'train': self.print_data()
 
         # dataset
@@ -81,8 +92,10 @@ class YOPODataset(Dataset):
         return len(self.img_list)
 
     def __getitem__(self, item):
+        rng = self._get_rng(item)
+
         # 1. read the image
-        # NOTE: The depth images are normalized from 0–20m to a 0–1 and converted to int16 during data collection.
+        # NOTE: Depth images are normalized to [0, 1] using camera.max_depth_dist in dataset_generator and stored as uint16.
         image = cv2.imread(self.img_list[item], -1).astype(np.float32)
         image = np.expand_dims(cv2.resize(image, (self.width, self.height), interpolation=cv2.INTER_NEAREST) / 65535.0, axis=0)
 
@@ -92,13 +105,15 @@ class YOPODataset(Dataset):
         R_WB = R.from_quat([q_wxyz[1], q_wxyz[2], q_wxyz[3], q_wxyz[0]])
         euler_angles = R_WB.as_euler('ZYX', degrees=False)  # [yaw(z) pitch(y) roll(x)]
         R_Bw = R.from_euler('ZYX', [0, euler_angles[1], euler_angles[2]], degrees=False).inv()
+        tilt_deg = float(np.degrees(np.linalg.norm(euler_angles[1:3])))
+        tilt_high_speed_bias = self.tilt_high_speed_bonus * np.clip(tilt_deg / self.tilt_speed_ref_deg, 0.0, 1.0)
 
         # 2. get random vel, acc in the direction of the quadrotor
-        vel_w, acc_w = self._get_random_state()
+        vel_w, acc_w = self._get_random_state(rng, high_speed_bias=tilt_high_speed_bias)
         vel_b, acc_b = R_Bw.apply(vel_w), R_Bw.apply(acc_w)
 
         # 3. generate random goal in front of the quadrotor
-        goal_w = self._get_random_goal()
+        goal_w = self._get_random_goal(rng)
         goal_b = R_Bw.apply(goal_w)
 
         random_obs = np.hstack((vel_b, acc_b, goal_b)).astype(np.float32)
@@ -106,33 +121,97 @@ class YOPODataset(Dataset):
         # vel & acc & goal are in body frame, NWU, and no-normalization
         return image, self.positions[item], rot_wb, random_obs, self.map_idx[item]
 
-    def _get_random_state(self):
+    def _get_rng(self, item):
+        if self.mode == "valid" and self.deterministic_eval:
+            # Deterministic validation avoids epoch-to-epoch eval jitter caused by random state re-sampling.
+            return np.random.default_rng(self.eval_seed + int(item))
+        return None
+
+    def _get_random_state(self, rng=None, high_speed_bias=0.0):
+        normal = np.random.normal if rng is None else rng.normal
+        lognormal = np.random.lognormal if rng is None else rng.lognormal
+        rand = np.random.rand if rng is None else rng.random
+
+        high_speed_prob = float(np.clip(self.high_speed_ratio + high_speed_bias, 0.0, 1.0))
+        if high_speed_prob > 0.0 and rand() < high_speed_prob:
+            return self._sample_high_speed_state(rng)
+
         while True:
-            vel = self.vel_max * (self.v_mean + self.v_std * np.random.randn(3))
+            vel = self.vel_max * (self.v_mean + self.v_std * normal(0.0, 1.0, size=3))
             right_skewed_vx = -1
             while right_skewed_vx < 0:
-                right_skewed_vx = self.vel_max * np.random.lognormal(mean=self.vx_lognorm_mean, sigma=self.vx_logmorm_sigma, size=None)
+                right_skewed_vx = self.vel_max * lognormal(mean=self.vx_lognorm_mean, sigma=self.vx_logmorm_sigma, size=None)
                 right_skewed_vx = -right_skewed_vx + 1.2 * self.vel_max  # * 1.2 to ensure v_max can be sampled
             vel[0] = right_skewed_vx
             if np.linalg.norm(vel) < 1.2 * self.vel_max:  # avoid outliers
                 break
 
         while True:
-            acc = self.acc_max * (self.a_mean + self.a_std * np.random.randn(3))
+            acc = self.acc_max * (self.a_mean + self.a_std * normal(0.0, 1.0, size=3))
             if np.linalg.norm(acc) < 1.2 * self.acc_max:  # avoid outliers
                 break
         return vel, acc
 
-    def _get_random_goal(self):
-        goal_pitch_angle = np.random.normal(0.0, self.goal_pitch_std)
-        goal_yaw_angle = np.random.normal(0.0, self.goal_yaw_std)
+    def _sample_high_speed_state(self, rng=None):
+        rand = np.random.rand if rng is None else rng.random
+        normal = np.random.normal if rng is None else rng.normal
+
+        # Direction concentrated around body-forward axis in w-frame.
+        yaw = np.radians(normal(0.0, self.high_speed_yaw_std))
+        pitch = np.radians(normal(0.0, self.high_speed_pitch_std))
+        forward = np.array([
+            np.cos(yaw) * np.cos(pitch),
+            np.sin(yaw) * np.cos(pitch),
+            np.sin(pitch),
+        ])
+        forward = forward / (np.linalg.norm(forward) + 1e-8)
+
+        speed = self.vel_max * (self.high_speed_min_ratio + (1.0 - self.high_speed_min_ratio) * rand())
+        vel = speed * forward
+        vel += self.vel_max * np.array([
+            0.02 * normal(0.0, 1.0),
+            0.03 * normal(0.0, 1.0),
+            0.02 * normal(0.0, 1.0),
+        ])
+        if vel[0] < 0.1 * speed:
+            vel[0] = 0.1 * speed
+        vel_norm = np.linalg.norm(vel)
+        if vel_norm > 1.2 * self.vel_max:
+            vel = vel * (1.2 * self.vel_max / (vel_norm + 1e-8))
+
+        world_up = np.array([0.0, 0.0, 1.0])
+        right = np.cross(forward, world_up)
+        right_norm = np.linalg.norm(right)
+        if right_norm < 1e-6:
+            right = np.array([0.0, 1.0, 0.0])
+        else:
+            right = right / right_norm
+        up = np.cross(right, forward)
+        up = up / (np.linalg.norm(up) + 1e-8)
+
+        a_forward = self.acc_max * normal(0.0, 0.20)
+        a_lateral = self.acc_max * normal(0.0, 0.12)
+        a_vertical = self.acc_max * normal(0.0, 0.08)
+        acc = a_forward * forward + a_lateral * right + a_vertical * up
+        acc_norm = np.linalg.norm(acc)
+        if acc_norm > 1.2 * self.acc_max:
+            acc = acc * (1.2 * self.acc_max / (acc_norm + 1e-8))
+
+        return vel.astype(np.float32), acc.astype(np.float32)
+
+    def _get_random_goal(self, rng=None):
+        normal = np.random.normal if rng is None else rng.normal
+        rand = np.random.rand if rng is None else rng.random
+
+        goal_pitch_angle = normal(0.0, self.goal_pitch_std)
+        goal_yaw_angle = normal(0.0, self.goal_yaw_std)
         goal_pitch_angle, goal_yaw_angle = np.radians(goal_pitch_angle), np.radians(goal_yaw_angle)
         goal_w_dir = np.array([np.cos(goal_yaw_angle) * np.cos(goal_pitch_angle),
                                np.sin(goal_yaw_angle) * np.cos(goal_pitch_angle), np.sin(goal_pitch_angle)])
         # 10% probability to generate a nearby goal (× goal_length is actual length)
-        random_near = np.random.rand()
-        if random_near < 0.1:
-            goal_w_dir = random_near * 10 * goal_w_dir
+        random_near = rand()
+        if random_near < self.near_goal_prob:
+            goal_w_dir = random_near * (1.0 / max(self.near_goal_prob, 1e-6)) * goal_w_dir
         return self.goal_length * goal_w_dir
 
     def print_data(self):
@@ -158,6 +237,10 @@ class YOPODataset(Dataset):
         print("-----------------------------------------------------")
         print(f"| Goal Pitch 90% (deg)        | {-self.goal_pitch_std * 2:^9.1f}~{self.goal_pitch_std * 2:^9.1f} |")
         print(f"| Goal Yaw   90% (deg)        | {-self.goal_yaw_std * 2:^9.1f}~{self.goal_yaw_std * 2:^9.1f} |")
+        print(f"| High-speed sample ratio     | {100.0 * self.high_speed_ratio:^9.1f}% |")
+        print(f"| Tilt-speed ref (deg)        | {self.tilt_speed_ref_deg:^9.1f} |")
+        print(f"| Tilt-speed bonus max        | {100.0 * self.tilt_high_speed_bonus:^9.1f}% |")
+        print(f"| Near-goal sample ratio      | {100.0 * self.near_goal_prob:^9.1f}% |")
         print("-----------------------------------------------------")
 
     def plot_sample_distribution(self):

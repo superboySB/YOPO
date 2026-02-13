@@ -155,8 +155,8 @@ Eigen::Vector3d NetworkControl::get_Q_from_ACC(const Eigen::Vector3d &ref_acc, d
     Eigen::Vector3d force_ = mass_ * ONE_G * Eigen::Vector3d(0, 0, 1);
     force_.noalias() += mass_ * ref_acc;
 
-    // Limit control angle to theta degree
-    double theta = M_PI / 4;
+    // Limit control angle to configured max tilt
+    double theta = max_tilt_rad_;
     double c = cos(theta);
     Eigen::Vector3d f;
     f.noalias() = force_ - mass_ * ONE_G * Eigen::Vector3d(0, 0, 1);
@@ -223,8 +223,7 @@ Eigen::Vector3d NetworkControl::pub_SO3_command(Eigen::Vector3d ref_acc, double 
 }
 
 void NetworkControl::limite_acc(Eigen::Vector3d &acc){
-    return;
-    double max_norm = 10.0;
+    double max_norm = std::max(0.1, max_acc_cmd_);
     double norm = acc.norm();
     if (norm > max_norm) {
         acc = acc / norm * max_norm;
@@ -262,8 +261,15 @@ void NetworkControl::network_cmd_callback(const quadrotor_msgs::PositionCommand:
             att_acc = des_acc - dis_acc_;
         else
             att_acc = des_acc;
-        att_acc = pub_SO3_command(att_acc, des_yaw, cur_yaw_);
-        // std::cout<<"acc: "<<des_acc.transpose()<<"   yaw:"<<des_yaw<<std::endl;
+        if (ready_use_pos_feedback_)
+        {
+            Eigen::Vector3d ff_acc = ready_ff_acc_weight_ * att_acc;
+            att_acc = publishHoverSO3Command(des_pos_, des_vel_, ff_acc, des_yaw, cmd->yaw_dot);
+        }
+        else
+        {
+            att_acc = pub_SO3_command(att_acc, des_yaw, cur_yaw_);
+        }
         if (record_log_)
             recordLog(cur_vel_, cur_acc_, des_acc, dis_acc_, cur_yaw_, des_yaw);
     }
@@ -345,10 +351,26 @@ void NetworkControl::timerCallback(const ros::TimerEvent &)
 
 void NetworkControl::takeoff_land_thread(quadrotor_msgs::SetTakeoffLand::Request &req)
 {
+    if (req.takeoff)
+    {
+        // Avoid race: takeoff may be triggered before the first odom callback updates cur_pos_.
+        ros::Time wait_start = ros::Time::now();
+        ros::Rate wait_rate(100);
+        while (ros::ok() && !state_init_ && ros::Time::now() - wait_start < ros::Duration(5.0))
+        {
+            wait_rate.sleep();
+        }
+        if (!state_init_)
+        {
+            ROS_WARN("Takeoff requested before odom initialization timeout; fallback to current internal state.");
+        }
+    }
+
     mutex_.lock();
     float takeoff_altitude = req.takeoff_altitude;
     des_pos_ = cur_pos_;
     des_pos_(2) -= 0.2;
+    double start_takeoff_z = des_pos_(2);
     des_vel_ = Eigen::Vector3d(0, 0, 0);
     des_yaw_ = cur_yaw_;
     mutex_.unlock();
@@ -364,13 +386,15 @@ void NetworkControl::takeoff_land_thread(quadrotor_msgs::SetTakeoffLand::Request
         }
         sleep(1);
 
-        double takeoff_vel = 0.8;
+        double takeoff_vel = sim_takeoff_velocity_;
         double takeoff_ddz = takeoff_vel * control_dt_;
         ros::Rate takeoff_loop(1 / control_dt_);
         std::cout << "takeoff altitude: " << takeoff_altitude << " m" << std::endl;
         std::cout << "takeoff velocity: " << takeoff_vel << " m/s" << std::endl;
+        const double climb_distance = std::max(0.0, static_cast<double>(takeoff_altitude) - start_takeoff_z);
+        const double max_takeoff_time = std::max(8.0, climb_distance / takeoff_vel + 2.0);
         ros::Time start_takeoff_task_time = ros::Time::now();
-        while (ros::ok() && ros::Time::now() - start_takeoff_task_time < ros::Duration(8.0))
+        while (ros::ok() && ros::Time::now() - start_takeoff_task_time < ros::Duration(max_takeoff_time))
         {       
             mutex_.lock();
             des_pos_(2) += takeoff_ddz;
@@ -383,6 +407,13 @@ void NetworkControl::takeoff_land_thread(quadrotor_msgs::SetTakeoffLand::Request
                 break;
             }
             takeoff_loop.sleep();
+        }
+
+        if (!ctrl_valid_)
+        {
+            ROS_WARN("Takeoff timed out at z=%.2f (target=%.2f). Enabling controller to avoid command lock-up.",
+                     des_pos_(2), static_cast<double>(takeoff_altitude));
+            ctrl_valid_ = true;
         }
     }
     else

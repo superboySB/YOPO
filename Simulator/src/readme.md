@@ -41,7 +41,19 @@ lidar_topic: "/lidar_points"
 # 使用预先构建的点云地图还是随机地图
 random_map: true
 # 随机地图配置
-maze_type: 5   # 1: 溶洞 2: 柱子 3:迷宫 5:森林 6:房间
+maze_type: 8   # 1: 溶洞 2: 柱子 3:迷宫 5:森林 6:房间 7:墙面 8:城市立方体楼群
+# 城市场景关键参数
+resolution: 1.0
+x_length: 1000
+y_length: 1000
+city_street_min: 15.0
+city_street_max: 30.0
+city_block_width_min: 80.0
+city_block_width_max: 100.0
+city_block_height_min: 60.0
+city_block_height_max: 120.0
+city_surface_resolution: 1.0
+city_ground_resolution: 2.0
 ```
 
 ### 4 仿真位置发布与简单可视化（可选）

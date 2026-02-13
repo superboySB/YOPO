@@ -53,6 +53,7 @@ public:
         float lidar_fps = config["lidar_fps"].as<float>();
         depth_pub_duration = ros::Duration(1 / depth_fps);
         lidar_pub_duration = ros::Duration(1 / lidar_fps);
+        collision_count_min_z_ = config["collision_count_min_z"] ? config["collision_count_min_z"].as<double>() : 0.0;
         
         std::string ply_file = config["ply_file"].as<std::string>();
         std::string odom_topic = config["odom_topic"].as<std::string>();
@@ -151,6 +152,7 @@ private:
     double depth_time{0.0}, lidar_time{0.0};
     int depth_count{0}, lidar_count{0};
     int collision_counter_total_{0};
+    double collision_count_min_z_{0.0};
     // mocka::Maps map;
 };
 
@@ -226,10 +228,12 @@ void SensorSimulator::odomCallback(const nav_msgs::Odometry::ConstPtr& msg) {
     pos.y() = msg->pose.pose.position.y;
     pos.z() = msg->pose.pose.position.z;
 
-    const int occupied = grid_map->mapQueryHost(Vector3f(pos.x(), pos.y(), pos.z()));
-    if (occupied == 1) {
-        collision_counter_total_ += 1;
-        ROS_WARN_THROTTLE(1.0, "UAV is inside occupied voxel. total=%d", collision_counter_total_);
+    if (pos.z() >= static_cast<float>(collision_count_min_z_)) {
+        const int occupied = grid_map->mapQueryHost(Vector3f(pos.x(), pos.y(), pos.z()));
+        if (occupied == 1) {
+            collision_counter_total_ += 1;
+            ROS_WARN_THROTTLE(1.0, "UAV is inside occupied voxel. total=%d", collision_counter_total_);
+        }
     }
     publishCollisionCounterTotal();
 

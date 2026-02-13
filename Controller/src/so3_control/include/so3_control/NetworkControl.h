@@ -42,6 +42,17 @@ public:
         nh_.param("kv_z", kv_z, 4.0);
         nh_.param("record_log", record_log_, false);
         nh_.param("logger_file_name", logger_file_name, std::string("/home/lu/"));
+        nh_.param("max_tilt_deg", max_tilt_deg_, 65.0);
+        nh_.param("max_acc_cmd", max_acc_cmd_, 50.0);
+        nh_.param("sim_takeoff_altitude", sim_takeoff_altitude_, 50.0);
+        nh_.param("sim_takeoff_velocity", sim_takeoff_velocity_, 3.0);
+        nh_.param("ready_use_pos_feedback", ready_use_pos_feedback_, true);
+        nh_.param("ready_ff_acc_weight", ready_ff_acc_weight_, 0.8);
+        sim_takeoff_velocity_ = std::max(0.2, std::min(15.0, sim_takeoff_velocity_));
+        max_tilt_deg_ = std::max(1.0, std::min(85.0, max_tilt_deg_));
+        ready_ff_acc_weight_ = std::max(0.0, std::min(1.0, ready_ff_acc_weight_));
+        max_tilt_rad_ = max_tilt_deg_ * M_PI / 180.0;
+        so3_controller_.setMaxTiltDeg(max_tilt_deg_);
         printf("kx: (%f, %f, %f), kv: (%f, %f, %f) \n", kx_xy, kx_xy, kx_z, kv_xy, kv_xy, kv_z);
 
         so3_command_pub_ = nh_.advertise<quadrotor_msgs::SO3Command>("so3_cmd", 10);
@@ -74,6 +85,11 @@ private:
     double control_dt_ = 0.02;
     double hover_thrust_ = 0.4;
     double kx_xy, kx_z, kv_xy, kv_z;
+    double max_tilt_deg_ = 65.0;
+    double max_tilt_rad_ = 65.0 * M_PI / 180.0;
+    double max_acc_cmd_ = 50.0;
+    double sim_takeoff_altitude_ = 50.0;
+    double sim_takeoff_velocity_ = 3.0;
     
     double cur_yaw_ = 0;
     Eigen::Vector3d cur_pos_ = Eigen::Vector3d(0, 0, 0);
@@ -97,6 +113,8 @@ private:
     bool position_cmd_init_ = false;
     bool takeoff_cmd_init_ = false;
     bool use_disturbance_observer_ = false;
+    bool ready_use_pos_feedback_ = true;
+    double ready_ff_acc_weight_ = 0.8;
     bool record_log_ = false;
     
     SO3Control so3_controller_;
@@ -143,7 +161,7 @@ private:
         ros::ServiceClient client = nh_.serviceClient<quadrotor_msgs::SetTakeoffLand>("takeoff_land");
         quadrotor_msgs::SetTakeoffLand srv;
         srv.request.takeoff = true;
-        srv.request.takeoff_altitude = 2.0;
+        srv.request.takeoff_altitude = sim_takeoff_altitude_;
     
         if (client.call(srv)) {
             ROS_INFO("Takeoff called successfully");

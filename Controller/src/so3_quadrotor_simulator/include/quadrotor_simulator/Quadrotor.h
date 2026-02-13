@@ -52,6 +52,9 @@ public:
   double getMotorTimeConstant(void) const;
   void setMotorTimeConstant(double k);
 
+  double getDragCoefficient(void) const;
+  void setDragCoefficient(double c);
+
   const Eigen::Vector3d& getExternalForce(void) const;
   void setExternalForce(const Eigen::Vector3d& force);
 
@@ -96,6 +99,7 @@ private:
   double          motor_time_constant_; // unit: sec
   double          max_rpm_;
   double          min_rpm_;
+  double          drag_coeff_;
 
   Quadrotor::State state_;
 

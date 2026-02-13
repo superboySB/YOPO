@@ -5,6 +5,8 @@ supervised learning, imitation learning, testing, rollout
 import os
 import time
 import atexit
+import numpy as np
+import torch
 from torch.nn import functional as F
 from rich.progress import Progress
 from torch.utils.data import DataLoader
@@ -28,7 +30,16 @@ class YopoTrainer:
             save_on_exit=False,
     ):
         self.batch_size = batch_size
-        self.max_grad_norm = 0.1
+        self.base_learning_rate = learning_rate
+        self.max_grad_norm = float(cfg.get("grad_clip_norm", 0.1))
+        self.use_lr_scheduler = bool(cfg.get("use_lr_scheduler", False))
+        self.scheduler_type = str(cfg.get("scheduler_type", "cosine")).lower()
+        self.lr_min_ratio = float(cfg.get("lr_min_ratio", 0.1))
+        self.plateau_factor = float(cfg.get("plateau_factor", 0.5))
+        self.plateau_patience = int(cfg.get("plateau_patience", 3))
+        self.plateau_threshold = float(cfg.get("plateau_threshold", 1e-2))
+        self.score_label_clip = cfg.get("score_label_clip", None)
+        self.traj_loss_clip = cfg.get("traj_loss_clip", None)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.loss_weight = loss_weight
         if save_on_exit: self._exit_func = atexit.register(self.save_model)
@@ -65,35 +76,62 @@ class YopoTrainer:
         print("Dataset Loaded!")
 
     def train(self, epoch, save_interval=None):
+        scheduler = None
+        if self.use_lr_scheduler and epoch > 1:
+            if self.scheduler_type == "plateau":
+                scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                    self.optimizer,
+                    mode="min",
+                    factor=self.plateau_factor,
+                    patience=self.plateau_patience,
+                    threshold=self.plateau_threshold,
+                    min_lr=self.base_learning_rate * self.lr_min_ratio,
+                )
+            else:
+                scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                    self.optimizer,
+                    T_max=epoch,
+                    eta_min=self.base_learning_rate * self.lr_min_ratio,
+                )
+
         with self.progress_log:
             total_progress = self.progress_log.add_task("Training", total=epoch)
             for self.epoch_i in range(epoch):
                 self.policy.train()
                 self.train_one_epoch(self.epoch_i, total_progress)
                 self.policy.eval()
-                self.eval_one_epoch(self.epoch_i)
+                eval_traj, _ = self.eval_one_epoch(self.epoch_i)
+                cur_lr = self.optimizer.param_groups[0]["lr"]
+                self.tensorboard_log.add_scalar("Train/LR", cur_lr, self.epoch_i)
+
                 if save_interval is not None and (self.epoch_i + 1) % save_interval == 0:
                     self.progress_log.console.log("Saving model...")
                     policy_path = self.tensorboard_path + "/epoch{}.pth".format(self.epoch_i + 1, 0)
                     torch.save(self.policy.state_dict(), policy_path)
+                if scheduler is not None:
+                    if self.scheduler_type == "plateau":
+                        scheduler.step(eval_traj)
+                    else:
+                        scheduler.step()
             self.progress_log.console.log("Train YOPO Finish!")
             self.progress_log.remove_task(total_progress)
 
     def train_one_epoch(self, epoch: int, total_progress):
         one_epoch_progress = self.progress_log.add_task(f"Epoch: {epoch}", total=len(self.train_dataloader))
         inspect_interval = max(1, len(self.train_dataloader) // 16)
-        traj_losses, score_losses, smooth_losses, safety_losses, goal_losses, acc_losses, start_time = [], [], [], [], [], [], time.time()
+        traj_losses, score_losses, smooth_losses, safety_losses, goal_losses, acc_losses, altitude_losses, dyn_vel_losses, dyn_acc_losses, grad_norms, start_time = [], [], [], [], [], [], [], [], [], [], time.time()
         for step, (depth, pos, rot, obs_b, map_id) in enumerate(self.train_dataloader):  # obs: body frame
             if depth.shape[0] != self.batch_size:  continue  # batch size == number of env
 
             self.optimizer.zero_grad()
 
-            trajectory_loss, score_loss, smooth_cost, safety_cost, goal_cost, acc_cost = self.forward_and_compute_loss(depth, pos, rot, obs_b, map_id)
+            trajectory_loss, score_loss, smooth_cost, safety_cost, goal_cost, acc_cost, altitude_cost, dyn_vel_cost, dyn_acc_cost = self.forward_and_compute_loss(depth, pos, rot, obs_b, map_id)
 
             loss = self.loss_weight[0] * trajectory_loss + self.loss_weight[1] * score_loss
 
             # Optimize the policy
             loss.backward()
+            grad_norm = torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.max_grad_norm)
             self.optimizer.step()
 
             traj_losses.append(self.loss_weight[0] * trajectory_loss.item())
@@ -102,6 +140,10 @@ class YopoTrainer:
             safety_losses.append(self.loss_weight[0] * safety_cost.item())
             goal_losses.append(self.loss_weight[0] * goal_cost.item())
             acc_losses.append(self.loss_weight[0] * acc_cost.item())
+            altitude_losses.append(self.loss_weight[0] * altitude_cost.item())
+            dyn_vel_losses.append(self.loss_weight[0] * dyn_vel_cost.item())
+            dyn_acc_losses.append(self.loss_weight[0] * dyn_acc_cost.item())
+            grad_norms.append(float(grad_norm))
 
             if step % inspect_interval == inspect_interval - 1:
                 batch_fps = inspect_interval / (time.time() - start_time)
@@ -114,7 +156,11 @@ class YopoTrainer:
                 self.tensorboard_log.add_scalar("Detail/SafetyLoss", np.mean(safety_losses), epoch * len(self.train_dataloader) + step)
                 self.tensorboard_log.add_scalar("Detail/GoalLoss", np.mean(goal_losses), epoch * len(self.train_dataloader) + step)
                 self.tensorboard_log.add_scalar("Detail/AccelLoss", np.mean(acc_losses), epoch * len(self.train_dataloader) + step)
-                traj_losses, score_losses, smooth_losses, safety_losses, goal_losses, acc_losses, start_time = [], [], [], [], [], [], time.time()
+                self.tensorboard_log.add_scalar("Detail/AltitudeLoss", np.mean(altitude_losses), epoch * len(self.train_dataloader) + step)
+                self.tensorboard_log.add_scalar("Detail/DynVelLoss", np.mean(dyn_vel_losses), epoch * len(self.train_dataloader) + step)
+                self.tensorboard_log.add_scalar("Detail/DynAccLoss", np.mean(dyn_acc_losses), epoch * len(self.train_dataloader) + step)
+                self.tensorboard_log.add_scalar("Detail/GradNorm", np.mean(grad_norms), epoch * len(self.train_dataloader) + step)
+                traj_losses, score_losses, smooth_losses, safety_losses, goal_losses, acc_losses, altitude_losses, dyn_vel_losses, dyn_acc_losses, grad_norms, start_time = [], [], [], [], [], [], [], [], [], [], time.time()
 
             self.progress_log.update(one_epoch_progress, advance=1)
             self.progress_log.update(total_progress, advance=1 / len(self.train_dataloader))
@@ -128,7 +174,7 @@ class YopoTrainer:
         for step, (depth, pos, rot, obs_b, map_id) in enumerate(self.val_dataloader):  # obs: body frame
             if depth.shape[0] != self.batch_size:  continue  # batch size == num of env
 
-            trajectory_loss, score_loss, _, _, _, _ = self.forward_and_compute_loss(depth, pos, rot, obs_b, map_id)
+            trajectory_loss, score_loss, _, _, _, _, _, _, _ = self.forward_and_compute_loss(depth, pos, rot, obs_b, map_id)
 
             traj_losses.append(self.loss_weight[0] * trajectory_loss.item())
             score_losses.append(self.loss_weight[1] * score_loss.item())
@@ -138,6 +184,7 @@ class YopoTrainer:
         self.tensorboard_log.add_scalar("Eval/TrajLoss", np.mean(traj_losses), epoch)
         self.tensorboard_log.add_scalar("Eval/ScoreLoss", np.mean(score_losses), epoch)
         self.progress_log.remove_task(one_epoch_progress)
+        return float(np.mean(traj_losses)), float(np.mean(score_losses))
 
     def forward_and_compute_loss(self, depth, pos, rot, obs_b, map_id):
         depth, pos, rot, obs_b, map_id = [x.to(self.device) for x in [depth, pos, rot, obs_b, map_id]]
@@ -168,12 +215,20 @@ class YopoTrainer:
         # [B*V*H, 3, 3]: [px, py, pz; vx, vy, vz; ax, ay, az]
         end_state_w = torch.stack([end_pos_w, end_vel_w, end_acc_w], dim=1)
 
-        smooth_cost, safety_cost, goal_cost, acc_cost = self.yopo_loss(start_state_w, end_state_w, goal_w, map_id)
-        trajectory_loss = (smooth_cost + safety_cost + goal_cost + acc_cost).mean()
+        smooth_cost, safety_cost, goal_cost, acc_cost, altitude_cost, dyn_vel_cost, dyn_acc_cost = self.yopo_loss(start_state_w, end_state_w, goal_w, map_id)
+        total_cost = (smooth_cost + safety_cost + goal_cost + acc_cost + altitude_cost + dyn_vel_cost + dyn_acc_cost)
+        if self.traj_loss_clip is not None:
+            total_cost = total_cost.clamp(min=0.0, max=float(self.traj_loss_clip))
+        trajectory_loss = total_cost.mean()
 
-        score_label = (smooth_cost + safety_cost + goal_cost + acc_cost).clone().detach()
+        score_label = (smooth_cost + safety_cost + goal_cost + acc_cost + altitude_cost + dyn_vel_cost + dyn_acc_cost).clone().detach()
+        if self.score_label_clip is not None:
+            score_label = score_label.clamp(min=0.0, max=float(self.score_label_clip))
         score_loss = F.smooth_l1_loss(score_flat, score_label)
-        return trajectory_loss, score_loss, smooth_cost.mean(), safety_cost.mean(), goal_cost.mean(), acc_cost.mean()
+        return (trajectory_loss, score_loss,
+                smooth_cost.mean(), safety_cost.mean(), goal_cost.mean(),
+                acc_cost.mean(), altitude_cost.mean(),
+                dyn_vel_cost.mean(), dyn_acc_cost.mean())
 
     def save_model(self):
         if hasattr(self, "epoch_i"):

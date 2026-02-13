@@ -10,6 +10,7 @@ public:
 
   void setMass(const double mass);
   void setGravity(const double g);
+  void setMaxTiltDeg(const double max_tilt_deg);
   void setPosition(const Eigen::Vector3d& position);
   void setVelocity(const Eigen::Vector3d& velocity);
   void setAcc(const Eigen::Vector3d& acc);
@@ -30,6 +31,7 @@ private:
   // Inputs for the controller
   double          mass_;
   double          g_;
+  double          max_tilt_rad_;
   Eigen::Vector3d pos_;
   Eigen::Vector3d vel_;
   Eigen::Vector3d acc_;

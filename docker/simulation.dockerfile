@@ -54,7 +54,7 @@ RUN ln -snf /usr/share/zoneinfo/${TZ} /etc/localtime && \
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends --fix-missing \
-    build-essential git git-lfs vim tmux unzip zip sudo pkg-config
+    build-essential git git-lfs vim tmux unzip zip sudo pkg-config gedit
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends --fix-missing \

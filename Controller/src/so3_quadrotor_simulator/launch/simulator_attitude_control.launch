@@ -1,13 +1,16 @@
 <launch>
     <arg name="init_x" value="0.0"/>
     <arg name="init_y" value="0.0"/>
-    <arg name="init_z" value="2.0"/> 
+    <arg name="init_z" default="2.0"/> 
 
     <node pkg="so3_quadrotor_simulator" type="quadrotor_simulator_so3" name="quadrotor_simulator_so3" output="screen">
         <param name="rate/odom" value="100.0"/>
         <param name="simulator/init_state_x" value="$(arg init_x)"/>
         <param name="simulator/init_state_y" value="$(arg init_y)"/>
         <param name="simulator/init_state_z" value="$(arg init_z)"/>
+        <param name="simulator/drag_coeff" value="0.03"/>
+        <param name="simulator/motor_time_constant" value="0.022"/>
+        <param name="simulator/max_rpm" value="38000.0"/>
         <remap from="~odom" to="/sim/odom"/>
         <remap from="~imu" to="/sim/imu"/>
         <remap from="~cmd" to="so3_cmd"/>
@@ -19,6 +22,12 @@
         <param name="is_simulation" value="true"/>
         <param name="use_disturbance_observer" value="true"/>
         <param name="hover_thrust" value="0.375"/>
+        <param name="max_tilt_deg" value="72.0"/>
+        <param name="max_acc_cmd" value="45.0"/>
+        <param name="sim_takeoff_altitude" value="50.0"/>
+        <param name="sim_takeoff_velocity" value="3.0"/>
+        <param name="ready_use_pos_feedback" value="true"/>
+        <param name="ready_ff_acc_weight" value="0.5"/>
         <remap from="~odom" to="/sim/odom"/>
         <remap from="~imu" to="/sim/imu"/>
         <remap from="~position_cmd" to="/so3_control/pos_cmd"/>

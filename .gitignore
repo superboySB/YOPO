@@ -13,5 +13,5 @@ YOPO/saved/*
 dataset/
 yopo_sim/
 
-!YOPO/saved/YOPO_1/
+!YOPO/saved/YOPO_0/
 *.pyc

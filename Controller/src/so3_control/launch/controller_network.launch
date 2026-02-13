@@ -9,6 +9,10 @@
         <param name="kx_z" value="6.2"/>
         <param name="kv_xy" value="3.4"/>
         <param name="kv_z" value="4.0"/>
+        <param name="max_tilt_deg" value="72.0"/>
+        <param name="max_acc_cmd" value="45.0"/>
+        <param name="ready_use_pos_feedback" value="true"/>
+        <param name="ready_ff_acc_weight" value="0.5"/>
         <remap from="~odom" to="/vins_estimator/imu_propagate"/>
         <remap from="~imu" to="/mavros/imu/data_raw"/>
         <remap from="~position_cmd" to="/so3_control/pos_cmd"/>

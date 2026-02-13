@@ -1,16 +1,59 @@
 # IMPORTANT: velocity in testing (modifiable)
-velocity: 6.0
+velocity: 80.0
 
 # IMPORTANT: vel_max and acc_max in training
 # not the actual values in testing, ensure consistency between testing and training, please refer to ../policy/primitive.py
-vel_max_train: 6.0
-acc_max_train: 6.0
+vel_max_train: 80.0
+acc_max_train: 50.0
 
 # IMPORTANT: weight of costs for unit speed (can be visualized in tensorboard)
-wg: 0.15   # guidance     (approaching the goal)
+wg: 0.28   # guidance     (approaching the goal)
 ws: 10.0   # smoothness   (smaller jerk)
 wa: 1.0    # acceleration (smaller acceleration)
-wc: 1.0    # collision    (distance to obstacle)
+wc: 1.6    # collision    (distance to obstacle)
+wz: 1.0    # altitude     (explicit altitude regularization, high-speed city mode)
+wdv: 0.05  # dyn vel      (trajectory-level velocity feasibility)
+wda: 0.10  # dyn acc      (trajectory-level acceleration feasibility)
+
+# Optional manual overrides for high-speed training.
+# Set to null to use the legacy velocity-based denormalization.
+smoothness_weight_override: 0.0007
+acc_weight_override: 0.0020
+
+# Explicit altitude constraint:
+# - none: disable (original behavior)
+# - fixed: constrain end-z to target_altitude
+# - goal: constrain end-z to goal z
+# - relative: constrain end-z to current z + altitude_relative_offset
+altitude_mode: fixed
+target_altitude: 50.0
+altitude_relative_offset: 0.0
+altitude_tolerance: 8.0
+altitude_huber_delta: 2.0
+altitude_cost_clip: 15.0
+
+# Guidance loss normalization for long planning horizon.
+# Keep the loss scale close to the original forest setting (goal_length ~= 10m).
+guidance_normalize_by_goal_length: true
+guidance_ref_length: 10.0
+guidance_vel_dir_weight: 0.05
+guidance_speed_weight: 0.02
+guidance_speed_target_ratio: 0.45
+guidance_speed_activation_goal_ratio: 0.40
+guidance_speed_huber_delta: 10.0
+guidance_perp_weight_far: 0.35
+guidance_perp_weight_near: 0.90
+guidance_perp_activation_goal_ratio: 0.45
+# Keep terminal stop behavior in test/controller stage (not learned in training).
+guidance_speed_profile_weight: 0.0
+guidance_speed_profile_brake_acc_ratio: 0.55
+guidance_speed_profile_buffer: 12.0
+guidance_speed_profile_reach_radius: 5.0
+guidance_speed_profile_activation_goal_ratio: 0.55
+guidance_speed_profile_huber_delta: 8.0
+guidance_reverse_speed_weight: 0.08
+guidance_reverse_speed_margin: 2.0
+guidance_reverse_activation_goal_ratio: 0.40
 
 # dataset: set image_size = primitive_num × downsampling_factor (×32 for ResNet-18) in each axis
 dataset_path: "../dataset"
@@ -24,28 +67,132 @@ horizon_camera_fov: 90.0
 vertical_camera_fov: 60.0
 horizon_anchor_fov: 30.0
 vertical_anchor_fov: 30.0
-radio_range: 5.0    # planning horizon: 2 * radio_range
+radio_range: 80.0   # planning horizon: 2 * radio_range (160m look-ahead for high-speed flight)
 radio_num: 1        # only support 1 currently
 
 # safety penalties
-d0: 1.2
-r: 0.6
+d0: 12.0
+r: 2.5
+esdf_voxel_size: 2.0   # coarse ESDF for 1km maps; pair with larger d0/r safety inflation
+safety_inside_weight: 4.0
+safety_inside_margin: 1.5
+safety_surface_weight: 0.2
+safety_surface_margin: 3.0
+safety_exp_clip: 40.0
+safety_eval_points: 36
+safety_sample_spacing: 2.0
+
+# trajectory-level dynamics feasibility constraints (sampled along each polynomial segment)
+dynamic_eval_points: 30
+dynamic_vel_limit: 80.0
+dynamic_acc_limit: 50.0
+dynamic_vel_margin: 5.0
+dynamic_acc_margin: 5.0
+dynamic_normalize_violation: true
+dynamic_ratio_clip: 5.0
 
 # distribution for unit state sampling (can be visualized by 'python ./policy/yopo_dataset.py')
-vx_mean_unit: 0.4
+vx_mean_unit: 0.55
 vy_mean_unit: 0.0
 vz_mean_unit: 0.0
-vx_std_unit: 2.0
-vy_std_unit: 0.45
-vz_std_unit: 0.3
+vx_std_unit: 1.6
+vy_std_unit: 0.20
+vz_std_unit: 0.05
 ax_mean_unit: 0.0
 ay_mean_unit: 0.0
 az_mean_unit: 0.0
-ax_std_unit: 0.5
-ay_std_unit: 0.5
-az_std_unit: 0.3
-goal_pitch_std: 10.0  # clip goal_length to: 2 * radio_range; 10% probability [0, 2 * radio_range]
-goal_yaw_std: 20.0
+ax_std_unit: 0.40
+ay_std_unit: 0.20
+az_std_unit: 0.08
+goal_pitch_std: 2.0   # fixed-altitude mode: reduce vertical goal jitter to avoid conflicting supervision
+goal_yaw_std: 10.0
+high_speed_ratio: 0.80
+high_speed_min_ratio: 0.80
+high_speed_yaw_std: 6.0
+high_speed_pitch_std: 3.0
+tilt_speed_ref_deg: 25.0
+tilt_high_speed_bonus: 0.20
+near_goal_prob: 0.03
+
+# Make validation set deterministic; train keeps stochastic sampling for diversity.
+deterministic_eval: true
+eval_seed: 0
+score_label_clip: null
+traj_loss_clip: null
+
+# training stabilization for high-speed setting
+grad_clip_norm: 3.0
+use_lr_scheduler: true
+scheduler_type: plateau
+lr_min_ratio: 0.05
+plateau_factor: 0.5
+plateau_patience: 3
+plateau_threshold: 0.01
+
+# depth normalization range used by inference (training images are already normalized in dataset_generator)
+depth_min_dis: 0.04
+depth_max_dis: 120.0
+camera_pitch_deg: -25.0
+
+# inference steering
+require_user_goal: true
+max_yaw_rate: 0.9    # unit: pi rad/s, i.e. 1.0 -> 180 deg/s
+enable_cruise_boost: true
+cruise_far_depth_ratio: 0.92
+cruise_open_ratio_min: 0.88
+cruise_near_depth_ratio_min: 0.70
+cruise_goal_dist_min: 120.0
+cruise_target_speed_ratio: 0.75
+cruise_target_acc_ratio: 0.50
+cruise_max_extra_safety_penalty: 0.0
+enable_depth_safety_rerank: true
+depth_safety_weight: 12.0
+depth_safety_margin: 8.0
+depth_safety_speed_margin_gain: 0.12
+depth_safety_samples: 32
+depth_safety_sample_spacing: 2.0
+depth_safety_forward_min: 0.8
+depth_safety_behind_penalty: 10.0
+depth_safety_oob_penalty: 4.0
+enable_depth_speed_cap: true
+depth_speed_cap_brake_acc_ratio: 0.65
+depth_speed_cap_margin: 12.0
+depth_speed_cap_center_percentile: 30.0
+depth_speed_cap_min_speed: 6.0
+depth_speed_cap_max_speed_ratio: 1.0
+depth_speed_cap_roi_h_min: 0.30
+depth_speed_cap_roi_h_max: 0.70
+depth_speed_cap_roi_w_min: 0.30
+depth_speed_cap_roi_w_max: 0.70
+enable_goal_soft_brake: true
+goal_reach_radius: 5.0
+goal_reach_speed: 2.0
+goal_resume_radius: 8.0
+goal_terminal_hold_radius: 35.0
+goal_hold_extra_margin: 8.0
+goal_force_hold_radius: 60.0
+goal_rebound_enable_dist: 90.0
+goal_rebound_trigger: 10.0
+goal_hold_sticky: true
+goal_brake_acc_ratio: 0.55
+goal_brake_buffer: 12.0
+goal_min_approach_speed: 1.5
+goal_brake_max_extra_safety_penalty: 0.0
+goal_dir_penalty_weight: 0.20
+goal_dir_forward_margin: 4.0
+goal_dir_activation_goal_ratio: 0.40
+enable_turn_speed_cap: true
+turn_speed_cap_start_deg: 20.0
+turn_speed_cap_full_deg: 80.0
+turn_speed_cap_min_ratio: 0.45
+enable_altitude_guard: true
+altitude_guard_half_range: 6.0
+altitude_guard_vz_max: 8.0
+altitude_guard_az_max: 20.0
+altitude_guard_weight: 2.0
+enable_cmd_hard_limit: true
+cmd_vel_limit_ratio: 1.0
+cmd_acc_limit_ratio: 0.80
 
 # extend the map to avoid trajectory exceeding bounds (especially in z-axis) and treating the sky outside the map as obstacle
 map_expand_min: [0, 0, 0.2]

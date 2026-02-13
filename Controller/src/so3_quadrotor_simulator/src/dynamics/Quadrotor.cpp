@@ -29,6 +29,7 @@ Quadrotor::Quadrotor(void)
   motor_time_constant_ = 1.0 / 30;
   min_rpm_             = 1200;
   max_rpm_             = 35000;
+  drag_coeff_          = 0.1;
 
   state_.x = Eigen::Vector3d::Zero();
   // state_.x << 40.0, -60.0, 10.0;
@@ -157,7 +158,7 @@ Quadrotor::operator()(const Quadrotor::InternalState& x,
   moments(2) = km_ * (motor_rpm_sq(0) + motor_rpm_sq(1) - motor_rpm_sq(2) -
                       motor_rpm_sq(3));
 
-  double resistance = 0.1 *                                        // C
+  double resistance = drag_coeff_ *                                // C
                       3.14159265 * (arm_length_) * (arm_length_) * // S
                       cur_state.v.norm() * cur_state.v.norm();
 
@@ -371,6 +372,22 @@ Quadrotor::setMotorTimeConstant(double k)
   }
 
   motor_time_constant_ = k;
+}
+
+double
+Quadrotor::getDragCoefficient(void) const
+{
+  return drag_coeff_;
+}
+void
+Quadrotor::setDragCoefficient(double c)
+{
+  if (c < 0)
+  {
+    std::cerr << "Drag coefficient < 0, not setting" << std::endl;
+    return;
+  }
+  drag_coeff_ = c;
 }
 
 const Eigen::Vector3d&
