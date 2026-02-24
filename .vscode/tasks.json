@@ -1,0 +1,85 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Controller: catkin_make (Release)",
+      "type": "shell",
+      "command": "bash -lc 'source /opt/ros/noetic/setup.bash && cd /workspace/YOPO/Controller && catkin_make -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'",
+      "group": "build",
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "Simulator: catkin_make (Release)",
+      "type": "shell",
+      "command": "bash -lc 'source /opt/ros/noetic/setup.bash && cd /workspace/YOPO/Simulator && catkin_make -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON'",
+      "group": "build",
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "Workspace: merge compile_commands",
+      "type": "shell",
+      "command": "bash -lc 'python3 -c \"import json;from pathlib import Path;root=Path(\\\"/workspace/YOPO\\\");files=[root/\\\"Controller/build/compile_commands.json\\\",root/\\\"Simulator/build/compile_commands.json\\\"];merged=[];[merged.extend(json.load(p.open())) for p in files if p.exists()];(root/\\\"compile_commands.json\\\").write_text(json.dumps(merged, indent=2));print(f\\\"merged entries={len(merged)}\\\")\"'",
+      "problemMatcher": []
+    },
+    {
+      "label": "Workspace: build all + merge compile_commands",
+      "dependsOn": [
+        "Controller: catkin_make (Release)",
+        "Simulator: catkin_make (Release)",
+        "Workspace: merge compile_commands"
+      ],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    },
+    {
+      "label": "YOPO: launch_sim (detach)",
+      "type": "shell",
+      "command": "bash -lc 'cd /workspace/YOPO && ./tools/launch_sim.sh --trial ${input:trialId} --epoch ${input:epochId} --detach'",
+      "problemMatcher": []
+    },
+    {
+      "label": "YOPO: stop launch_sim",
+      "type": "shell",
+      "command": "bash -lc 'cd /workspace/YOPO && ./tools/launch_sim.sh --session yopo-sim --stop'",
+      "problemMatcher": []
+    },
+    {
+      "label": "YOPO: train",
+      "type": "shell",
+      "command": "bash -lc 'source /opt/ros/noetic/setup.bash && cd /workspace/YOPO/YOPO && python3 train_yopo.py --train_epochs ${input:trainEpochs} --save_interval ${input:saveInterval} --lr ${input:trainLr}'",
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    {
+      "id": "trialId",
+      "type": "promptString",
+      "description": "Model trial id",
+      "default": "0"
+    },
+    {
+      "id": "epochId",
+      "type": "promptString",
+      "description": "Model epoch id",
+      "default": "50"
+    },
+    {
+      "id": "trainEpochs",
+      "type": "promptString",
+      "description": "Training epochs",
+      "default": "100"
+    },
+    {
+      "id": "saveInterval",
+      "type": "promptString",
+      "description": "Checkpoint interval",
+      "default": "50"
+    },
+    {
+      "id": "trainLr",
+      "type": "promptString",
+      "description": "Learning rate",
+      "default": "1e-4"
+    }
+  ]
+}

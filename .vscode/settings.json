@@ -1,0 +1,33 @@
+{
+  "python.defaultInterpreterPath": "/usr/bin/python3",
+  "python.envFile": "${workspaceFolder}/.vscode/.env",
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}/YOPO",
+    "${workspaceFolder}/Controller/devel/lib/python3/dist-packages",
+    "/opt/ros/noetic/lib/python3/dist-packages"
+  ],
+  "python.analysis.typeCheckingMode": "basic",
+  "python.analysis.autoImportCompletions": true,
+  "C_Cpp.default.compileCommands": "${workspaceFolder}/compile_commands.json",
+  "C_Cpp.default.intelliSenseMode": "linux-gcc-x64",
+  "C_Cpp.default.cppStandard": "c++17",
+  "C_Cpp.default.cStandard": "c11",
+  "C_Cpp.default.includePath": [
+    "${workspaceFolder}/**",
+    "${workspaceFolder}/Controller/src/**",
+    "${workspaceFolder}/Controller/devel/include/**",
+    "${workspaceFolder}/Simulator/src/include/**",
+    "${workspaceFolder}/Simulator/src/src/**",
+    "/opt/ros/noetic/include/**",
+    "/usr/include/eigen3/**",
+    "/usr/include/opencv4/**",
+    "/usr/include/pcl-*/**",
+    "/usr/local/cuda/include/**"
+  ],
+  "files.associations": {
+    "*.tcc": "cpp",
+    "*.cu": "cuda-cpp"
+  },
+  "ros.distro": "noetic",
+  "terminal.integrated.defaultProfile.linux": "bash"
+}

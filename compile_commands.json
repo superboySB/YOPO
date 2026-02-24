@@ -1,0 +1,170 @@
+[
+  {
+    "directory": "/workspace/YOPO/Controller/build/gtest/googlemock",
+    "command": "/usr/bin/c++ -DGTEST_CREATE_SHARED_LIBRARY=1 -Dgmock_EXPORTS -I/usr/src/googletest/googlemock/include -I/usr/src/googletest/googlemock -isystem /usr/src/googletest/googletest/include -isystem /usr/src/googletest/googletest -O3 -DNDEBUG -std=c++11 -fPIC -Wall -Wshadow -Wno-error=dangling-else -DGTEST_HAS_PTHREAD=1 -fexceptions -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -DGTEST_HAS_PTHREAD=1 -o CMakeFiles/gmock.dir/src/gmock-all.cc.o -c /usr/src/googletest/googlemock/src/gmock-all.cc",
+    "file": "/usr/src/googletest/googlemock/src/gmock-all.cc",
+    "output": "gtest/googlemock/CMakeFiles/gmock.dir/src/gmock-all.cc.o"
+  },
+  {
+    "directory": "/workspace/YOPO/Controller/build/gtest/googlemock",
+    "command": "/usr/bin/c++ -DGTEST_CREATE_SHARED_LIBRARY=1 -Dgmock_main_EXPORTS -isystem /usr/src/googletest/googlemock/include -isystem /usr/src/googletest/googlemock -isystem /usr/src/googletest/googletest/include -isystem /usr/src/googletest/googletest -O3 -DNDEBUG -std=c++11 -fPIC -Wall -Wshadow -Wno-error=dangling-else -DGTEST_HAS_PTHREAD=1 -fexceptions -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -DGTEST_HAS_PTHREAD=1 -o CMakeFiles/gmock_main.dir/src/gmock_main.cc.o -c /usr/src/googletest/googlemock/src/gmock_main.cc",
+    "file": "/usr/src/googletest/googlemock/src/gmock_main.cc",
+    "output": "gtest/googlemock/CMakeFiles/gmock_main.dir/src/gmock_main.cc.o"
+  },
+  {
+    "directory": "/workspace/YOPO/Controller/build/gtest/googletest",
+    "command": "/usr/bin/c++ -DGTEST_CREATE_SHARED_LIBRARY=1 -Dgtest_EXPORTS -I/usr/src/googletest/googletest/include -I/usr/src/googletest/googletest -O3 -DNDEBUG -std=c++11 -fPIC -Wall -Wshadow -Wno-error=dangling-else -DGTEST_HAS_PTHREAD=1 -fexceptions -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -o CMakeFiles/gtest.dir/src/gtest-all.cc.o -c /usr/src/googletest/googletest/src/gtest-all.cc",
+    "file": "/usr/src/googletest/googletest/src/gtest-all.cc",
+    "output": "gtest/googletest/CMakeFiles/gtest.dir/src/gtest-all.cc.o"
+  },
+  {
+    "directory": "/workspace/YOPO/Controller/build/gtest/googletest",
+    "command": "/usr/bin/c++ -DGTEST_CREATE_SHARED_LIBRARY=1 -Dgtest_main_EXPORTS -isystem /usr/src/googletest/googletest/include -isystem /usr/src/googletest/googletest -O3 -DNDEBUG -std=c++11 -fPIC -Wall -Wshadow -Wno-error=dangling-else -DGTEST_HAS_PTHREAD=1 -fexceptions -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -DGTEST_HAS_PTHREAD=1 -o CMakeFiles/gtest_main.dir/src/gtest_main.cc.o -c /usr/src/googletest/googletest/src/gtest_main.cc",
+    "file": "/usr/src/googletest/googletest/src/gtest_main.cc",
+    "output": "gtest/googletest/CMakeFiles/gtest_main.dir/src/gtest_main.cc.o"
+  },
+  {
+    "directory": "/workspace/YOPO/Controller/build/utils/quadrotor_msgs",
+    "command": "/usr/bin/c++ -DROSCONSOLE_BACKEND_LOG4CXX -DROS_BUILD_SHARED_LIBS=1 -DROS_PACKAGE_NAME=\\\"quadrotor_msgs\\\" -Ddecode_msgs_EXPORTS -I/workspace/YOPO/Controller/devel/include -I/opt/ros/noetic/include -I/opt/ros/noetic/share/xmlrpcpp/cmake/../../../include/xmlrpcpp -I/workspace/YOPO/Controller/src/utils/quadrotor_msgs/include -I/usr/include/eigen3 -O3 -DNDEBUG -fPIC -o CMakeFiles/decode_msgs.dir/src/decode_msgs.cpp.o -c /workspace/YOPO/Controller/src/utils/quadrotor_msgs/src/decode_msgs.cpp",
+    "file": "/workspace/YOPO/Controller/src/utils/quadrotor_msgs/src/decode_msgs.cpp",
+    "output": "utils/quadrotor_msgs/CMakeFiles/decode_msgs.dir/src/decode_msgs.cpp.o"
+  },
+  {
+    "directory": "/workspace/YOPO/Controller/build/utils/quadrotor_msgs",
+    "command": "/usr/bin/c++ -DROSCONSOLE_BACKEND_LOG4CXX -DROS_BUILD_SHARED_LIBS=1 -DROS_PACKAGE_NAME=\\\"quadrotor_msgs\\\" -Dencode_msgs_EXPORTS -I/workspace/YOPO/Controller/devel/include -I/opt/ros/noetic/include -I/opt/ros/noetic/share/xmlrpcpp/cmake/../../../include/xmlrpcpp -I/workspace/YOPO/Controller/src/utils/quadrotor_msgs/include -I/usr/include/eigen3 -O3 -DNDEBUG -fPIC -o CMakeFiles/encode_msgs.dir/src/encode_msgs.cpp.o -c /workspace/YOPO/Controller/src/utils/quadrotor_msgs/src/encode_msgs.cpp",
+    "file": "/workspace/YOPO/Controller/src/utils/quadrotor_msgs/src/encode_msgs.cpp",
+    "output": "utils/quadrotor_msgs/CMakeFiles/encode_msgs.dir/src/encode_msgs.cpp.o"
+  },
+  {
+    "directory": "/workspace/YOPO/Controller/build/so3_control",
+    "command": "/usr/bin/c++ -DROSCONSOLE_BACKEND_LOG4CXX -DROS_BUILD_SHARED_LIBS=1 -DROS_PACKAGE_NAME=\\\"so3_control\\\" -DSO3Control_EXPORTS -I/usr/include/eigen3 -I/workspace/YOPO/Controller/src/so3_control/include -I/workspace/YOPO/Controller/devel/include -I/opt/ros/noetic/include -I/opt/ros/noetic/share/xmlrpcpp/cmake/../../../include/xmlrpcpp -std=c++11 -O3 -Wall -g -fPIC -o CMakeFiles/SO3Control.dir/src/SO3Control.cpp.o -c /workspace/YOPO/Controller/src/so3_control/src/SO3Control.cpp",
+    "file": "/workspace/YOPO/Controller/src/so3_control/src/SO3Control.cpp",
+    "output": "so3_control/CMakeFiles/SO3Control.dir/src/SO3Control.cpp.o"
+  },
+  {
+    "directory": "/workspace/YOPO/Controller/build/so3_control",
+    "command": "/usr/bin/c++ -DROSCONSOLE_BACKEND_LOG4CXX -DROS_BUILD_SHARED_LIBS=1 -DROS_PACKAGE_NAME=\\\"so3_control\\\" -Dso3_control_nodelet_EXPORTS -I/usr/include/eigen3 -I/workspace/YOPO/Controller/src/so3_control/include -I/workspace/YOPO/Controller/devel/include -I/opt/ros/noetic/include -I/opt/ros/noetic/share/xmlrpcpp/cmake/../../../include/xmlrpcpp -std=c++11 -O3 -Wall -g -fPIC -o CMakeFiles/so3_control_nodelet.dir/src/so3_control_nodelet.cpp.o -c /workspace/YOPO/Controller/src/so3_control/src/so3_control_nodelet.cpp",
+    "file": "/workspace/YOPO/Controller/src/so3_control/src/so3_control_nodelet.cpp",
+    "output": "so3_control/CMakeFiles/so3_control_nodelet.dir/src/so3_control_nodelet.cpp.o"
+  },
+  {
+    "directory": "/workspace/YOPO/Controller/build/so3_control",
+    "command": "/usr/bin/c++ -DROSCONSOLE_BACKEND_LOG4CXX -DROS_BUILD_SHARED_LIBS=1 -DROS_PACKAGE_NAME=\\\"so3_control\\\" -I/usr/include/eigen3 -I/workspace/YOPO/Controller/src/so3_control/include -I/workspace/YOPO/Controller/devel/include -I/opt/ros/noetic/include -I/opt/ros/noetic/share/xmlrpcpp/cmake/../../../include/xmlrpcpp -std=c++11 -O3 -Wall -g -o CMakeFiles/control_example.dir/src/control_example.cpp.o -c /workspace/YOPO/Controller/src/so3_control/src/control_example.cpp",
+    "file": "/workspace/YOPO/Controller/src/so3_control/src/control_example.cpp",
+    "output": "so3_control/CMakeFiles/control_example.dir/src/control_example.cpp.o"
+  },
+  {
+    "directory": "/workspace/YOPO/Controller/build/so3_control",
+    "command": "/usr/bin/c++ -DROSCONSOLE_BACKEND_LOG4CXX -DROS_BUILD_SHARED_LIBS=1 -DROS_PACKAGE_NAME=\\\"so3_control\\\" -I/usr/include/eigen3 -I/workspace/YOPO/Controller/src/so3_control/include -I/workspace/YOPO/Controller/devel/include -I/opt/ros/noetic/include -I/opt/ros/noetic/share/xmlrpcpp/cmake/../../../include/xmlrpcpp -std=c++11 -O3 -Wall -g -o CMakeFiles/network_control_node.dir/src/NetworkControl.cpp.o -c /workspace/YOPO/Controller/src/so3_control/src/NetworkControl.cpp",
+    "file": "/workspace/YOPO/Controller/src/so3_control/src/NetworkControl.cpp",
+    "output": "so3_control/CMakeFiles/network_control_node.dir/src/NetworkControl.cpp.o"
+  },
+  {
+    "directory": "/workspace/YOPO/Controller/build/so3_control",
+    "command": "/usr/bin/c++ -DROSCONSOLE_BACKEND_LOG4CXX -DROS_BUILD_SHARED_LIBS=1 -DROS_PACKAGE_NAME=\\\"so3_control\\\" -I/usr/include/eigen3 -I/workspace/YOPO/Controller/src/so3_control/include -I/workspace/YOPO/Controller/devel/include -I/opt/ros/noetic/include -I/opt/ros/noetic/share/xmlrpcpp/cmake/../../../include/xmlrpcpp -std=c++11 -O3 -Wall -g -o CMakeFiles/network_control_node.dir/src/network_control_node.cpp.o -c /workspace/YOPO/Controller/src/so3_control/src/network_control_node.cpp",
+    "file": "/workspace/YOPO/Controller/src/so3_control/src/network_control_node.cpp",
+    "output": "so3_control/CMakeFiles/network_control_node.dir/src/network_control_node.cpp.o"
+  },
+  {
+    "directory": "/workspace/YOPO/Controller/build/utils/uav_utils",
+    "command": "/usr/bin/c++ -DROSCONSOLE_BACKEND_LOG4CXX -DROS_BUILD_SHARED_LIBS=1 -DROS_PACKAGE_NAME=\\\"uav_utils\\\" -I/workspace/YOPO/Controller/src/utils/uav_utils/include -I/usr/include/eigen3 -I/opt/ros/noetic/include -I/opt/ros/noetic/share/xmlrpcpp/cmake/../../../include/xmlrpcpp -isystem /usr/src/googletest/googletest/include -isystem /usr/src/googletest/googletest  -std=c++11 -Wall -O3 -g -O3 -DNDEBUG -DGTEST_HAS_PTHREAD=1 -o CMakeFiles/uav_utils-test.dir/src/uav_utils_test.cpp.o -c /workspace/YOPO/Controller/src/utils/uav_utils/src/uav_utils_test.cpp",
+    "file": "/workspace/YOPO/Controller/src/utils/uav_utils/src/uav_utils_test.cpp",
+    "output": "utils/uav_utils/CMakeFiles/uav_utils-test.dir/src/uav_utils_test.cpp.o"
+  },
+  {
+    "directory": "/workspace/YOPO/Controller/build/so3_quadrotor_simulator",
+    "command": "/usr/bin/c++ -DROSCONSOLE_BACKEND_LOG4CXX -DROS_BUILD_SHARED_LIBS=1 -DROS_PACKAGE_NAME=\\\"so3_quadrotor_simulator\\\" -Dquadrotor_dynamics_EXPORTS -I/usr/include/eigen3 -I/workspace/YOPO/Controller/src/so3_quadrotor_simulator/include/ode -I/workspace/YOPO/Controller/src/so3_quadrotor_simulator/include -I/workspace/YOPO/Controller/devel/include -I/workspace/YOPO/Controller/src/utils/uav_utils/include -I/opt/ros/noetic/include -I/opt/ros/noetic/share/xmlrpcpp/cmake/../../../include/xmlrpcpp -std=c++11 -O3 -Wall -g -fPIC -std=c++11 -o CMakeFiles/quadrotor_dynamics.dir/src/dynamics/Quadrotor.cpp.o -c /workspace/YOPO/Controller/src/so3_quadrotor_simulator/src/dynamics/Quadrotor.cpp",
+    "file": "/workspace/YOPO/Controller/src/so3_quadrotor_simulator/src/dynamics/Quadrotor.cpp",
+    "output": "so3_quadrotor_simulator/CMakeFiles/quadrotor_dynamics.dir/src/dynamics/Quadrotor.cpp.o"
+  },
+  {
+    "directory": "/workspace/YOPO/Controller/build/so3_quadrotor_simulator",
+    "command": "/usr/bin/c++ -DROSCONSOLE_BACKEND_LOG4CXX -DROS_BUILD_SHARED_LIBS=1 -DROS_PACKAGE_NAME=\\\"so3_quadrotor_simulator\\\" -I/usr/include/eigen3 -I/workspace/YOPO/Controller/src/so3_quadrotor_simulator/include/ode -I/workspace/YOPO/Controller/src/so3_quadrotor_simulator/include -I/workspace/YOPO/Controller/devel/include -I/workspace/YOPO/Controller/src/utils/uav_utils/include -I/opt/ros/noetic/include -I/opt/ros/noetic/share/xmlrpcpp/cmake/../../../include/xmlrpcpp -std=c++11 -O3 -Wall -g -std=c++11 -o CMakeFiles/quadrotor_simulator_so3.dir/src/quadrotor_simulator_so3.cpp.o -c /workspace/YOPO/Controller/src/so3_quadrotor_simulator/src/quadrotor_simulator_so3.cpp",
+    "file": "/workspace/YOPO/Controller/src/so3_quadrotor_simulator/src/quadrotor_simulator_so3.cpp",
+    "output": "so3_quadrotor_simulator/CMakeFiles/quadrotor_simulator_so3.dir/src/quadrotor_simulator_so3.cpp.o"
+  },
+  {
+    "directory": "/workspace/YOPO/Simulator/build",
+    "command": "/usr/bin/c++ -DCONFIG_FILE_PATH=\\\"/workspace/YOPO/Simulator/src/config/config.yaml\\\" -DDISABLE_LIBUSB_1_0 -DDISABLE_PCAP -DDISABLE_PNG -DROSCONSOLE_BACKEND_LOG4CXX -DROS_BUILD_SHARED_LIBS=1 -DROS_PACKAGE_NAME=\\\"sensor_simulator\\\" -Dqh_QHpointer -DvtkRenderingContext2D_AUTOINIT=\"1(vtkRenderingContextOpenGL2)\" -DvtkRenderingCore_AUTOINIT=\"3(vtkInteractionStyle,vtkRenderingFreeType,vtkRenderingOpenGL2)\" -I/workspace/YOPO/Simulator/src/include -I/opt/ros/noetic/include -I/opt/ros/noetic/share/xmlrpcpp/cmake/../../../include/xmlrpcpp -I/usr/local/cuda/include -isystem /usr/include/vtk-7.1 -isystem /usr/include/freetype2 -isystem /usr/include/opencv4 -isystem /usr/include/eigen3 -isystem /usr/include/pcl-1.10 -isystem /usr/include/ni -isystem /usr/include/openni2 -O3 -O3 -DNDEBUG -std=gnu++17 -fopenmp -o CMakeFiles/sensor_simulator.dir/src/test_simulator.cpp.o -c /workspace/YOPO/Simulator/src/src/test_simulator.cpp",
+    "file": "/workspace/YOPO/Simulator/src/src/test_simulator.cpp",
+    "output": "CMakeFiles/sensor_simulator.dir/src/test_simulator.cpp.o"
+  },
+  {
+    "directory": "/workspace/YOPO/Simulator/build",
+    "command": "/usr/bin/c++ -DCONFIG_FILE_PATH=\\\"/workspace/YOPO/Simulator/src/config/config.yaml\\\" -DDISABLE_LIBUSB_1_0 -DDISABLE_PCAP -DDISABLE_PNG -DROSCONSOLE_BACKEND_LOG4CXX -DROS_BUILD_SHARED_LIBS=1 -DROS_PACKAGE_NAME=\\\"sensor_simulator\\\" -Dqh_QHpointer -DvtkRenderingContext2D_AUTOINIT=\"1(vtkRenderingContextOpenGL2)\" -DvtkRenderingCore_AUTOINIT=\"3(vtkInteractionStyle,vtkRenderingFreeType,vtkRenderingOpenGL2)\" -I/workspace/YOPO/Simulator/src/include -I/opt/ros/noetic/include -I/opt/ros/noetic/share/xmlrpcpp/cmake/../../../include/xmlrpcpp -I/usr/local/cuda/include -isystem /usr/include/vtk-7.1 -isystem /usr/include/freetype2 -isystem /usr/include/opencv4 -isystem /usr/include/eigen3 -isystem /usr/include/pcl-1.10 -isystem /usr/include/ni -isystem /usr/include/openni2 -O3 -O3 -DNDEBUG -std=gnu++17 -fopenmp -o CMakeFiles/sensor_simulator.dir/src/sensor_simulator.cpp.o -c /workspace/YOPO/Simulator/src/src/sensor_simulator.cpp",
+    "file": "/workspace/YOPO/Simulator/src/src/sensor_simulator.cpp",
+    "output": "CMakeFiles/sensor_simulator.dir/src/sensor_simulator.cpp.o"
+  },
+  {
+    "directory": "/workspace/YOPO/Simulator/build",
+    "command": "/usr/bin/c++ -DCONFIG_FILE_PATH=\\\"/workspace/YOPO/Simulator/src/config/config.yaml\\\" -DDISABLE_LIBUSB_1_0 -DDISABLE_PCAP -DDISABLE_PNG -DROSCONSOLE_BACKEND_LOG4CXX -DROS_BUILD_SHARED_LIBS=1 -DROS_PACKAGE_NAME=\\\"sensor_simulator\\\" -Dqh_QHpointer -DvtkRenderingContext2D_AUTOINIT=\"1(vtkRenderingContextOpenGL2)\" -DvtkRenderingCore_AUTOINIT=\"3(vtkInteractionStyle,vtkRenderingFreeType,vtkRenderingOpenGL2)\" -I/workspace/YOPO/Simulator/src/include -I/opt/ros/noetic/include -I/opt/ros/noetic/share/xmlrpcpp/cmake/../../../include/xmlrpcpp -I/usr/local/cuda/include -isystem /usr/include/vtk-7.1 -isystem /usr/include/freetype2 -isystem /usr/include/opencv4 -isystem /usr/include/eigen3 -isystem /usr/include/pcl-1.10 -isystem /usr/include/ni -isystem /usr/include/openni2 -O3 -O3 -DNDEBUG -std=gnu++17 -fopenmp -o CMakeFiles/sensor_simulator.dir/src/maps.cpp.o -c /workspace/YOPO/Simulator/src/src/maps.cpp",
+    "file": "/workspace/YOPO/Simulator/src/src/maps.cpp",
+    "output": "CMakeFiles/sensor_simulator.dir/src/maps.cpp.o"
+  },
+  {
+    "directory": "/workspace/YOPO/Simulator/build",
+    "command": "/usr/bin/c++ -DCONFIG_FILE_PATH=\\\"/workspace/YOPO/Simulator/src/config/config.yaml\\\" -DDISABLE_LIBUSB_1_0 -DDISABLE_PCAP -DDISABLE_PNG -DROSCONSOLE_BACKEND_LOG4CXX -DROS_BUILD_SHARED_LIBS=1 -DROS_PACKAGE_NAME=\\\"sensor_simulator\\\" -Dqh_QHpointer -DvtkRenderingContext2D_AUTOINIT=\"1(vtkRenderingContextOpenGL2)\" -DvtkRenderingCore_AUTOINIT=\"3(vtkInteractionStyle,vtkRenderingFreeType,vtkRenderingOpenGL2)\" -I/workspace/YOPO/Simulator/src/include -I/opt/ros/noetic/include -I/opt/ros/noetic/share/xmlrpcpp/cmake/../../../include/xmlrpcpp -I/usr/local/cuda/include -isystem /usr/include/vtk-7.1 -isystem /usr/include/freetype2 -isystem /usr/include/opencv4 -isystem /usr/include/eigen3 -isystem /usr/include/pcl-1.10 -isystem /usr/include/ni -isystem /usr/include/openni2 -O3 -O3 -DNDEBUG -std=gnu++17 -fopenmp -o CMakeFiles/sensor_simulator.dir/src/perlinnoise.cpp.o -c /workspace/YOPO/Simulator/src/src/perlinnoise.cpp",
+    "file": "/workspace/YOPO/Simulator/src/src/perlinnoise.cpp",
+    "output": "CMakeFiles/sensor_simulator.dir/src/perlinnoise.cpp.o"
+  },
+  {
+    "directory": "/workspace/YOPO/Simulator/build",
+    "command": "/usr/bin/c++ -DCONFIG_FILE_PATH=\\\"/workspace/YOPO/Simulator/src/config/config.yaml\\\" -DDISABLE_LIBUSB_1_0 -DDISABLE_PCAP -DDISABLE_PNG -DROSCONSOLE_BACKEND_LOG4CXX -DROS_BUILD_SHARED_LIBS=1 -DROS_PACKAGE_NAME=\\\"sensor_simulator\\\" -Dqh_QHpointer -DvtkRenderingContext2D_AUTOINIT=\"1(vtkRenderingContextOpenGL2)\" -DvtkRenderingCore_AUTOINIT=\"3(vtkInteractionStyle,vtkRenderingFreeType,vtkRenderingOpenGL2)\" -I/workspace/YOPO/Simulator/src/include -I/opt/ros/noetic/include -I/opt/ros/noetic/share/xmlrpcpp/cmake/../../../include/xmlrpcpp -I/usr/local/cuda/include -isystem /usr/include/vtk-7.1 -isystem /usr/include/freetype2 -isystem /usr/include/opencv4 -isystem /usr/include/eigen3 -isystem /usr/include/pcl-1.10 -isystem /usr/include/ni -isystem /usr/include/openni2 -O3 -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/sensor_simulator_cuda.dir/src/test_simulator_cuda.cpp.o -c /workspace/YOPO/Simulator/src/src/test_simulator_cuda.cpp",
+    "file": "/workspace/YOPO/Simulator/src/src/test_simulator_cuda.cpp",
+    "output": "CMakeFiles/sensor_simulator_cuda.dir/src/test_simulator_cuda.cpp.o"
+  },
+  {
+    "directory": "/workspace/YOPO/Simulator/build",
+    "command": "/usr/bin/c++ -DCONFIG_FILE_PATH=\\\"/workspace/YOPO/Simulator/src/config/config.yaml\\\" -DDISABLE_LIBUSB_1_0 -DDISABLE_PCAP -DDISABLE_PNG -DROSCONSOLE_BACKEND_LOG4CXX -DROS_BUILD_SHARED_LIBS=1 -DROS_PACKAGE_NAME=\\\"sensor_simulator\\\" -Dqh_QHpointer -DvtkRenderingContext2D_AUTOINIT=\"1(vtkRenderingContextOpenGL2)\" -DvtkRenderingCore_AUTOINIT=\"3(vtkInteractionStyle,vtkRenderingFreeType,vtkRenderingOpenGL2)\" -I/workspace/YOPO/Simulator/src/include -I/opt/ros/noetic/include -I/opt/ros/noetic/share/xmlrpcpp/cmake/../../../include/xmlrpcpp -I/usr/local/cuda/include -isystem /usr/include/vtk-7.1 -isystem /usr/include/freetype2 -isystem /usr/include/opencv4 -isystem /usr/include/eigen3 -isystem /usr/include/pcl-1.10 -isystem /usr/include/ni -isystem /usr/include/openni2 -O3 -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/sensor_simulator_cuda.dir/src/maps.cpp.o -c /workspace/YOPO/Simulator/src/src/maps.cpp",
+    "file": "/workspace/YOPO/Simulator/src/src/maps.cpp",
+    "output": "CMakeFiles/sensor_simulator_cuda.dir/src/maps.cpp.o"
+  },
+  {
+    "directory": "/workspace/YOPO/Simulator/build",
+    "command": "/usr/bin/c++ -DCONFIG_FILE_PATH=\\\"/workspace/YOPO/Simulator/src/config/config.yaml\\\" -DDISABLE_LIBUSB_1_0 -DDISABLE_PCAP -DDISABLE_PNG -DROSCONSOLE_BACKEND_LOG4CXX -DROS_BUILD_SHARED_LIBS=1 -DROS_PACKAGE_NAME=\\\"sensor_simulator\\\" -Dqh_QHpointer -DvtkRenderingContext2D_AUTOINIT=\"1(vtkRenderingContextOpenGL2)\" -DvtkRenderingCore_AUTOINIT=\"3(vtkInteractionStyle,vtkRenderingFreeType,vtkRenderingOpenGL2)\" -I/workspace/YOPO/Simulator/src/include -I/opt/ros/noetic/include -I/opt/ros/noetic/share/xmlrpcpp/cmake/../../../include/xmlrpcpp -I/usr/local/cuda/include -isystem /usr/include/vtk-7.1 -isystem /usr/include/freetype2 -isystem /usr/include/opencv4 -isystem /usr/include/eigen3 -isystem /usr/include/pcl-1.10 -isystem /usr/include/ni -isystem /usr/include/openni2 -O3 -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/sensor_simulator_cuda.dir/src/perlinnoise.cpp.o -c /workspace/YOPO/Simulator/src/src/perlinnoise.cpp",
+    "file": "/workspace/YOPO/Simulator/src/src/perlinnoise.cpp",
+    "output": "CMakeFiles/sensor_simulator_cuda.dir/src/perlinnoise.cpp.o"
+  },
+  {
+    "directory": "/workspace/YOPO/Simulator/build",
+    "command": "/usr/bin/c++ -DCONFIG_FILE_PATH=\\\"/workspace/YOPO/Simulator/src/config/config.yaml\\\" -DDISABLE_LIBUSB_1_0 -DDISABLE_PCAP -DDISABLE_PNG -DROSCONSOLE_BACKEND_LOG4CXX -DROS_BUILD_SHARED_LIBS=1 -DROS_PACKAGE_NAME=\\\"sensor_simulator\\\" -Dqh_QHpointer -DvtkRenderingContext2D_AUTOINIT=\"1(vtkRenderingContextOpenGL2)\" -DvtkRenderingCore_AUTOINIT=\"3(vtkInteractionStyle,vtkRenderingFreeType,vtkRenderingOpenGL2)\" -I/workspace/YOPO/Simulator/src/include -I/opt/ros/noetic/include -I/opt/ros/noetic/share/xmlrpcpp/cmake/../../../include/xmlrpcpp -I/usr/local/cuda/include -isystem /usr/include/vtk-7.1 -isystem /usr/include/freetype2 -isystem /usr/include/opencv4 -isystem /usr/include/eigen3 -isystem /usr/include/pcl-1.10 -isystem /usr/include/ni -isystem /usr/include/openni2 -O3 -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/dataset_generator.dir/src/dataset_generator.cpp.o -c /workspace/YOPO/Simulator/src/src/dataset_generator.cpp",
+    "file": "/workspace/YOPO/Simulator/src/src/dataset_generator.cpp",
+    "output": "CMakeFiles/dataset_generator.dir/src/dataset_generator.cpp.o"
+  },
+  {
+    "directory": "/workspace/YOPO/Simulator/build",
+    "command": "/usr/bin/c++ -DCONFIG_FILE_PATH=\\\"/workspace/YOPO/Simulator/src/config/config.yaml\\\" -DDISABLE_LIBUSB_1_0 -DDISABLE_PCAP -DDISABLE_PNG -DROSCONSOLE_BACKEND_LOG4CXX -DROS_BUILD_SHARED_LIBS=1 -DROS_PACKAGE_NAME=\\\"sensor_simulator\\\" -Dqh_QHpointer -DvtkRenderingContext2D_AUTOINIT=\"1(vtkRenderingContextOpenGL2)\" -DvtkRenderingCore_AUTOINIT=\"3(vtkInteractionStyle,vtkRenderingFreeType,vtkRenderingOpenGL2)\" -I/workspace/YOPO/Simulator/src/include -I/opt/ros/noetic/include -I/opt/ros/noetic/share/xmlrpcpp/cmake/../../../include/xmlrpcpp -I/usr/local/cuda/include -isystem /usr/include/vtk-7.1 -isystem /usr/include/freetype2 -isystem /usr/include/opencv4 -isystem /usr/include/eigen3 -isystem /usr/include/pcl-1.10 -isystem /usr/include/ni -isystem /usr/include/openni2 -O3 -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/dataset_generator.dir/src/maps.cpp.o -c /workspace/YOPO/Simulator/src/src/maps.cpp",
+    "file": "/workspace/YOPO/Simulator/src/src/maps.cpp",
+    "output": "CMakeFiles/dataset_generator.dir/src/maps.cpp.o"
+  },
+  {
+    "directory": "/workspace/YOPO/Simulator/build",
+    "command": "/usr/bin/c++ -DCONFIG_FILE_PATH=\\\"/workspace/YOPO/Simulator/src/config/config.yaml\\\" -DDISABLE_LIBUSB_1_0 -DDISABLE_PCAP -DDISABLE_PNG -DROSCONSOLE_BACKEND_LOG4CXX -DROS_BUILD_SHARED_LIBS=1 -DROS_PACKAGE_NAME=\\\"sensor_simulator\\\" -Dqh_QHpointer -DvtkRenderingContext2D_AUTOINIT=\"1(vtkRenderingContextOpenGL2)\" -DvtkRenderingCore_AUTOINIT=\"3(vtkInteractionStyle,vtkRenderingFreeType,vtkRenderingOpenGL2)\" -I/workspace/YOPO/Simulator/src/include -I/opt/ros/noetic/include -I/opt/ros/noetic/share/xmlrpcpp/cmake/../../../include/xmlrpcpp -I/usr/local/cuda/include -isystem /usr/include/vtk-7.1 -isystem /usr/include/freetype2 -isystem /usr/include/opencv4 -isystem /usr/include/eigen3 -isystem /usr/include/pcl-1.10 -isystem /usr/include/ni -isystem /usr/include/openni2 -O3 -O3 -DNDEBUG -std=gnu++17 -o CMakeFiles/dataset_generator.dir/src/perlinnoise.cpp.o -c /workspace/YOPO/Simulator/src/src/perlinnoise.cpp",
+    "file": "/workspace/YOPO/Simulator/src/src/perlinnoise.cpp",
+    "output": "CMakeFiles/dataset_generator.dir/src/perlinnoise.cpp.o"
+  },
+  {
+    "directory": "/workspace/YOPO/Simulator/build/gtest/googlemock",
+    "command": "/usr/bin/c++ -DGTEST_CREATE_SHARED_LIBRARY=1 -Dgmock_EXPORTS -I/usr/src/googletest/googlemock/include -I/usr/src/googletest/googlemock -isystem /usr/src/googletest/googletest/include -isystem /usr/src/googletest/googletest -O3 -DNDEBUG -std=c++11 -fPIC -Wall -Wshadow -Wno-error=dangling-else -DGTEST_HAS_PTHREAD=1 -fexceptions -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -DGTEST_HAS_PTHREAD=1 -o CMakeFiles/gmock.dir/src/gmock-all.cc.o -c /usr/src/googletest/googlemock/src/gmock-all.cc",
+    "file": "/usr/src/googletest/googlemock/src/gmock-all.cc",
+    "output": "gtest/googlemock/CMakeFiles/gmock.dir/src/gmock-all.cc.o"
+  },
+  {
+    "directory": "/workspace/YOPO/Simulator/build/gtest/googlemock",
+    "command": "/usr/bin/c++ -DGTEST_CREATE_SHARED_LIBRARY=1 -Dgmock_main_EXPORTS -isystem /usr/src/googletest/googlemock/include -isystem /usr/src/googletest/googlemock -isystem /usr/src/googletest/googletest/include -isystem /usr/src/googletest/googletest -O3 -DNDEBUG -std=c++11 -fPIC -Wall -Wshadow -Wno-error=dangling-else -DGTEST_HAS_PTHREAD=1 -fexceptions -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -DGTEST_HAS_PTHREAD=1 -o CMakeFiles/gmock_main.dir/src/gmock_main.cc.o -c /usr/src/googletest/googlemock/src/gmock_main.cc",
+    "file": "/usr/src/googletest/googlemock/src/gmock_main.cc",
+    "output": "gtest/googlemock/CMakeFiles/gmock_main.dir/src/gmock_main.cc.o"
+  },
+  {
+    "directory": "/workspace/YOPO/Simulator/build/gtest/googletest",
+    "command": "/usr/bin/c++ -DGTEST_CREATE_SHARED_LIBRARY=1 -Dgtest_EXPORTS -I/usr/src/googletest/googletest/include -I/usr/src/googletest/googletest -O3 -DNDEBUG -std=c++11 -fPIC -Wall -Wshadow -Wno-error=dangling-else -DGTEST_HAS_PTHREAD=1 -fexceptions -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -o CMakeFiles/gtest.dir/src/gtest-all.cc.o -c /usr/src/googletest/googletest/src/gtest-all.cc",
+    "file": "/usr/src/googletest/googletest/src/gtest-all.cc",
+    "output": "gtest/googletest/CMakeFiles/gtest.dir/src/gtest-all.cc.o"
+  },
+  {
+    "directory": "/workspace/YOPO/Simulator/build/gtest/googletest",
+    "command": "/usr/bin/c++ -DGTEST_CREATE_SHARED_LIBRARY=1 -Dgtest_main_EXPORTS -isystem /usr/src/googletest/googletest/include -isystem /usr/src/googletest/googletest -O3 -DNDEBUG -std=c++11 -fPIC -Wall -Wshadow -Wno-error=dangling-else -DGTEST_HAS_PTHREAD=1 -fexceptions -Wextra -Wno-unused-parameter -Wno-missing-field-initializers -DGTEST_HAS_PTHREAD=1 -o CMakeFiles/gtest_main.dir/src/gtest_main.cc.o -c /usr/src/googletest/googletest/src/gtest_main.cc",
+    "file": "/usr/src/googletest/googletest/src/gtest_main.cc",
+    "output": "gtest/googletest/CMakeFiles/gtest_main.dir/src/gtest_main.cc.o"
+  }
+]

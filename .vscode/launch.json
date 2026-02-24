@@ -1,0 +1,80 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "YOPO: Debug test_yopo_ros.py",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/YOPO/test_yopo_ros.py",
+      "cwd": "${workspaceFolder}/YOPO",
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "envFile": "${workspaceFolder}/.vscode/.env",
+      "args": [
+        "--trial",
+        "${input:trialId}",
+        "--epoch",
+        "${input:epochId}"
+      ]
+    },
+    {
+      "name": "YOPO: Debug train_yopo.py",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/YOPO/train_yopo.py",
+      "cwd": "${workspaceFolder}/YOPO",
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "envFile": "${workspaceFolder}/.vscode/.env",
+      "args": [
+        "--train_epochs",
+        "${input:trainEpochs}",
+        "--save_interval",
+        "${input:saveInterval}",
+        "--lr",
+        "${input:trainLr}"
+      ]
+    },
+    {
+      "name": "Python: Current File",
+      "type": "python",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "envFile": "${workspaceFolder}/.vscode/.env"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "trialId",
+      "type": "promptString",
+      "description": "Model trial id",
+      "default": "0"
+    },
+    {
+      "id": "epochId",
+      "type": "promptString",
+      "description": "Model epoch id",
+      "default": "50"
+    },
+    {
+      "id": "trainEpochs",
+      "type": "promptString",
+      "description": "Training epochs",
+      "default": "100"
+    },
+    {
+      "id": "saveInterval",
+      "type": "promptString",
+      "description": "Checkpoint interval",
+      "default": "50"
+    },
+    {
+      "id": "trainLr",
+      "type": "promptString",
+      "description": "Learning rate",
+      "default": "1e-4"
+    }
+  ]
+}
