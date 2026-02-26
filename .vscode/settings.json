@@ -29,5 +29,9 @@
     "*.cu": "cuda-cpp"
   },
   "ros.distro": "noetic",
-  "terminal.integrated.defaultProfile.linux": "bash"
+  "terminal.integrated.defaultProfile.linux": "bash",
+  "ROS2.distro": "jazzy",
+  "python.autoComplete.extraPaths": [
+    "/opt/ros/jazzy/lib/python3.12/site-packages"
+  ]
 }
