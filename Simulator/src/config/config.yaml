@@ -8,7 +8,7 @@ depth_fps: 50          # odom 100hz, depth 50hz, 高频深度更适合高速飞�
 
 render_lidar: true
 lidar_fps: 15
-collision_count_min_z: 3.0 # 低于该高度不计碰撞，过滤起飞前/地面阶段的无效累计
+collision_count_min_z: 1.0 # 低于该高度不计碰撞，过滤起飞前/地面阶段的无效累计
 
 # 2. 仿真环境参数 =============================================================
 random_map: true       # 使用预先建立的点云地图还是随机地图

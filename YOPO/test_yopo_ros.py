@@ -1,10 +1,12 @@
 import rospy
 import std_msgs.msg
+from std_msgs.msg import Int32
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import PoseStamped
 from threading import Lock
 from sensor_msgs.msg import PointCloud2, PointField, Image
 from sensor_msgs import point_cloud2
+from visualization_msgs.msg import Marker
 
 import cv2
 import os
@@ -59,6 +61,12 @@ class YopoNet:
         self.optimal_poly_z = None
         self.lock = Lock()
         self.last_control_msg = None
+        self.current_speed = 0.0
+        self.collision_counter_total = 0
+        self.body_pitch_deg = 0.0
+        self.body_roll_deg = 0.0
+        self.camera_pitch_world_deg = 0.0
+        self.goal_dist = np.inf
         self.state_transform = StateTransform()
         self.lattice_primitive = LatticePrimitive.get_instance()
         self.traj_time = self.lattice_primitive.segment_time
@@ -88,14 +96,17 @@ class YopoNet:
         self.lattice_traj_pub = rospy.Publisher("/yopo_net/lattice_trajs_visual", PointCloud2, queue_size=1)
         self.best_traj_pub = rospy.Publisher("/yopo_net/best_traj_visual", PointCloud2, queue_size=1)
         self.all_trajs_pub = rospy.Publisher("/yopo_net/trajs_visual", PointCloud2, queue_size=1)
+        self.metrics_marker_pub = rospy.Publisher("/yopo/metrics_marker", Marker, queue_size=1)
         self.ctrl_pub = rospy.Publisher(self.config["ctrl_topic"], PositionCommand, queue_size=1)
         # ros subscriber
         self.odom_sub = rospy.Subscriber(self.config['odom_topic'], Odometry, self.callback_odometry, queue_size=1, tcp_nodelay=True)
         self.depth_sub = rospy.Subscriber(self.config['depth_topic'], Image, self.callback_depth, queue_size=1, tcp_nodelay=True)
+        self.collision_sub = rospy.Subscriber("/yopo/collision_counter_total", Int32, self.callback_collision_counter, queue_size=1, tcp_nodelay=True)
         self.goal_sub = rospy.Subscriber("/move_base_simple/goal", PoseStamped, self.callback_set_goal, queue_size=1)
         # ros timer
         rospy.sleep(1.0)  # wait connection...
         self.timer_ctrl = rospy.Timer(rospy.Duration(self.ctrl_dt), self.control_pub)
+        self.timer_metrics = rospy.Timer(rospy.Duration(0.1), self.publish_metrics_marker)
         print("YOPO Net Node Ready!")
         rospy.spin()
 
@@ -114,18 +125,62 @@ class YopoNet:
             ypr = R.from_quat([self.odom.pose.pose.orientation.x, self.odom.pose.pose.orientation.y,
                                self.odom.pose.pose.orientation.z, self.odom.pose.pose.orientation.w]).as_euler('ZYX', degrees=False)
             self.last_yaw = ypr[0]
+            self.body_pitch_deg = float(np.degrees(ypr[1]))
+            self.body_roll_deg = float(np.degrees(ypr[2]))
         self.odom_init = True
 
+        ypr = R.from_quat([self.odom.pose.pose.orientation.x, self.odom.pose.pose.orientation.y,
+                           self.odom.pose.pose.orientation.z, self.odom.pose.pose.orientation.w]).as_euler('ZYX', degrees=False)
+        self.body_pitch_deg = float(np.degrees(ypr[1]))
+        self.body_roll_deg = float(np.degrees(ypr[2]))
+        vel = data.twist.twist.linear
+        self.current_speed = float(np.sqrt(vel.x ** 2 + vel.y ** 2 + vel.z ** 2))
+
         pos = np.array((self.odom.pose.pose.position.x, self.odom.pose.pose.position.y, self.odom.pose.pose.position.z))
-        if np.linalg.norm(pos - self.goal) < 5 and not self.arrive:
+        self.goal_dist = float(np.linalg.norm(pos - self.goal))
+        if self.goal_dist < 5 and not self.arrive:
             print("Arrive!")
             self.arrive = True
+
+    def callback_collision_counter(self, msg):
+        self.collision_counter_total = int(msg.data)
+
+    def publish_metrics_marker(self, _timer):
+        if not self.odom_init:
+            return
+
+        marker = Marker()
+        marker.header.stamp = rospy.Time.now()
+        marker.header.frame_id = "world"
+        marker.ns = "metrics"
+        marker.id = 0
+        marker.type = Marker.TEXT_VIEW_FACING
+        marker.action = Marker.ADD
+        marker.pose.position.x = self.odom.pose.pose.position.x
+        marker.pose.position.y = self.odom.pose.pose.position.y
+        marker.pose.position.z = self.odom.pose.pose.position.z + 6.0
+        marker.pose.orientation.w = 1.0
+        marker.scale.z = 4.0
+        marker.color.r = 0.0
+        marker.color.g = 0.0
+        marker.color.b = 0.0
+        marker.color.a = 1.0
+        marker.lifetime = rospy.Duration(0.2)
+        marker.text = (f"speed: {self.current_speed:.1f} m/s\n"
+                       f"goal_mode: {'hold' if self.arrive else 'nav'}\n"
+                       f"body pitch/roll: {self.body_pitch_deg:.1f}/{self.body_roll_deg:.1f} deg\n"
+                       f"cam pitch(world): {self.camera_pitch_world_deg:.1f} deg\n"
+                       f"goal_dist: {self.goal_dist:.1f} m\n"
+                       f"collision_total: {self.collision_counter_total}")
+        self.metrics_marker_pub.publish(marker)
 
     def process_odom(self):
         # Rwb -> Rwc -> Rcw
         Rotation_wb = R.from_quat([self.odom.pose.pose.orientation.x, self.odom.pose.pose.orientation.y,
                                    self.odom.pose.pose.orientation.z, self.odom.pose.pose.orientation.w]).as_matrix()
         self.Rotation_wc = np.dot(Rotation_wb, self.Rotation_bc)
+        ypr_wc = R.from_matrix(self.Rotation_wc).as_euler('ZYX', degrees=True)
+        self.camera_pitch_world_deg = float(ypr_wc[1])
         Rotation_cw = self.Rotation_wc.T
 
         # vel and acc
