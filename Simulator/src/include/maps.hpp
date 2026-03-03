@@ -19,6 +19,15 @@ namespace mocka {
 
 class Maps {
 public:
+  struct CityBlock {
+    float x_min;
+    float x_max;
+    float y_min;
+    float y_max;
+    float z_min;
+    float z_max;
+  };
+
   typedef struct BasicInfo {
     int sizeX;
     int sizeY;
@@ -33,9 +42,12 @@ public:
   void setParam(const YAML::Node& config);
   Maps() {}
   void generate(int type);
+  bool isInsideCityBlock(const Eigen::Vector3f& pos, double margin = 0.0) const;
+  int getCityBlockCount() const;
 
 private:
   BasicInfo info;
+  std::vector<CityBlock> city_blocks_;
   // perlin3D
   double complexity;
   double fill;
@@ -61,6 +73,26 @@ private:
   double _wall_thick;
   int    _wall_num;
   int    _wall_ceiling;
+  // city (buildings)
+  double city_block_spacing;
+  double city_block_jitter;
+  double city_block_w_l, city_block_w_h;
+  double city_block_l_l, city_block_l_h;
+  double city_block_h_l, city_block_h_h;
+  double city_block_occupancy;
+  double city_street_l, city_street_h;
+  double city_surface_res;
+  double city_ground_res;
+  // extra scattered obstacles in streets
+  int    city_extra_obs_num;
+  double city_extra_w_l, city_extra_w_h;
+  double city_extra_l_l, city_extra_l_h;
+  double city_extra_h_l, city_extra_h_h;
+  int    city_add_ground;
+  // keep a free zone around the simulator spawn point to avoid immediate collisions
+  double city_spawn_clear_radius;
+  double city_spawn_clear_x;
+  double city_spawn_clear_y;
 
   std::uniform_real_distribution<double> dis_window_x, dis_window_z, dis_window_size;
   std::default_random_engine window_eng;
@@ -80,6 +112,7 @@ private:
   pcl::PointCloud<pcl::PointXYZ>::Ptr generateGround(const pcl::PointCloud<pcl::PointXYZ>::Ptr &forest_cloud, float grid_size, float hight = 0.0);
 
   void room();
+  void cityBlocks();
   void transformPointCloud(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud, pcl::PointCloud<pcl::PointXYZ>::Ptr transformed_cloud,
                            const Eigen::Matrix3f &rotation, const Eigen::Vector3f &translation);
   void generateWallWithWindows(pcl::PointCloud<pcl::PointXYZ>::Ptr wall, float L, float W, float H, int num_windows);

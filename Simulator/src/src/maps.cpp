@@ -734,6 +734,28 @@ Maps::setInfo(const BasicInfo& value)
   info = value;
 }
 
+bool
+Maps::isInsideCityBlock(const Eigen::Vector3f& pos, double margin) const
+{
+  const float m = static_cast<float>(std::max(0.0, margin));
+  for (const auto& b : city_blocks_)
+  {
+    if (pos.x() > b.x_min + m && pos.x() < b.x_max - m &&
+        pos.y() > b.y_min + m && pos.y() < b.y_max - m &&
+        pos.z() > b.z_min + m && pos.z() < b.z_max - m)
+    {
+      return true;
+    }
+  }
+  return false;
+}
+
+int
+Maps::getCityBlockCount() const
+{
+  return static_cast<int>(city_blocks_.size());
+}
+
 void
 Maps::setParam(const YAML::Node& config)
 {
@@ -765,12 +787,38 @@ Maps::setParam(const YAML::Node& config)
   _wall_thick = config["wall_thick"].as<double>();
   _wall_num = config["wall_number"].as<int>();
   _wall_ceiling = config["wall_ceiling"].as<int>();
+  // city blocks
+  city_block_spacing = config["city_block_spacing"] ? config["city_block_spacing"].as<double>() : 16.0;
+  city_block_jitter = config["city_block_jitter"] ? config["city_block_jitter"].as<double>() : 2.0;
+  city_block_w_l = config["city_block_width_min"] ? config["city_block_width_min"].as<double>() : 8.0;
+  city_block_w_h = config["city_block_width_max"] ? config["city_block_width_max"].as<double>() : 12.0;
+  city_block_l_l = config["city_block_length_min"] ? config["city_block_length_min"].as<double>() : 8.0;
+  city_block_l_h = config["city_block_length_max"] ? config["city_block_length_max"].as<double>() : 12.0;
+  city_block_h_l = config["city_block_height_min"] ? config["city_block_height_min"].as<double>() : 18.0;
+  city_block_h_h = config["city_block_height_max"] ? config["city_block_height_max"].as<double>() : 40.0;
+  city_block_occupancy = config["city_block_occupancy"] ? config["city_block_occupancy"].as<double>() : 0.5;
+  city_street_l = config["city_street_min"] ? config["city_street_min"].as<double>() : 6.0;
+  city_street_h = config["city_street_max"] ? config["city_street_max"].as<double>() : city_street_l;
+  city_surface_res = config["city_surface_resolution"] ? config["city_surface_resolution"].as<double>() : 0.0;
+  city_ground_res = config["city_ground_resolution"] ? config["city_ground_resolution"].as<double>() : 0.0;
+  city_extra_obs_num = config["city_extra_obstacle_num"] ? config["city_extra_obstacle_num"].as<int>() : 0;
+  city_extra_w_l = config["city_extra_width_min"] ? config["city_extra_width_min"].as<double>() : 3.0;
+  city_extra_w_h = config["city_extra_width_max"] ? config["city_extra_width_max"].as<double>() : 10.0;
+  city_extra_l_l = config["city_extra_length_min"] ? config["city_extra_length_min"].as<double>() : 3.0;
+  city_extra_l_h = config["city_extra_length_max"] ? config["city_extra_length_max"].as<double>() : 10.0;
+  city_extra_h_l = config["city_extra_height_min"] ? config["city_extra_height_min"].as<double>() : 3.0;
+  city_extra_h_h = config["city_extra_height_max"] ? config["city_extra_height_max"].as<double>() : 12.0;
+  city_add_ground = config["city_add_ground"] ? config["city_add_ground"].as<int>() : 1;
+  city_spawn_clear_radius = config["city_spawn_clear_radius"] ? config["city_spawn_clear_radius"].as<double>() : 0.0;
+  city_spawn_clear_x = config["city_spawn_clear_x"] ? config["city_spawn_clear_x"].as<double>() : 0.0;
+  city_spawn_clear_y = config["city_spawn_clear_y"] ? config["city_spawn_clear_y"].as<double>() : 0.0;
 }
 
 
 void
 Maps::generate(int type)
 {
+  city_blocks_.clear();
   switch (type)
   {
     default:
@@ -796,6 +844,9 @@ Maps::generate(int type)
       break;
     case 7:
       wall();
+      break;
+    case 8:
+      cityBlocks();
       break;
   }
 }
@@ -975,6 +1026,252 @@ Maps::Maze3DGen()
   info.cloud->height = 1;
   // printf("the number of points before optimization is %d", info.cloud->width);
   info.cloud->points.resize(info.cloud->width * info.cloud->height);
+}
+
+/* --------------------- My: City Blocks --------------------- */
+void Maps::cityBlocks()
+{
+  const double map_resolution = 1.0 / info.scale;
+  const double surface_res = std::max(city_surface_res > 0.0 ? city_surface_res : map_resolution, map_resolution);
+  const double ground_res = std::max(city_ground_res > 0.0 ? city_ground_res : surface_res, map_resolution);
+  const double x_l = -info.sizeX / (2.0 * info.scale);
+  const double x_h = info.sizeX / (2.0 * info.scale);
+  const double y_l = -info.sizeY / (2.0 * info.scale);
+  const double y_h = info.sizeY / (2.0 * info.scale);
+  const double z_h = info.sizeZ / info.scale;
+
+  std::default_random_engine eng(info.seed);
+
+  const double street_l = std::max(2.0 * surface_res, std::min(city_street_l, city_street_h));
+  const double street_h = std::max(street_l, std::max(city_street_l, city_street_h));
+  const double boundary_margin = std::max(surface_res, street_l);
+  const double occupancy = std::clamp(city_block_occupancy, 0.0, 1.0);
+  const double spawn_clear_r = std::max(0.0, city_spawn_clear_radius);
+
+  double w_l = std::max(2.0 * surface_res, std::min(city_block_w_l, city_block_w_h));
+  double w_h = std::max(w_l, std::max(city_block_w_l, city_block_w_h));
+  double l_l = std::max(2.0 * surface_res, std::min(city_block_l_l, city_block_l_h));
+  double l_h = std::max(l_l, std::max(city_block_l_l, city_block_l_h));
+  double h_l = std::max(2.0 * surface_res, std::min(city_block_h_l, city_block_h_h));
+  double h_h = std::max(h_l, std::max(city_block_h_l, city_block_h_h));
+  h_h = std::min(h_h, z_h - surface_res);
+  h_l = std::min(h_l, h_h);
+
+  std::uniform_real_distribution<double> rand_keep(0.0, 1.0);
+  std::uniform_real_distribution<double> rand_w(w_l, w_h);
+  std::uniform_real_distribution<double> rand_l(l_l, l_h);
+  std::uniform_real_distribution<double> rand_h(h_l, h_h);
+  std::uniform_real_distribution<double> rand_street(street_l, street_h);
+
+  auto addCuboid = [&](double x0, double x1, double y0, double y1, double h) -> bool {
+    const double z1 = std::min(h, z_h - surface_res);
+    if (x1 <= x0 || y1 <= y0 || z1 <= 0.0 ||
+        x0 < x_l + boundary_margin || x1 > x_h - boundary_margin ||
+        y0 < y_l + boundary_margin || y1 > y_h - boundary_margin)
+    {
+      return false;
+    }
+
+    city_blocks_.push_back({static_cast<float>(x0), static_cast<float>(x1),
+                            static_cast<float>(y0), static_cast<float>(y1),
+                            0.0f, static_cast<float>(z1)});
+
+    for (double y = y0; y <= y1 + 1e-6; y += surface_res)
+    {
+      for (double z = 0.0; z <= z1 + 1e-6; z += surface_res)
+      {
+        info.cloud->points.emplace_back(x0, y, z);
+        info.cloud->points.emplace_back(x1, y, z);
+      }
+    }
+    for (double x = x0; x <= x1 + 1e-6; x += surface_res)
+    {
+      for (double z = 0.0; z <= z1 + 1e-6; z += surface_res)
+      {
+        info.cloud->points.emplace_back(x, y0, z);
+        info.cloud->points.emplace_back(x, y1, z);
+      }
+    }
+    for (double x = x0; x <= x1 + 1e-6; x += surface_res)
+    {
+      for (double y = y0; y <= y1 + 1e-6; y += surface_res)
+      {
+        info.cloud->points.emplace_back(x, y, z1);
+      }
+    }
+    return true;
+  };
+
+  auto overlapWithCity = [&](double x0, double x1, double y0, double y1, double gap) {
+    for (const auto& b : city_blocks_)
+    {
+      const bool overlap_x = !(x1 + gap <= b.x_min || x0 - gap >= b.x_max);
+      const bool overlap_y = !(y1 + gap <= b.y_min || y0 - gap >= b.y_max);
+      if (overlap_x && overlap_y)
+        return true;
+    }
+    return false;
+  };
+
+  auto overlapSpawnClear = [&](double x0, double x1, double y0, double y1, double margin) {
+    if (spawn_clear_r <= 1e-6)
+      return false;
+
+    const double clear = spawn_clear_r + margin;
+    const double sx0 = city_spawn_clear_x - clear;
+    const double sx1 = city_spawn_clear_x + clear;
+    const double sy0 = city_spawn_clear_y - clear;
+    const double sy1 = city_spawn_clear_y + clear;
+    const bool overlap_x = !(x1 <= sx0 || x0 >= sx1);
+    const bool overlap_y = !(y1 <= sy0 || y0 >= sy1);
+    return overlap_x && overlap_y;
+  };
+
+  // Use the same candidate-center generator as forest (generatePoissonPoints),
+  // then sample each building size independently while enforcing no-overlap.
+  const double map_width = info.sizeX / info.scale;
+  const double map_height = info.sizeY / info.scale;
+  const double usable_width = std::max(2.0 * surface_res, map_width - 2.0 * boundary_margin);
+  const double usable_height = std::max(2.0 * surface_res, map_height - 2.0 * boundary_margin);
+  const double avg_w = 0.5 * (w_l + w_h);
+  const double avg_l = 0.5 * (l_l + l_h);
+  const double center_dist = std::max({
+      std::max(2.0 * surface_res, city_block_spacing),
+      avg_w + street_l,
+      avg_l + street_l
+  });
+
+  std::vector<Eigen::Vector2f> centers;
+  generatePoissonPoints(static_cast<float>(usable_width), static_cast<float>(usable_height),
+                        static_cast<float>(center_dist), centers);
+  std::shuffle(centers.begin(), centers.end(), eng);
+
+  int building_count = 0;
+  for (const auto& c : centers)
+  {
+    if (rand_keep(eng) > occupancy)
+      continue;
+
+    const double bw = rand_w(eng);
+    const double bl = rand_l(eng);
+    const double bh = rand_h(eng);
+    const double x0 = static_cast<double>(c.x()) - 0.5 * bw;
+    const double x1 = static_cast<double>(c.x()) + 0.5 * bw;
+    const double y0 = static_cast<double>(c.y()) - 0.5 * bl;
+    const double y1 = static_cast<double>(c.y()) + 0.5 * bl;
+    const double gap = rand_street(eng);
+
+    if (x0 < x_l + boundary_margin || x1 > x_h - boundary_margin ||
+        y0 < y_l + boundary_margin || y1 > y_h - boundary_margin)
+    {
+      continue;
+    }
+    if (overlapSpawnClear(x0, x1, y0, y1, 0.0))
+      continue;
+    if (overlapWithCity(x0, x1, y0, y1, gap))
+      continue;
+
+    if (addCuboid(x0, x1, y0, y1, bh))
+      building_count++;
+  }
+
+  if (building_count == 0)
+  {
+    std::uniform_real_distribution<double> rand_cx(x_l + boundary_margin + 0.5 * w_h,
+                                                   x_h - boundary_margin - 0.5 * w_h);
+    std::uniform_real_distribution<double> rand_cy(y_l + boundary_margin + 0.5 * l_h,
+                                                   y_h - boundary_margin - 0.5 * l_h);
+    for (int attempt = 0; attempt < 128; ++attempt)
+    {
+      const double bw = rand_w(eng);
+      const double bl = rand_l(eng);
+      const double bh = rand_h(eng);
+      const double cx = rand_cx(eng);
+      const double cy = rand_cy(eng);
+      const double x0 = cx - 0.5 * bw;
+      const double x1 = cx + 0.5 * bw;
+      const double y0 = cy - 0.5 * bl;
+      const double y1 = cy + 0.5 * bl;
+      if (overlapSpawnClear(x0, x1, y0, y1, 0.0))
+        continue;
+      if (overlapWithCity(x0, x1, y0, y1, street_l))
+        continue;
+      if (addCuboid(x0, x1, y0, y1, bh))
+      {
+        building_count++;
+        break;
+      }
+    }
+  }
+
+  // Random street obstacles (e.g., billboards, cargo containers) to enrich scene diversity.
+  if (city_extra_obs_num > 0)
+  {
+    std::uniform_real_distribution<double> rand_ew(std::max(2.0 * surface_res, std::min(city_extra_w_l, city_extra_w_h)),
+                                                   std::max(std::max(2.0 * surface_res, city_extra_w_l), city_extra_w_h));
+    std::uniform_real_distribution<double> rand_el(std::max(2.0 * surface_res, std::min(city_extra_l_l, city_extra_l_h)),
+                                                   std::max(std::max(2.0 * surface_res, city_extra_l_l), city_extra_l_h));
+    std::uniform_real_distribution<double> rand_eh(std::max(2.0 * surface_res, std::min(city_extra_h_l, city_extra_h_h)),
+                                                   std::max(std::max(2.0 * surface_res, city_extra_h_l), city_extra_h_h));
+    std::uniform_real_distribution<double> rand_ex(x_l + boundary_margin, x_h - boundary_margin);
+    std::uniform_real_distribution<double> rand_ey(y_l + boundary_margin, y_h - boundary_margin);
+
+    auto overlapExisting = [&](double x0, double x1, double y0, double y1, double z1) {
+      for (const auto& b : city_blocks_)
+      {
+        const bool overlap_x = !(x1 <= b.x_min || x0 >= b.x_max);
+        const bool overlap_y = !(y1 <= b.y_min || y0 >= b.y_max);
+        const bool overlap_z = !(z1 <= b.z_min || 0.0 >= b.z_max);
+        if (overlap_x && overlap_y && overlap_z)
+          return true;
+      }
+      return false;
+    };
+
+    for (int i = 0; i < city_extra_obs_num; ++i)
+    {
+      for (int attempt = 0; attempt < 80; ++attempt)
+      {
+        const double ew = rand_ew(eng);
+        const double el = rand_el(eng);
+        const double eh = rand_eh(eng);
+        const double cx = rand_ex(eng);
+        const double cy = rand_ey(eng);
+        const double x0 = cx - 0.5 * ew;
+        const double x1 = cx + 0.5 * ew;
+        const double y0 = cy - 0.5 * el;
+        const double y1 = cy + 0.5 * el;
+        if (x0 < x_l + boundary_margin || x1 > x_h - boundary_margin ||
+            y0 < y_l + boundary_margin || y1 > y_h - boundary_margin)
+        {
+          continue;
+        }
+        if (overlapSpawnClear(x0, x1, y0, y1, 0.0))
+          continue;
+        if (overlapExisting(x0, x1, y0, y1, eh))
+          continue;
+        if (addCuboid(x0, x1, y0, y1, eh))
+          break;
+      }
+    }
+  }
+
+  if (city_add_ground)
+  {
+    pcl::PointCloud<pcl::PointXYZ>::Ptr ground_cloud(new pcl::PointCloud<pcl::PointXYZ>());
+    for (double x = x_l; x <= x_h + 1e-6; x += ground_res)
+    {
+      for (double y = y_l; y <= y_h + 1e-6; y += ground_res)
+      {
+        ground_cloud->emplace_back(x, y, 0.0);
+      }
+    }
+    *info.cloud += *ground_cloud;
+  }
+
+  info.cloud->width = info.cloud->points.size();
+  info.cloud->height = 1;
+  info.cloud->is_dense = true;
 }
 
 /* --------------------- My: Forest --------------------- */
