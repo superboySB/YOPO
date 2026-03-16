@@ -51,6 +51,7 @@ public:
         render_depth = config["render_depth"].as<bool>();
         float depth_fps = config["depth_fps"].as<float>();
         float lidar_fps = config["lidar_fps"].as<float>();
+        collision_count_min_z_ = config["collision_count_min_z"].as<float>();
         depth_pub_duration = ros::Duration(1 / depth_fps);
         lidar_pub_duration = ros::Duration(1 / lidar_fps);
         
@@ -151,6 +152,7 @@ private:
     double depth_time{0.0}, lidar_time{0.0};
     int depth_count{0}, lidar_count{0};
     int collision_counter_total_{0};
+    float collision_count_min_z_{0.0f};
     // mocka::Maps map;
 };
 
@@ -227,7 +229,7 @@ void SensorSimulator::odomCallback(const nav_msgs::Odometry::ConstPtr& msg) {
     pos.z() = msg->pose.pose.position.z;
 
     const int occupied = grid_map->mapQueryHost(Vector3f(pos.x(), pos.y(), pos.z()));
-    if (occupied == 1) {
+    if (occupied == 1 && pos.z() >= collision_count_min_z_) {
         collision_counter_total_ += 1;
         ROS_WARN_THROTTLE(1.0, "UAV is inside occupied voxel. total=%d", collision_counter_total_);
     }
