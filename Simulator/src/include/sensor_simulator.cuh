@@ -52,6 +52,12 @@ namespace raycast
         float max_lidar_dist{50};
     };
 
+    struct SphereObstacle
+    {
+        Vector3f center;
+        float radius = 0.0f;
+    };
+
     class GridMap
     {
         public:
@@ -77,10 +83,28 @@ namespace raycast
             int occupy_threshold_;                                        // occupancy threshold
     };
 
-    __global__ void cameraRaycastKernel(float *depth_values, GridMap grid_map, CameraParams camera_param, cudaMat::SE3<float> T_wc);
-    __global__ void lidarRaycastKernel(Vector3f* point_values, GridMap grid_map, LidarParams lidar_param, cudaMat::SE3<float> T_wc);
+    __global__ void cameraRaycastKernel(float *depth_values,
+                                        GridMap grid_map,
+                                        CameraParams camera_param,
+                                        cudaMat::SE3<float> T_wc,
+                                        const SphereObstacle *dynamic_obstacles,
+                                        int dynamic_obstacle_count);
+    __global__ void lidarRaycastKernel(Vector3f* point_values,
+                                       GridMap grid_map,
+                                       LidarParams lidar_param,
+                                       cudaMat::SE3<float> T_wc,
+                                       const SphereObstacle *dynamic_obstacles,
+                                       int dynamic_obstacle_count);
 
-    void renderDepthImage(GridMap *grid_map, CameraParams *camera_param, cudaMat::SE3<float>& T_wc, cv::Mat &depth_image);
-    void renderLidarPointcloud(GridMap *grid_map, LidarParams *lidar_param, cudaMat::SE3<float>& T_wc, pcl::PointCloud<pcl::PointXYZ>& lidar_points);
+    void renderDepthImage(GridMap *grid_map,
+                          CameraParams *camera_param,
+                          cudaMat::SE3<float>& T_wc,
+                          cv::Mat &depth_image,
+                          const std::vector<SphereObstacle> &dynamic_obstacles = {});
+    void renderLidarPointcloud(GridMap *grid_map,
+                               LidarParams *lidar_param,
+                               cudaMat::SE3<float>& T_wc,
+                               pcl::PointCloud<pcl::PointXYZ>& lidar_points,
+                               const std::vector<SphereObstacle> &dynamic_obstacles = {});
 }
 #endif // CUDA_UTILS_CUH

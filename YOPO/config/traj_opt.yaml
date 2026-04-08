@@ -1,5 +1,5 @@
 # IMPORTANT: velocity in testing (modifiable)
-velocity: 6.0
+velocity: 1.2
 
 # IMPORTANT: vel_max and acc_max in training
 # not the actual values in testing, ensure consistency between testing and training, please refer to ../policy/primitive.py

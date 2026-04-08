@@ -1,30 +1,20 @@
 <launch>
-    <arg name="init_x" value="0.0"/>
-    <arg name="init_y" value="0.0"/>
-    <arg name="init_z" value="2.0"/> 
+    <arg name="init_x" default="0.0"/>
+    <arg name="init_y" default="0.0"/>
+    <arg name="init_z" default="2.0"/>
 
-    <node pkg="so3_quadrotor_simulator" type="quadrotor_simulator_so3" name="quadrotor_simulator_so3" output="screen">
-        <param name="rate/odom" value="100.0"/>
-        <param name="simulator/init_state_x" value="$(arg init_x)"/>
-        <param name="simulator/init_state_y" value="$(arg init_y)"/>
-        <param name="simulator/init_state_z" value="$(arg init_z)"/>
-        <remap from="~odom" to="/sim/odom"/>
-        <remap from="~imu" to="/sim/imu"/>
-        <remap from="~cmd" to="so3_cmd"/>
-        <remap from="~force_disturbance" to="force_disturbance"/>    
-        <remap from="~moment_disturbance" to="moment_disturbance"/>        
-    </node>
-
-    <node pkg="so3_control" type="network_control_node" name="network_controller_node" output="screen">
-        <param name="is_simulation" value="true"/>
-        <param name="use_disturbance_observer" value="true"/>
-        <param name="hover_thrust" value="0.375"/>
-        <remap from="~odom" to="/sim/odom"/>
-        <remap from="~imu" to="/sim/imu"/>
-        <remap from="~position_cmd" to="/so3_control/pos_cmd"/>
-        <remap from="~so3_cmd" to="so3_cmd"/>
-        <param name="record_log" value = "false"/>  
-        <param name="logger_file_name" value = "$(find so3_control)/logger/"/>   
-    </node>
-
+    <include file="$(find so3_quadrotor_simulator)/launch/simulator_attitude_control_uav.launch">
+        <arg name="uav_name" value="quadrotor"/>
+        <arg name="init_x" value="$(arg init_x)"/>
+        <arg name="init_y" value="$(arg init_y)"/>
+        <arg name="init_z" value="$(arg init_z)"/>
+        <arg name="odom_topic" value="/sim/odom"/>
+        <arg name="imu_topic" value="/sim/imu"/>
+        <arg name="ctrl_topic" value="/so3_control/pos_cmd"/>
+        <arg name="so3_cmd_topic" value="/so3_cmd"/>
+        <arg name="force_disturbance_topic" value="/force_disturbance"/>
+        <arg name="moment_disturbance_topic" value="/moment_disturbance"/>
+        <arg name="simulator_node_name" value="quadrotor_simulator_so3"/>
+        <arg name="controller_node_name" value="network_controller_node"/>
+    </include>
 </launch>

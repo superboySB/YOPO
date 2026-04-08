@@ -1,5 +1,6 @@
 import rospy
 import std_msgs.msg
+from std_msgs.msg import Bool, Float32
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import PoseStamped
 from threading import Lock
@@ -26,10 +27,31 @@ except ImportError:
     print("tensorrt not found.")
 
 
+def cleanup_cuda_memory():
+    if not torch.cuda.is_available():
+        return
+
+    torch.cuda.empty_cache()
+    try:
+        torch.cuda.ipc_collect()
+    except RuntimeError:
+        pass
+
+
 class YopoNet:
     def __init__(self, config, weight):
         self.config = config
-        rospy.init_node('yopo_net', anonymous=False)
+        self.agent_name = self.config['agent_name']
+        self.node_name = self.config['node_name']
+        self.goal_topic = self.config['goal_topic']
+        self.visual_prefix = self.config['visual_prefix'].rstrip('/')
+        self.status_prefix = self.config['status_prefix'].rstrip('/')
+        self.arrive_radius = self.config['arrive_radius']
+        self.swarm_center = np.array(self.config['swarm_center'], dtype=np.float32)
+        self.swarm_tangent_bias = self.config['swarm_tangent_bias']
+        self.swarm_bias_radius = self.config['swarm_bias_radius']
+
+        rospy.init_node(self.node_name, anonymous=False)
         # load params
         cfg["train"] = False
         self.height = cfg['image_height']
@@ -73,6 +95,7 @@ class YopoNet:
         self.depth_fps = 30  # used only as processing time tolerance for printing logs
 
         # Load Network
+        cleanup_cuda_memory()
         if self.use_trt:
             self.policy = TRTModule()
             self.policy.load_state_dict(torch.load(weight))
@@ -80,29 +103,65 @@ class YopoNet:
             state_dict = torch.load(weight, weights_only=True)
             self.policy = YopoNetwork()
             self.policy.load_state_dict(state_dict)
-            self.policy = self.policy.to(self.device)
-            self.policy.eval()
+        self.policy = self.policy.to(self.device)
+        self.policy.eval()
         self.warm_up()
+        cleanup_cuda_memory()
 
         # ros publisher
-        self.lattice_traj_pub = rospy.Publisher("/yopo_net/lattice_trajs_visual", PointCloud2, queue_size=1)
-        self.best_traj_pub = rospy.Publisher("/yopo_net/best_traj_visual", PointCloud2, queue_size=1)
-        self.all_trajs_pub = rospy.Publisher("/yopo_net/trajs_visual", PointCloud2, queue_size=1)
+        self.lattice_traj_pub = rospy.Publisher(f"{self.visual_prefix}/lattice_trajs_visual", PointCloud2, queue_size=1)
+        self.best_traj_pub = rospy.Publisher(f"{self.visual_prefix}/best_traj_visual", PointCloud2, queue_size=1)
+        self.all_trajs_pub = rospy.Publisher(f"{self.visual_prefix}/trajs_visual", PointCloud2, queue_size=1)
         self.ctrl_pub = rospy.Publisher(self.config["ctrl_topic"], PositionCommand, queue_size=1)
+        self.arrive_pub = rospy.Publisher(f"{self.status_prefix}/arrived", Bool, queue_size=1)
+        self.goal_distance_pub = rospy.Publisher(f"{self.status_prefix}/goal_distance", Float32, queue_size=1)
         # ros subscriber
         self.odom_sub = rospy.Subscriber(self.config['odom_topic'], Odometry, self.callback_odometry, queue_size=1, tcp_nodelay=True)
         self.depth_sub = rospy.Subscriber(self.config['depth_topic'], Image, self.callback_depth, queue_size=1, tcp_nodelay=True)
-        self.goal_sub = rospy.Subscriber("/move_base_simple/goal", PoseStamped, self.callback_set_goal, queue_size=1)
+        self.goal_sub = None
+        if self.goal_topic:
+            self.goal_sub = rospy.Subscriber(self.goal_topic, PoseStamped, self.callback_set_goal, queue_size=1)
         # ros timer
         rospy.sleep(1.0)  # wait connection...
+        self.publish_status()
         self.timer_ctrl = rospy.Timer(rospy.Duration(self.ctrl_dt), self.control_pub)
-        print("YOPO Net Node Ready!")
+        print(f"[{self.agent_name}] YOPO Net Node Ready! goal={self.goal.tolist()}")
         rospy.spin()
+
+    def build_hover_command(self):
+        control_msg = PositionCommand()
+        control_msg.header.stamp = rospy.Time.now()
+        control_msg.trajectory_flag = control_msg.TRAJECTORY_STATUS_EMPTY
+
+        if self.odom_init:
+            hover_pos = np.array((
+                self.odom.pose.pose.position.x,
+                self.odom.pose.pose.position.y,
+                self.odom.pose.pose.position.z,
+            ), dtype=np.float32)
+        elif self.desire_pos is not None:
+            hover_pos = np.array(self.desire_pos, dtype=np.float32)
+        else:
+            hover_pos = np.array(self.goal, dtype=np.float32)
+
+        control_msg.position.x = float(hover_pos[0])
+        control_msg.position.y = float(hover_pos[1])
+        control_msg.position.z = float(hover_pos[2])
+        control_msg.velocity.x = 0.0
+        control_msg.velocity.y = 0.0
+        control_msg.velocity.z = 0.0
+        control_msg.acceleration.x = 0.0
+        control_msg.acceleration.y = 0.0
+        control_msg.acceleration.z = 0.0
+        control_msg.yaw = float(self.last_yaw)
+        control_msg.yaw_dot = 0.0
+        return control_msg
 
     def callback_set_goal(self, data):
         self.goal = np.asarray([data.pose.position.x, data.pose.position.y, 2])
         self.arrive = False
-        print(f"New Goal: ({data.pose.position.x:.1f}, {data.pose.position.y:.1f})")
+        self.publish_status()
+        print(f"[{self.agent_name}] New Goal: ({data.pose.position.x:.1f}, {data.pose.position.y:.1f})")
 
     # the first frame
     def callback_odometry(self, data):
@@ -117,9 +176,11 @@ class YopoNet:
         self.odom_init = True
 
         pos = np.array((self.odom.pose.pose.position.x, self.odom.pose.pose.position.y, self.odom.pose.pose.position.z))
-        if np.linalg.norm(pos - self.goal) < 5 and not self.arrive:
-            print("Arrive!")
+        goal_distance = np.linalg.norm(pos - self.goal)
+        if goal_distance < self.arrive_radius and not self.arrive:
+            print(f"[{self.agent_name}] Arrive!")
             self.arrive = True
+        self.publish_status(goal_distance)
 
     def process_odom(self):
         # Rwb -> Rwc -> Rcw
@@ -136,6 +197,7 @@ class YopoNet:
 
         # goal_dir
         goal_w = self.goal - self.desire_pos
+        goal_w = self.apply_swarm_goal_bias(goal_w)
         goal_c = np.dot(Rotation_cw, goal_w)
 
         obs = np.concatenate((vel_c, acc_c, goal_c), axis=0).astype(np.float32)
@@ -207,11 +269,16 @@ class YopoNet:
 
     def control_pub(self, _timer):
         if self.ctrl_time is None or self.ctrl_time > self.traj_time:
+            self.publish_status()
             return
         if self.arrive and self.last_control_msg is not None:
-            self.desire_init = False   # ready for next rollout
-            self.last_control_msg.trajectory_flag = self.last_control_msg.TRAJECTORY_STATUS_EMPTY
-            self.ctrl_pub.publish(self.last_control_msg)
+            hover_msg = self.build_hover_command()
+            self.desire_pos = np.array([hover_msg.position.x, hover_msg.position.y, hover_msg.position.z], dtype=np.float32)
+            self.desire_vel = np.zeros(3, dtype=np.float32)
+            self.desire_acc = np.zeros(3, dtype=np.float32)
+            self.last_control_msg = hover_msg
+            self.ctrl_pub.publish(hover_msg)
+            self.publish_status()
             return
 
         with self.lock:  # Python3.8: threads are scheduled using time slices, add the lock to ensure safety and publish frequency
@@ -239,6 +306,7 @@ class YopoNet:
             self.desire_init = True
             self.last_control_msg = control_msg
             self.ctrl_pub.publish(control_msg)
+            self.publish_status(np.linalg.norm(self.goal - self.desire_pos))
 
     def process_output(self, endstate_pred, score_pred, return_all_preds=False):
         endstate_pred = endstate_pred.reshape(9, self.lattice_primitive.traj_num).T
@@ -358,12 +426,65 @@ class YopoNet:
         endstate_pred, score_pred = self.policy(depth, obs)
         _ = self.state_transform.pred_to_endstate(endstate_pred)
 
+    def publish_status(self, goal_distance=None):
+        if goal_distance is None:
+            if self.desire_pos is not None:
+                goal_distance = np.linalg.norm(self.goal - self.desire_pos)
+            elif self.odom_init:
+                pos = np.array((self.odom.pose.pose.position.x, self.odom.pose.pose.position.y, self.odom.pose.pose.position.z))
+                goal_distance = np.linalg.norm(pos - self.goal)
+            else:
+                goal_distance = np.linalg.norm(self.goal)
+
+        self.arrive_pub.publish(Bool(data=bool(self.arrive)))
+        self.goal_distance_pub.publish(Float32(data=float(goal_distance)))
+
+    def apply_swarm_goal_bias(self, goal_w):
+        if self.swarm_tangent_bias <= 0.0 or self.swarm_bias_radius <= 0.0:
+            return goal_w
+
+        center_vec = self.desire_pos - self.swarm_center
+        center_vec_xy = center_vec[:2]
+        center_dist = np.linalg.norm(center_vec_xy)
+        if center_dist < 1e-3 or center_dist >= self.swarm_bias_radius:
+            return goal_w
+
+        tangent = np.array([-center_vec_xy[1], center_vec_xy[0], 0.0], dtype=np.float32)
+        tangent_norm = np.linalg.norm(tangent[:2])
+        if tangent_norm < 1e-3:
+            return goal_w
+
+        tangent = tangent / tangent_norm
+        bias_scale = 1.0 - center_dist / self.swarm_bias_radius
+        return goal_w + tangent * (self.swarm_tangent_bias * bias_scale)
+
 
 def parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--use_tensorrt", type=int, default=0, help="use tensorrt or not")
     parser.add_argument("--trial", type=int, default=1, help="trial number")
     parser.add_argument("--epoch", type=int, default=50, help="epoch number")
+    parser.add_argument("--agent_name", type=str, default="uav0", help="agent name for logging")
+    parser.add_argument("--node_name", type=str, default="yopo_net", help="ROS node name")
+    parser.add_argument("--odom_topic", type=str, default="/sim/odom", help="odometry topic")
+    parser.add_argument("--depth_topic", type=str, default="/depth_image", help="depth image topic")
+    parser.add_argument("--ctrl_topic", type=str, default="/so3_control/pos_cmd", help="controller command topic")
+    parser.add_argument("--goal_topic", type=str, default="/move_base_simple/goal", help="goal topic; use empty string to disable")
+    parser.add_argument("--visual_prefix", type=str, default="/yopo_net", help="visualization topic prefix")
+    parser.add_argument("--status_prefix", type=str, default="/uav0/yopo", help="status topic prefix")
+    parser.add_argument("--goal_x", type=float, default=50.0, help="goal x")
+    parser.add_argument("--goal_y", type=float, default=0.0, help="goal y")
+    parser.add_argument("--goal_z", type=float, default=2.0, help="goal z")
+    parser.add_argument("--swarm_center_x", type=float, default=0.0, help="swarm center x")
+    parser.add_argument("--swarm_center_y", type=float, default=0.0, help="swarm center y")
+    parser.add_argument("--swarm_center_z", type=float, default=2.0, help="swarm center z")
+    parser.add_argument("--swarm_tangent_bias", type=float, default=0.0, help="tangential bias magnitude near swarm center")
+    parser.add_argument("--swarm_bias_radius", type=float, default=0.0, help="distance-to-center range where swarm bias is active")
+    parser.add_argument("--pitch_angle_deg", type=float, default=0.0, help="camera pitch angle")
+    parser.add_argument("--plan_from_reference", type=int, default=0, help="plan from reference state or not")
+    parser.add_argument("--verbose", type=int, default=0, help="print timing logs or not")
+    parser.add_argument("--visualize", type=int, default=1, help="visualize all trajectories or not")
+    parser.add_argument("--arrive_radius", type=float, default=5.0, help="goal arrival radius")
     return parser
 
 
@@ -373,14 +494,27 @@ if __name__ == "__main__":
     weight = "yopo_trt.pth" if args.use_tensorrt else base_dir + "/saved/YOPO_{}/epoch{}.pth".format(args.trial, args.epoch)
     print("load weight from:", weight)
 
+    goal_topic = args.goal_topic.strip()
+    if goal_topic.lower() in {"none", "null"}:
+        goal_topic = ""
+
     settings = {'use_tensorrt': args.use_tensorrt,
-                'goal': [50, 0, 2],      # 目标点位置
-                'pitch_angle_deg': -0,   # 相机俯仰角(仰为负)
-                'odom_topic': '/sim/odom',                   # 里程计话题
-                'depth_topic': '/depth_image',               # 深度图话题
-                'ctrl_topic': '/so3_control/pos_cmd',        # 控制器话题
-                'plan_from_reference': False,   # 从参考状态规划？位置控制器: True, 神经网络直接控制: False
-                'verbose': False,               # 打印耗时？
-                'visualize': True               # 可视化所有轨迹？(实飞改为False节省计算)
+                'agent_name': args.agent_name,
+                'node_name': args.node_name,
+                'goal': [args.goal_x, args.goal_y, args.goal_z],
+                'goal_topic': goal_topic,
+                'visual_prefix': args.visual_prefix,
+                'status_prefix': args.status_prefix,
+                'arrive_radius': args.arrive_radius,
+                'swarm_center': [args.swarm_center_x, args.swarm_center_y, args.swarm_center_z],
+                'swarm_tangent_bias': args.swarm_tangent_bias,
+                'swarm_bias_radius': args.swarm_bias_radius,
+                'pitch_angle_deg': -args.pitch_angle_deg,    # 相机俯仰角(仰为负)
+                'odom_topic': args.odom_topic,
+                'depth_topic': args.depth_topic,
+                'ctrl_topic': args.ctrl_topic,
+                'plan_from_reference': bool(args.plan_from_reference),
+                'verbose': bool(args.verbose),
+                'visualize': bool(args.visualize)
                 }
     YopoNet(settings, weight)

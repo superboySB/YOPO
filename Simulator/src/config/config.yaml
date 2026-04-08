@@ -24,7 +24,7 @@ seed: 3
 x_length: 60           # 真正随机范围(XY更大范围处为其镜像)
 y_length: 60
 z_length: 15
-maze_type: 5           # 1: 溶洞 2: 柱子 3:迷宫 5:森林 6:房间 7:墙面  (当前策略支持1,2,5,7)
+maze_type: 2           # 1: 溶洞 2: 柱子 3:迷宫 5:森林 6:房间 7:墙面  (当前策略支持1,2,5,7)
 # 溶洞
 complexity: 0.02       # 复杂度 0.0-0.5
 fill: 0.1              # 填充率 0.0-0.4
@@ -53,6 +53,17 @@ wall_width_max: 6.0
 wall_thick: 0.5
 wall_number: 100       # 墙面数量
 wall_ceiling: 1        # 是否添加天花板
+
+# 2.3 Swarm 参数 =============================================================
+swarm:
+  enabled: false
+  uav_num: 4
+  namespace_prefix: "uav"
+  ring_radius: 16.0
+  altitude: 2.0
+  spawn_clear_radius: 2.6
+  collision_radius: 0.25
+  render_radius: 1.80
 
 # 3. 传感器参数 ==============================================================
 camera:

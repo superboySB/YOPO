@@ -1,0 +1,41 @@
+<launch>
+    <arg name="uav_name" default="quadrotor"/>
+    <arg name="init_x" default="0.0"/>
+    <arg name="init_y" default="0.0"/>
+    <arg name="init_z" default="2.0"/>
+
+    <arg name="odom_topic" default="/sim/odom"/>
+    <arg name="imu_topic" default="/sim/imu"/>
+    <arg name="ctrl_topic" default="/so3_control/pos_cmd"/>
+    <arg name="so3_cmd_topic" default="/so3_cmd"/>
+    <arg name="force_disturbance_topic" default="/force_disturbance"/>
+    <arg name="moment_disturbance_topic" default="/moment_disturbance"/>
+
+    <arg name="simulator_node_name" default="$(arg uav_name)_simulator"/>
+    <arg name="controller_node_name" default="$(arg uav_name)_controller"/>
+
+    <node pkg="so3_quadrotor_simulator" type="quadrotor_simulator_so3" name="$(arg simulator_node_name)" output="screen">
+        <param name="quadrotor_name" value="$(arg uav_name)"/>
+        <param name="rate/odom" value="100.0"/>
+        <param name="simulator/init_state_x" value="$(arg init_x)"/>
+        <param name="simulator/init_state_y" value="$(arg init_y)"/>
+        <param name="simulator/init_state_z" value="$(arg init_z)"/>
+        <remap from="~odom" to="$(arg odom_topic)"/>
+        <remap from="~imu" to="$(arg imu_topic)"/>
+        <remap from="~cmd" to="$(arg so3_cmd_topic)"/>
+        <remap from="~force_disturbance" to="$(arg force_disturbance_topic)"/>
+        <remap from="~moment_disturbance" to="$(arg moment_disturbance_topic)"/>
+    </node>
+
+    <node pkg="so3_control" type="network_control_node" name="$(arg controller_node_name)" output="screen">
+        <param name="is_simulation" value="true"/>
+        <param name="use_disturbance_observer" value="true"/>
+        <param name="hover_thrust" value="0.375"/>
+        <remap from="~odom" to="$(arg odom_topic)"/>
+        <remap from="~imu" to="$(arg imu_topic)"/>
+        <remap from="~position_cmd" to="$(arg ctrl_topic)"/>
+        <remap from="~so3_cmd" to="$(arg so3_cmd_topic)"/>
+        <param name="record_log" value="false"/>
+        <param name="logger_file_name" value="$(find so3_control)/logger/"/>
+    </node>
+</launch>

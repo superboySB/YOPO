@@ -1,19 +1,64 @@
 #include "sensor_simulator.cuh"
 
 namespace raycast
-{   
-    __global__ void mapQueryKernel(GridMap grid_map, Vector3f pos, int* occupied)
+{
+    __global__ void mapQueryKernel(GridMap grid_map, Vector3f pos, int *occupied)
     {
         if (threadIdx.x == 0 && blockIdx.x == 0)
             occupied[0] = grid_map.mapQuery(pos);
     }
 
-    GridMap::GridMap(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, float resolution, int occupy_threshold = 1){
-        const float epsilon = 0.001f;   // 避免数值误差导致 (1)建图空行 (2)边缘点被忽略
+    __device__ __forceinline__ float dotFloat3(const float3 &a, const float3 &b)
+    {
+        return a.x * b.x + a.y * b.y + a.z * b.z;
+    }
+
+    __device__ __forceinline__ float3 subFloat3(const float3 &a, const float3 &b)
+    {
+        return make_float3(a.x - b.x, a.y - b.y, a.z - b.z);
+    }
+
+    __device__ float findNearestSphereHit(const float3 &ray_origin_w,
+                                          const float3 &ray_dir_w,
+                                          const SphereObstacle *dynamic_obstacles,
+                                          int dynamic_obstacle_count,
+                                          float max_ray_length)
+    {
+        float best_hit = max_ray_length + 1.0f;
+
+        for (int i = 0; i < dynamic_obstacle_count; ++i)
+        {
+            const SphereObstacle obstacle = dynamic_obstacles[i];
+            if (obstacle.radius <= 0.0f)
+                continue;
+
+            const float3 center_w = make_float3(obstacle.center.x, obstacle.center.y, obstacle.center.z);
+            const float3 oc = subFloat3(ray_origin_w, center_w);
+            const float b = dotFloat3(oc, ray_dir_w);
+            const float c = dotFloat3(oc, oc) - obstacle.radius * obstacle.radius;
+            const float discriminant = b * b - c;
+            if (discriminant < 0.0f)
+                continue;
+
+            const float sqrt_discriminant = sqrtf(discriminant);
+            float hit = -b - sqrt_discriminant;
+            if (hit <= 0.0f)
+                hit = -b + sqrt_discriminant;
+
+            if (hit > 0.0f && hit <= max_ray_length && hit < best_hit)
+                best_hit = hit;
+        }
+
+        return best_hit <= max_ray_length ? best_hit : -1.0f;
+    }
+
+    GridMap::GridMap(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, float resolution, int occupy_threshold)
+    {
+        const float epsilon = 0.001f;
         Eigen::Vector4f min_pt, max_pt;
         pcl::getMinMax3D(*cloud, min_pt, max_pt);
-        float length = max_pt(0) - min_pt(0) + 2 * epsilon;  // 保证各个边界最大值能被取到
-        float width  = max_pt(1) - min_pt(1) + 2 * epsilon;
+        float length = max_pt(0) - min_pt(0) + 2 * epsilon;
+        float width = max_pt(1) - min_pt(1) + 2 * epsilon;
         float height = max_pt(2) - min_pt(2) + 2 * epsilon;
         Vector3f origin(min_pt(0), min_pt(1), min_pt(2));
         Vector3f map_size(length, width, height);
@@ -27,22 +72,21 @@ namespace raycast
         grid_size.z = ceil(map_size.z / resolution);
         int grid_total_size = grid_size.x * grid_size.y * grid_size.z;
 
-        resolution_   = resolution;
-        grid_size_x_  = grid_size.x, 
-        grid_size_y_  = grid_size.y, 
-        grid_size_z_  = grid_size.z, 
+        resolution_ = resolution;
+        grid_size_x_ = grid_size.x;
+        grid_size_y_ = grid_size.y;
+        grid_size_z_ = grid_size.z;
         grid_size_yz_ = grid_size.y * grid_size.z;
         occupy_threshold_ = occupy_threshold;
         raycast_step_ = resolution;
 
         std::vector<int> h_map(grid_total_size, 0);
-        // 点云全位于体素边界，有时候会有全空的行，加个很小的偏移
-        for (size_t i = 0; i < cloud->points.size(); i++) {
+        for (size_t i = 0; i < cloud->points.size(); i++)
+        {
             Vector3f point(cloud->points[i].x + epsilon, cloud->points[i].y + epsilon, cloud->points[i].z + epsilon);
             int idx = Vox2Idx(Pos2Vox(point));
-            if (idx < grid_total_size) {
+            if (idx < grid_total_size)
                 h_map[idx]++;
-            }
         }
         cudaMalloc((void **)&map_cuda_, grid_total_size * sizeof(int));
         cudaMemcpy(map_cuda_, h_map.data(), grid_total_size * sizeof(int), cudaMemcpyHostToDevice);
@@ -96,19 +140,15 @@ namespace raycast
     {
         index = index % (2 * length - 2);
         if (index < 0)
-        {
             index += (2 * length - 2);
-        }
 
         if (index >= length)
-        {
             index = 2 * length - 2 - index;
-        }
         return index;
     }
 
-    // -1: z越界; 0: 空闲; 1: 占据
-    __device__  int GridMap::mapQuery(const Vector3f &pos){
+    __device__ int GridMap::mapQuery(const Vector3f &pos)
+    {
         Vector3i vox = Pos2Vox(pos);
         vox.x = symmetricIndex(vox.x, grid_size_x_);
         vox.y = symmetricIndex(vox.y, grid_size_y_);
@@ -121,7 +161,7 @@ namespace raycast
         int idx = Vox2Idx(vox);
         if (map_cuda_[idx] > occupy_threshold_)
             return 1;
-        return 0;        
+        return 0;
     }
 
     int GridMap::mapQueryHost(const Vector3f &pos)
@@ -131,181 +171,220 @@ namespace raycast
         return query_cuda_[0];
     }
 
-    __global__ void cameraRaycastKernel(float* depth_values, GridMap grid_map, CameraParams camera_param, cudaMat::SE3<float> T_wc)
+    __global__ void cameraRaycastKernel(float *depth_values,
+                                        GridMap grid_map,
+                                        CameraParams camera_param,
+                                        cudaMat::SE3<float> T_wc,
+                                        const SphereObstacle *dynamic_obstacles,
+                                        int dynamic_obstacle_count)
     {
         int u = threadIdx.x;
         int v = blockIdx.x;
 
-        // printf("u: %d, v: %d \n", u, v);
+        if (u >= camera_param.image_width || v >= camera_param.image_height)
+            return;
 
-        if (u < camera_param.image_width && v < camera_param.image_height)
+        float y = -(u - camera_param.cx) / camera_param.fx;
+        float z = -(v - camera_param.cy) / camera_param.fy;
+        float x = 1.0f;
+
+        const float length = sqrtf(x * x + y * y + z * z);
+        x /= length;
+        y /= length;
+        z /= length;
+
+        const float3 ray_dir_c = make_float3(x, y, z);
+        const float3 ray_dir_w = T_wc.rotate(ray_dir_c);
+        const float3 ray_origin_w = T_wc.getTranslation();
+
+        const float max_ray_length = camera_param.max_depth_dist / fmaxf(x, 1e-4f);
+        const float dynamic_hit = findNearestSphereHit(ray_origin_w, ray_dir_w, dynamic_obstacles, dynamic_obstacle_count, max_ray_length);
+        const float dynamic_depth = dynamic_hit > 0.0f ? dynamic_hit * x : camera_param.max_depth_dist;
+
+        const float dx = 0.5f * grid_map.raycast_step_;
+        const float dy = (y / x) * dx;
+        const float dz = (z / x) * dx;
+
+        int scale = 0;
+        float depth = dynamic_depth;
+
+        while (1)
         {
-            // 计算射线方向
-            float y = -(u - camera_param.cx) / camera_param.fx;
-            float z = -(v - camera_param.cy) / camera_param.fy;
-            float x = 1.0f;
+            scale += 1;
 
-            // 归一化射线方向
-            float length = sqrtf(x * x + y * y + z * z);
-            x /= length;
-            y /= length;
-            z /= length;
+            const float point_x = scale * dx;
+            const float point_y = scale * dy;
+            const float point_z = scale * dz;
 
-            // 计算每个轴的增量比例 (x方向固定步长避免近距离处畸变; 0.5是瞎设的防止过于稀疏导致错误)
-            float dx = 0.5 * grid_map.raycast_step_;
-            float dy = (y / x) * dx;
-            float dz = (z / x) * dx;
-
-            // 递增射线方向上的每个轴
-            int scale = 0;
-            float depth = 0.0f;
-
-            while (1)
+            if (point_x >= camera_param.max_depth_dist)
             {
-                scale += 1;
-
-                float point_x = scale * dx;
-                float point_y = scale * dy;
-                float point_z = scale * dz;
-
-                float3 point_c = make_float3(point_x, point_y, point_z);
-                float3 point_w = T_wc * point_c;
-
-                Vector3f point(point_w.x, point_w.y, point_w.z);
-
-                int occupied = grid_map.mapQuery(point);
-
-                if (occupied == 1)
-                {
-                    // depth = point_x;  // 直接这样赋值会有一点误差
-                    // 栅格化避免平面变曲面 (有些冗余，但在机体系栅格化会有类似摩尔纹的东西)
-                    Vector3i occ_vox_w = grid_map.Pos2Vox(point);
-                    Vector3f occ_point_w = grid_map.Vox2Pos(occ_vox_w);
-                    float3 occ_point_w_ = make_float3(occ_point_w.x, occ_point_w.y, occ_point_w.z);
-                    float3 occ_point_c_ = T_wc.inv() * occ_point_w_;
-                    depth = occ_point_c_.x;
-                    break;
-                }
-
-                if (point_x >= camera_param.max_depth_dist){
-                    depth = camera_param.max_depth_dist;
-                    break;
-                }
+                depth = dynamic_depth;
+                break;
+            }
+            if (dynamic_hit > 0.0f && point_x >= dynamic_depth)
+            {
+                depth = dynamic_depth;
+                break;
             }
 
-            // 将深度值存储到输出数组中
-            if (camera_param.normalize_depth)
-                depth = depth / camera_param.max_depth_dist;
-            depth_values[v * camera_param.image_width + u] = depth;
+            const float3 point_c = make_float3(point_x, point_y, point_z);
+            const float3 point_w = T_wc * point_c;
+            const Vector3f point(point_w.x, point_w.y, point_w.z);
+
+            if (grid_map.mapQuery(point) == 1)
+            {
+                const Vector3i occ_vox_w = grid_map.Pos2Vox(point);
+                const Vector3f occ_point_w = grid_map.Vox2Pos(occ_vox_w);
+                const float3 occ_point_c = T_wc.inv() * make_float3(occ_point_w.x, occ_point_w.y, occ_point_w.z);
+                depth = occ_point_c.x;
+                break;
+            }
         }
+
+        if (camera_param.normalize_depth)
+            depth = depth / camera_param.max_depth_dist;
+        depth_values[v * camera_param.image_width + u] = depth;
     }
 
-    void renderDepthImage(GridMap* grid_map, CameraParams* camera_param, cudaMat::SE3<float>& T_wc, cv::Mat& depth_image)
-    {   
-        float* depth_values;
+    void renderDepthImage(GridMap *grid_map,
+                          CameraParams *camera_param,
+                          cudaMat::SE3<float> &T_wc,
+                          cv::Mat &depth_image,
+                          const std::vector<SphereObstacle> &dynamic_obstacles)
+    {
+        float *depth_values;
         size_t num_elements = camera_param->image_width * camera_param->image_height;
         cudaMallocManaged(&depth_values, num_elements * sizeof(float));
 
-        // 在GPU上启动核函数
-        cameraRaycastKernel<<<camera_param->image_height, camera_param->image_width>>>(depth_values, *grid_map, *camera_param, T_wc);
-        
+        SphereObstacle *dynamic_obstacles_cuda = nullptr;
+        if (!dynamic_obstacles.empty())
+        {
+            cudaMallocManaged(&dynamic_obstacles_cuda, dynamic_obstacles.size() * sizeof(SphereObstacle));
+            cudaMemcpy(dynamic_obstacles_cuda,
+                       dynamic_obstacles.data(),
+                       dynamic_obstacles.size() * sizeof(SphereObstacle),
+                       cudaMemcpyHostToDevice);
+        }
+
+        cameraRaycastKernel<<<camera_param->image_height, camera_param->image_width>>>(
+            depth_values, *grid_map, *camera_param, T_wc, dynamic_obstacles_cuda, dynamic_obstacles.size());
         cudaDeviceSynchronize();
 
         depth_image.create(camera_param->image_height, camera_param->image_width, CV_32FC1);
-
         cudaMemcpy(depth_image.data, depth_values, num_elements * sizeof(float), cudaMemcpyDeviceToHost);
-        
+
+        if (dynamic_obstacles_cuda != nullptr)
+            cudaFree(dynamic_obstacles_cuda);
         cudaFree(depth_values);
-        return;
     }
 
-    __global__ void lidarRaycastKernel(Vector3f* point_values, GridMap grid_map, LidarParams lidar_param, cudaMat::SE3<float> T_wc)
+    __global__ void lidarRaycastKernel(Vector3f *point_values,
+                                       GridMap grid_map,
+                                       LidarParams lidar_param,
+                                       cudaMat::SE3<float> T_wc,
+                                       const SphereObstacle *dynamic_obstacles,
+                                       int dynamic_obstacle_count)
     {
         int h = threadIdx.x;
         int v = blockIdx.x;
 
-        // printf("u: %d, v: %d \n", u, v);
-        if (h < lidar_param.horizontal_num && v < lidar_param.vertical_lines)
-        {   
-            float vertical_resolution = (lidar_param.vertical_angle_end - lidar_param.vertical_angle_start) / (lidar_param.vertical_lines - 1);
-            float vertical_angle = lidar_param.vertical_angle_start + v * vertical_resolution;
-            float sin_vert = std::sin(vertical_angle * M_PI / 180.0);
-            float cos_vert = std::cos(vertical_angle * M_PI / 180.0);
-            float horizontal_angle = h * lidar_param.horizontal_resolution;
-            float sin_horz = std::sin(horizontal_angle * M_PI / 180.0);
-            float cos_horz = std::cos(horizontal_angle * M_PI / 180.0);
-            // 计算射线方向
-            Vector3f ray_direction(cos_vert * cos_horz, cos_vert * sin_horz, sin_vert);
+        if (h >= lidar_param.horizontal_num || v >= lidar_param.vertical_lines)
+            return;
 
-            // 计算每个轴的增量比例
-            float dx = ray_direction.x * grid_map.raycast_step_;
-            float dy = ray_direction.y * grid_map.raycast_step_;
-            float dz = ray_direction.z * grid_map.raycast_step_;
+        const float vertical_resolution = (lidar_param.vertical_angle_end - lidar_param.vertical_angle_start) / (lidar_param.vertical_lines - 1);
+        const float vertical_angle = lidar_param.vertical_angle_start + v * vertical_resolution;
+        const float sin_vert = std::sin(vertical_angle * M_PI / 180.0f);
+        const float cos_vert = std::cos(vertical_angle * M_PI / 180.0f);
+        const float horizontal_angle = h * lidar_param.horizontal_resolution;
+        const float sin_horz = std::sin(horizontal_angle * M_PI / 180.0f);
+        const float cos_horz = std::cos(horizontal_angle * M_PI / 180.0f);
+        const Vector3f ray_direction_local(cos_vert * cos_horz, cos_vert * sin_horz, sin_vert);
 
-            // 递增射线方向上的每个轴
-            int scale = 0;
-            Vector3f point_value(0, 0, 0);
+        const float dx = ray_direction_local.x * grid_map.raycast_step_;
+        const float dy = ray_direction_local.y * grid_map.raycast_step_;
+        const float dz = ray_direction_local.z * grid_map.raycast_step_;
 
-            while (1)
+        const float3 ray_dir_c = make_float3(ray_direction_local.x, ray_direction_local.y, ray_direction_local.z);
+        const float3 ray_dir_w = T_wc.rotate(ray_dir_c);
+        const float3 ray_origin_w = T_wc.getTranslation();
+        const float dynamic_hit = findNearestSphereHit(ray_origin_w, ray_dir_w, dynamic_obstacles, dynamic_obstacle_count, lidar_param.max_lidar_dist);
+
+        int scale = 0;
+        Vector3f point_value(0, 0, 0);
+
+        while (1)
+        {
+            scale += 1;
+
+            const float point_x = scale * dx;
+            const float point_y = scale * dy;
+            const float point_z = scale * dz;
+            const float ray_length = sqrtf(point_x * point_x + point_y * point_y + point_z * point_z);
+
+            if (ray_length >= lidar_param.max_lidar_dist)
+                break;
+            if (dynamic_hit > 0.0f && ray_length >= dynamic_hit)
             {
-                scale += 1;
-
-                float point_x = scale * dx;
-                float point_y = scale * dy;
-                float point_z = scale * dz;
-
-                float3 point_c = make_float3(point_x, point_y, point_z);
-                float3 point_w = T_wc * point_c;
-
-                Vector3f point(point_w.x, point_w.y, point_w.z);
-
-                int occupied = grid_map.mapQuery(point);
-
-                float ray_length = sqrtf(point_x * point_x + point_y * point_y + point_z * point_z);
-
-                if (occupied == 1)
-                {
-                    point_value = Vector3f(point_x, point_y, point_z);
-                    Vector3i vox_body = grid_map.Pos2Vox(point_value);  // 栅格化避免平面变曲面
-                    point_value = grid_map.Vox2Pos(vox_body);
-                    break;
-                }
-
-                if (ray_length > lidar_param.max_lidar_dist){
-                    break;
-                }
+                point_value = Vector3f(ray_direction_local.x * dynamic_hit,
+                                       ray_direction_local.y * dynamic_hit,
+                                       ray_direction_local.z * dynamic_hit);
+                break;
             }
 
-            // 将点云值存储到输出数组中，(0, 0, 0)为无效值
-            point_values[v * lidar_param.horizontal_num + h] = point_value;
+            const float3 point_c = make_float3(point_x, point_y, point_z);
+            const float3 point_w = T_wc * point_c;
+            const Vector3f point(point_w.x, point_w.y, point_w.z);
+
+            if (grid_map.mapQuery(point) == 1)
+            {
+                const Vector3i occ_vox_w = grid_map.Pos2Vox(point);
+                const Vector3f occ_point_w = grid_map.Vox2Pos(occ_vox_w);
+                const float3 occ_point_c = T_wc.inv() * make_float3(occ_point_w.x, occ_point_w.y, occ_point_w.z);
+                point_value = Vector3f(occ_point_c.x, occ_point_c.y, occ_point_c.z);
+                break;
+            }
         }
+
+        point_values[v * lidar_param.horizontal_num + h] = point_value;
     }
 
-    void renderLidarPointcloud(GridMap *grid_map, LidarParams *lidar_param, cudaMat::SE3<float>& T_wc, pcl::PointCloud<pcl::PointXYZ>& lidar_points){
-        Vector3f* point_values;
+    void renderLidarPointcloud(GridMap *grid_map,
+                               LidarParams *lidar_param,
+                               cudaMat::SE3<float> &T_wc,
+                               pcl::PointCloud<pcl::PointXYZ> &lidar_points,
+                               const std::vector<SphereObstacle> &dynamic_obstacles)
+    {
+        Vector3f *point_values;
         size_t num_elements = lidar_param->vertical_lines * lidar_param->horizontal_num;
         cudaMallocManaged(&point_values, num_elements * sizeof(Vector3f));
 
-        // 在GPU上启动核函数
-        lidarRaycastKernel<<<lidar_param->vertical_lines, lidar_param->horizontal_num>>>(point_values, *grid_map, *lidar_param, T_wc);
-        
+        SphereObstacle *dynamic_obstacles_cuda = nullptr;
+        if (!dynamic_obstacles.empty())
+        {
+            cudaMallocManaged(&dynamic_obstacles_cuda, dynamic_obstacles.size() * sizeof(SphereObstacle));
+            cudaMemcpy(dynamic_obstacles_cuda,
+                       dynamic_obstacles.data(),
+                       dynamic_obstacles.size() * sizeof(SphereObstacle),
+                       cudaMemcpyHostToDevice);
+        }
+
+        lidarRaycastKernel<<<lidar_param->vertical_lines, lidar_param->horizontal_num>>>(
+            point_values, *grid_map, *lidar_param, T_wc, dynamic_obstacles_cuda, dynamic_obstacles.size());
         cudaDeviceSynchronize();
 
         std::vector<Vector3f> cpu_points(num_elements);
         cudaMemcpy(cpu_points.data(), point_values, num_elements * sizeof(Vector3f), cudaMemcpyDeviceToHost);
-        
+
         lidar_points.points.clear();
         lidar_points.points.reserve(num_elements);
-        
-        for (const auto& point : cpu_points) {
-            if (point.x != 0 || point.y != 0 || point.z != 0) {
+        for (const auto &point : cpu_points)
+        {
+            if (point.x != 0 || point.y != 0 || point.z != 0)
                 lidar_points.points.emplace_back(point.x, point.y, point.z);
-            }
         }
+
+        if (dynamic_obstacles_cuda != nullptr)
+            cudaFree(dynamic_obstacles_cuda);
         cudaFree(point_values);
-        return;
     }
-
-
-    
 }

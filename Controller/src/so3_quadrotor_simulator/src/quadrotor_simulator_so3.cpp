@@ -40,7 +40,8 @@ void stateToOdomMsg(const QuadrotorSimulator::Quadrotor::State& state,
 void quadToImuMsg(const QuadrotorSimulator::Quadrotor& quad,
                   sensor_msgs::Imu&                    imu);
 void odomToTF(const nav_msgs::Odometry& odom_msg,
-              geometry_msgs::TransformStamped& transformStamped);
+              geometry_msgs::TransformStamped& transformStamped,
+              const std::string& child_frame_id);
 void odomToMesh(const nav_msgs::Odometry& odom_msg, 
                 visualization_msgs::Marker& meshROS);
 
@@ -308,7 +309,7 @@ main(int argc, char** argv)
       state                 = quad.getState();
       stateToOdomMsg(state, odom_msg);
       quadToImuMsg(quad, imu);
-      odomToTF(odom_msg, transformStamped);
+      odomToTF(odom_msg, transformStamped, odom_msg.child_frame_id);
       odom_pub.publish(odom_msg);
       imu_pub.publish(imu);
       tf_broadcaster.sendTransform(transformStamped);
@@ -373,10 +374,12 @@ quadToImuMsg(const QuadrotorSimulator::Quadrotor& quad, sensor_msgs::Imu& imu)
 
 
 void 
-odomToTF(const nav_msgs::Odometry& odom_msg, geometry_msgs::TransformStamped& transformStamped) {
+odomToTF(const nav_msgs::Odometry& odom_msg,
+         geometry_msgs::TransformStamped& transformStamped,
+         const std::string& child_frame_id) {
   transformStamped.header.stamp = odom_msg.header.stamp;
   transformStamped.header.frame_id = "world";
-  transformStamped.child_frame_id = "odom";
+  transformStamped.child_frame_id = child_frame_id;
 
   transformStamped.transform.translation.x = odom_msg.pose.pose.position.x;
   transformStamped.transform.translation.y = odom_msg.pose.pose.position.y;

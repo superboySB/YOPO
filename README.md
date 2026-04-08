@@ -128,6 +128,41 @@ You can click the `2D Nav Goal` on RVIZ as the goal (the map is infinite so the 
     <img src="docs/click_in_rviz.gif" alt="click_in_rviz" />
 </p>
 
+**5. Collision Counters and Event Monitoring**
+
+The simulator now exposes two kinds of collision counters:
+
+- Static-map collision counters
+  - Total: `/yopo/collision_counter_total`
+  - Per-UAV: `/uav0/yopo/collision_counter`, `/uav1/yopo/collision_counter`, ...
+- UAV-to-UAV collision counters
+  - Total: `/yopo/uav_collision_counter_total`
+  - Per-UAV: `/uav0/yopo/uav_collision_counter`, `/uav1/yopo/uav_collision_counter`, ...
+
+You can inspect the total counters directly:
+```
+rostopic echo /yopo/collision_counter_total
+rostopic echo /yopo/uav_collision_counter_total
+```
+
+For swarm tests, you can also watch counter increments as events:
+```
+cd YOPO
+source /opt/ros/noetic/setup.bash
+python3 tools/watch_collision_events.py --uav-num 4
+```
+
+And if you want a single summary for one swarm rollout:
+```
+cd YOPO
+source /opt/ros/noetic/setup.bash
+python3 tools/monitor_swarm_run.py --uav-num 4 --timeout 120
+```
+
+Notes:
+- `collision_counter_total` counts entry events where the UAV body center enters an occupied map voxel, so it is a conservative static-obstacle proxy.
+- `uav_collision_counter_total` counts entry events where two UAV bodies come within the configured collision radius.
+
 
 ## Train the Policy
 **1. Data Collection** 
