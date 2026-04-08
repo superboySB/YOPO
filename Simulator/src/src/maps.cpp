@@ -838,10 +838,17 @@ Maps::getSwarmRingPositions() const
 void
 Maps::clearSwarmSpawnAreas()
 {
-  if (!swarm_enabled || swarm_uav_num <= 1 || swarm_spawn_clear_radius <= 0.0 || info.cloud->points.empty())
+  if (!swarm_enabled || swarm_uav_num <= 0 || swarm_spawn_clear_radius <= 0.0 || info.cloud->points.empty())
     return;
 
-  const auto spawn_positions = getSwarmRingPositions();
+  std::vector<Eigen::Vector2f> clear_positions = getSwarmRingPositions();
+  clear_positions.reserve(clear_positions.size() * 2);
+  const size_t spawn_count = clear_positions.size();
+  for (size_t i = 0; i < spawn_count; ++i)
+  {
+    const auto &spawn = clear_positions[i];
+    clear_positions.emplace_back(-spawn.x(), -spawn.y());
+  }
   const float clear_radius_sq = static_cast<float>(swarm_spawn_clear_radius * swarm_spawn_clear_radius);
 
   auto &points = info.cloud->points;
@@ -849,7 +856,7 @@ Maps::clearSwarmSpawnAreas()
                               [&](const pcl::PointXYZ &point) {
                                 if (point.z <= 0.1f)
                                   return false;
-                                for (const auto &center : spawn_positions)
+                                for (const auto &center : clear_positions)
                                 {
                                   const float dx = point.x - center.x();
                                   const float dy = point.y - center.y();
@@ -1052,7 +1059,7 @@ void Maps::forest()
   pcl::PointCloud<pcl::PointXYZ>::Ptr tree_cloud(new pcl::PointCloud<pcl::PointXYZ>());
   if (pcl::io::loadPLYFile(tree_file, *tree_cloud) == -1)
   {
-    ROS_ERROR("Error: Cannot read the tree PLY file. Please check the config.yaml.");
+    ROS_ERROR("Error: Cannot read the tree PLY file. Please check the single_config.yaml.");
     return;
   }
 

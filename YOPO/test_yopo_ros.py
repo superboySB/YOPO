@@ -73,6 +73,7 @@ class YopoNet:
         self.ctrl_time = None
         self.desire_init = False
         self.arrive = False
+        self.arrive_hold_pos = None
         self.desire_pos = None
         self.desire_vel = None
         self.desire_acc = None
@@ -133,7 +134,9 @@ class YopoNet:
         control_msg.header.stamp = rospy.Time.now()
         control_msg.trajectory_flag = control_msg.TRAJECTORY_STATUS_EMPTY
 
-        if self.odom_init:
+        if self.arrive_hold_pos is not None:
+            hover_pos = np.array(self.arrive_hold_pos, dtype=np.float32)
+        elif self.odom_init:
             hover_pos = np.array((
                 self.odom.pose.pose.position.x,
                 self.odom.pose.pose.position.y,
@@ -160,6 +163,7 @@ class YopoNet:
     def callback_set_goal(self, data):
         self.goal = np.asarray([data.pose.position.x, data.pose.position.y, 2])
         self.arrive = False
+        self.arrive_hold_pos = None
         self.publish_status()
         print(f"[{self.agent_name}] New Goal: ({data.pose.position.x:.1f}, {data.pose.position.y:.1f})")
 
@@ -180,6 +184,7 @@ class YopoNet:
         if goal_distance < self.arrive_radius and not self.arrive:
             print(f"[{self.agent_name}] Arrive!")
             self.arrive = True
+            self.arrive_hold_pos = pos.copy()
         self.publish_status(goal_distance)
 
     def process_odom(self):
@@ -206,7 +211,11 @@ class YopoNet:
 
     @torch.inference_mode()
     def callback_depth(self, data):
-        if not self.odom_init: return
+        if not self.odom_init:
+            return
+        if self.arrive:
+            self.publish_status()
+            return
 
         # 1. Depth Image Process (Be careful with the depth units in your application)
         time0 = time.time()
@@ -268,16 +277,18 @@ class YopoNet:
         self.print_time(time0, time1, time2, time3, time4, time5)
 
     def control_pub(self, _timer):
-        if self.ctrl_time is None or self.ctrl_time > self.traj_time:
-            self.publish_status()
-            return
-        if self.arrive and self.last_control_msg is not None:
+        if self.arrive:
+            self.desire_init = False
+            self.ctrl_time = None
             hover_msg = self.build_hover_command()
             self.desire_pos = np.array([hover_msg.position.x, hover_msg.position.y, hover_msg.position.z], dtype=np.float32)
             self.desire_vel = np.zeros(3, dtype=np.float32)
             self.desire_acc = np.zeros(3, dtype=np.float32)
             self.last_control_msg = hover_msg
             self.ctrl_pub.publish(hover_msg)
+            self.publish_status()
+            return
+        if self.ctrl_time is None or self.ctrl_time > self.traj_time:
             self.publish_status()
             return
 
@@ -464,6 +475,7 @@ def parser():
     parser.add_argument("--use_tensorrt", type=int, default=0, help="use tensorrt or not")
     parser.add_argument("--trial", type=int, default=1, help="trial number")
     parser.add_argument("--epoch", type=int, default=50, help="epoch number")
+    parser.add_argument("--weights_root", type=str, default="saved", help="checkpoint root under YOPO/")
     parser.add_argument("--agent_name", type=str, default="uav0", help="agent name for logging")
     parser.add_argument("--node_name", type=str, default="yopo_net", help="ROS node name")
     parser.add_argument("--odom_topic", type=str, default="/sim/odom", help="odometry topic")
@@ -491,7 +503,10 @@ def parser():
 if __name__ == "__main__":
     args = parser().parse_args()
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    weight = "yopo_trt.pth" if args.use_tensorrt else base_dir + "/saved/YOPO_{}/epoch{}.pth".format(args.trial, args.epoch)
+    weights_root = args.weights_root
+    if not os.path.isabs(weights_root):
+        weights_root = os.path.join(base_dir, weights_root)
+    weight = "yopo_trt.pth" if args.use_tensorrt else os.path.join(weights_root, "YOPO_{}".format(args.trial), "epoch{}.pth".format(args.epoch))
     print("load weight from:", weight)
 
     goal_topic = args.goal_topic.strip()

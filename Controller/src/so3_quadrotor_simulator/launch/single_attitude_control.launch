@@ -1,0 +1,20 @@
+<launch>
+    <arg name="init_x" default="0.0"/>
+    <arg name="init_y" default="0.0"/>
+    <arg name="init_z" default="2.0"/>
+
+    <include file="$(find so3_quadrotor_simulator)/launch/simulator_attitude_control_uav.launch">
+        <arg name="uav_name" value="quadrotor"/>
+        <arg name="init_x" value="$(arg init_x)"/>
+        <arg name="init_y" value="$(arg init_y)"/>
+        <arg name="init_z" value="$(arg init_z)"/>
+        <arg name="odom_topic" value="/sim/odom"/>
+        <arg name="imu_topic" value="/sim/imu"/>
+        <arg name="ctrl_topic" value="/so3_control/pos_cmd"/>
+        <arg name="so3_cmd_topic" value="/so3_cmd"/>
+        <arg name="force_disturbance_topic" value="/force_disturbance"/>
+        <arg name="moment_disturbance_topic" value="/moment_disturbance"/>
+        <arg name="simulator_node_name" value="quadrotor_simulator_so3"/>
+        <arg name="controller_node_name" value="network_controller_node"/>
+    </include>
+</launch>

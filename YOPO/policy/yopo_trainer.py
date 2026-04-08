@@ -25,12 +25,14 @@ class YopoTrainer:
             loss_weight=[],
             tensorboard_path=None,
             checkpoint_path=None,
+            num_workers=4,
             save_on_exit=False,
     ):
         self.batch_size = batch_size
         self.max_grad_norm = 0.1
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.loss_weight = loss_weight
+        self.num_workers = num_workers
         if save_on_exit: self._exit_func = atexit.register(self.save_model)
         # logger
         self.progress_log = Progress()
@@ -54,14 +56,15 @@ class YopoTrainer:
         self.yopo_loss = YOPOLoss()
 
         # optimizer
-        self.optimizer = torch.optim.AdamW(self.policy.parameters(), lr=learning_rate, fused=True)
+        fused_adamw = self.device.type == "cuda"
+        self.optimizer = torch.optim.AdamW(self.policy.parameters(), lr=learning_rate, fused=fused_adamw)
         print("Network Loaded! Loading Dataset...")
 
         # dataset (you can adjust num_workers according to your training speed)
         self.train_dataloader = DataLoader(YOPODataset(mode='train'), batch_size=self.batch_size, shuffle=True,
-                                           num_workers=4, pin_memory=True)
+                                           num_workers=self.num_workers, pin_memory=True)
         self.val_dataloader = DataLoader(YOPODataset(mode='valid'), batch_size=self.batch_size, shuffle=False,
-                                         num_workers=4, pin_memory=True)
+                                         num_workers=self.num_workers, pin_memory=True)
         print("Dataset Loaded!")
 
     def train(self, epoch, save_interval=None):

@@ -6,7 +6,12 @@ from ruamel.yaml import YAML
 class Config:
     def __init__(self):
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        self._data = YAML().load(open(os.path.join(base_dir, "traj_opt.yaml"), 'r'))
+        config_path = os.environ.get("YOPO_CONFIG_PATH", os.path.join(base_dir, "single_traj_opt.yaml"))
+        if not os.path.isabs(config_path):
+            config_path = os.path.join(base_dir, config_path)
+        with open(config_path, "r", encoding="utf-8") as config_file:
+            self._data = YAML().load(config_file)
+        self._data["config_path"] = config_path
         self._data["train"] = True
         self._data["goal_length"] = 2.0 * self._data['radio_range']
         self._data["sgm_time"] = 2 * self._data["radio_range"] / self._data["vel_max_train"]

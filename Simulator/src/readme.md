@@ -32,7 +32,7 @@ rosrun sensor_simulator sensor_simulator_cuda
 rosrun sensor_simulator sensor_simulator
 ```
 
-传感器参数以及点云环境修改见[config](config/config.yaml)，重要参数说明:
+传感器参数以及点云环境修改见[config](config/single_config.yaml)，重要参数说明:
 ```
 # 一些话题
 odom_topic: "/sim/odom"

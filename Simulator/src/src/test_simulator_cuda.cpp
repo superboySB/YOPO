@@ -3,6 +3,7 @@
 #include <pcl/point_cloud.h>
 #include <pcl/common/common.h>
 #include <pcl/common/eigen.h>
+#include <pcl/filters/voxel_grid.h>
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include <opencv2/opencv.hpp>
@@ -65,11 +66,11 @@ public:
         swarm_uav_num_ = std::max(1, config["swarm"]["uav_num"].as<int>());
         swarm_namespace_prefix_ = config["swarm"]["namespace_prefix"].as<std::string>();
         collision_radius_ = config["swarm"]["collision_radius"].as<float>();
-        render_radius_ = config["swarm"]["render_radius"].as<float>();
 
         const std::string ply_file = config["ply_file"].as<std::string>();
         const bool use_random_map = config["random_map"].as<bool>();
         const float resolution = config["resolution"].as<float>();
+        const float mock_map_leaf_size = config["mock_map_leaf_size"] ? config["mock_map_leaf_size"].as<float>() : resolution;
         const int occupy_threshold = config["occupy_threshold"].as<int>();
         const int seed = config["seed"].as<int>();
         int size_x = config["x_length"].as<int>();
@@ -109,10 +110,24 @@ public:
                 PCL_ERROR("Couldn't read PLY file \n");
         }
 
-        pcl::toROSMsg(*cloud, map_output_);
+        pcl::PointCloud<pcl::PointXYZ>::Ptr map_visual_cloud(new pcl::PointCloud<pcl::PointXYZ>());
+        if (mock_map_leaf_size > resolution)
+        {
+            pcl::VoxelGrid<pcl::PointXYZ> voxel_filter;
+            voxel_filter.setInputCloud(cloud);
+            voxel_filter.setLeafSize(mock_map_leaf_size, mock_map_leaf_size, mock_map_leaf_size);
+            voxel_filter.filter(*map_visual_cloud);
+        }
+        else
+        {
+            *map_visual_cloud = *cloud;
+        }
+
+        pcl::toROSMsg(*map_visual_cloud, map_output_);
         map_output_.header.frame_id = "world";
 
-        std::cout << "PointCloud size: " << cloud->points.size() << std::endl;
+        std::cout << "PointCloud size (raw/visual): " << cloud->points.size() << " / "
+                  << map_visual_cloud->points.size() << std::endl;
         printf("2.Mapping... \n");
         grid_map_ = new GridMap(cloud, resolution, occupy_threshold);
 
@@ -168,7 +183,6 @@ private:
     bool swarm_enabled_{false};
     int swarm_uav_num_{1};
     float collision_radius_{0.45f};
-    float render_radius_{0.90f};
     std::string swarm_namespace_prefix_{"uav"};
 
     Eigen::Quaternionf quat_bc_{Eigen::Quaternionf::Identity()};
@@ -207,7 +221,6 @@ void SensorSimulator::applyRosParamOverrides(YAML::Node &config)
     double altitude = config["swarm"]["altitude"] ? config["swarm"]["altitude"].as<double>() : 2.0;
     double spawn_clear_radius = config["swarm"]["spawn_clear_radius"] ? config["swarm"]["spawn_clear_radius"].as<double>() : 2.2;
     double collision_radius = config["swarm"]["collision_radius"] ? config["swarm"]["collision_radius"].as<double>() : 0.45;
-    double render_radius = config["swarm"]["render_radius"] ? config["swarm"]["render_radius"].as<double>() : 0.90;
 
     pnh_.param("swarm_enabled", swarm_enabled, swarm_enabled);
     pnh_.param("swarm_uav_num", swarm_uav_num, swarm_uav_num);
@@ -216,7 +229,6 @@ void SensorSimulator::applyRosParamOverrides(YAML::Node &config)
     pnh_.param("swarm_altitude", altitude, altitude);
     pnh_.param("swarm_spawn_clear_radius", spawn_clear_radius, spawn_clear_radius);
     pnh_.param("swarm_collision_radius", collision_radius, collision_radius);
-    pnh_.param("swarm_render_radius", render_radius, render_radius);
 
     config["swarm"]["enabled"] = swarm_enabled;
     config["swarm"]["uav_num"] = swarm_uav_num;
@@ -225,7 +237,6 @@ void SensorSimulator::applyRosParamOverrides(YAML::Node &config)
     config["swarm"]["altitude"] = altitude;
     config["swarm"]["spawn_clear_radius"] = spawn_clear_radius;
     config["swarm"]["collision_radius"] = collision_radius;
-    config["swarm"]["render_radius"] = render_radius;
 }
 
 void SensorSimulator::setupRobots(const YAML::Node &config)
@@ -287,7 +298,7 @@ std::vector<SphereObstacle> SensorSimulator::getDynamicObstacles(size_t robot_in
 
         SphereObstacle obstacle;
         obstacle.center = Vector3f(robots_[i].pos.x(), robots_[i].pos.y(), robots_[i].pos.z());
-        obstacle.radius = render_radius_;
+        obstacle.radius = collision_radius_;
         obstacles.push_back(obstacle);
     }
     return obstacles;

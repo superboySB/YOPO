@@ -10,10 +10,14 @@ Simulator/logs/
 Simulator/.catkin_tools/
 
 YOPO/saved/*
+YOPO/saved_swarm/*
 dataset/
+dataset_swarm/
 yopo_sim/
 
 !YOPO/saved/YOPO_1/
+!YOPO/saved_swarm/YOPO_0/
 *.pyc
 bags/
 *.bag
+**/__pycache__

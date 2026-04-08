@@ -10,11 +10,225 @@
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
+#include <algorithm>
+#include <random>
+#include <string>
+#include <vector>
 #include "sensor_simulator.cuh"
 #include "maps.hpp"
 
 using namespace raycast;
 namespace fs = std::filesystem;
+
+struct DatasetCliOptions
+{
+    std::string config_path{CONFIG_FILE_PATH};
+    std::string save_path_override{};
+    int env_num_override{-1};
+    int image_num_override{-1};
+};
+
+struct SwarmDatasetOptions
+{
+    bool enabled{false};
+    std::string save_path_override{};
+    int sphere_count_min{0};
+    int sphere_count_max{0};
+    float sphere_radius{0.25f};
+    float sample_step{0.0f};
+    float center_margin_xy{4.0f};
+    float center_z_min{1.0f};
+    float center_z_max{4.0f};
+    float static_clearance{0.8f};
+    float min_center_distance{3.0f};
+    int max_attempts_per_obstacle{50};
+};
+
+struct SphereObstacleSpec
+{
+    Eigen::Vector3f center{Eigen::Vector3f::Zero()};
+    float radius{0.25f};
+};
+
+Eigen::Quaternionf RPY2Quat(float roll_deg, float pitch_deg, float yaw_deg);
+
+DatasetCliOptions parseCliOptions(int argc, char **argv)
+{
+    DatasetCliOptions options;
+    for (int i = 1; i < argc; ++i)
+    {
+        const std::string arg = argv[i];
+        if (arg == "--config" && i + 1 < argc)
+        {
+            options.config_path = argv[++i];
+        }
+        else if (arg == "--save-path" && i + 1 < argc)
+        {
+            options.save_path_override = argv[++i];
+        }
+        else if (arg == "--env-num" && i + 1 < argc)
+        {
+            options.env_num_override = std::stoi(argv[++i]);
+        }
+        else if (arg == "--image-num" && i + 1 < argc)
+        {
+            options.image_num_override = std::stoi(argv[++i]);
+        }
+        else if (arg == "-h" || arg == "--help")
+        {
+            std::cout << "Usage: dataset_generator [--config PATH] [--save-path DIR] [--env-num N] [--image-num N]" << std::endl;
+            std::exit(0);
+        }
+        else
+        {
+            std::cerr << "Unknown arg: " << arg << std::endl;
+            std::exit(1);
+        }
+    }
+    return options;
+}
+
+SwarmDatasetOptions loadSwarmDatasetOptions(const YAML::Node &config)
+{
+    SwarmDatasetOptions options;
+    const YAML::Node node = config["swarm_dataset"];
+    if (!node)
+        return options;
+
+    options.enabled = node["enabled"] ? node["enabled"].as<bool>() : false;
+    options.save_path_override = node["save_path"] ? node["save_path"].as<std::string>() : "";
+    options.sphere_count_min = node["sphere_count_min"] ? node["sphere_count_min"].as<int>() : options.sphere_count_min;
+    options.sphere_count_max = node["sphere_count_max"] ? node["sphere_count_max"].as<int>() : options.sphere_count_max;
+    options.sphere_radius = node["sphere_radius"] ? node["sphere_radius"].as<float>()
+                         : ((config["swarm"] && config["swarm"]["collision_radius"])
+                            ? config["swarm"]["collision_radius"].as<float>()
+                            : options.sphere_radius);
+    options.sample_step = node["sample_step"] ? node["sample_step"].as<float>() : options.sample_step;
+    options.center_margin_xy = node["center_margin_xy"] ? node["center_margin_xy"].as<float>() : options.center_margin_xy;
+    options.static_clearance = node["static_clearance"] ? node["static_clearance"].as<float>() : options.static_clearance;
+    options.min_center_distance = node["min_center_distance"] ? node["min_center_distance"].as<float>() : options.min_center_distance;
+    options.max_attempts_per_obstacle = node["max_attempts_per_obstacle"] ? node["max_attempts_per_obstacle"].as<int>() : options.max_attempts_per_obstacle;
+    if (node["center_z_range"] && node["center_z_range"].IsSequence() && node["center_z_range"].size() == 2)
+    {
+        options.center_z_min = node["center_z_range"][0].as<float>();
+        options.center_z_max = node["center_z_range"][1].as<float>();
+    }
+    options.sphere_count_max = std::max(options.sphere_count_min, options.sphere_count_max);
+    return options;
+}
+
+pcl::PointCloud<pcl::PointXYZ>::Ptr createFilledSphereCloud(const SphereObstacleSpec &spec, float sample_step)
+{
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>());
+    for (float x = -spec.radius; x <= spec.radius; x += sample_step)
+    {
+        for (float y = -spec.radius; y <= spec.radius; y += sample_step)
+        {
+            for (float z = -spec.radius; z <= spec.radius; z += sample_step)
+            {
+                if (x * x + y * y + z * z > spec.radius * spec.radius)
+                    continue;
+
+                pcl::PointXYZ point;
+                point.x = spec.center.x() + x;
+                point.y = spec.center.y() + y;
+                point.z = spec.center.z() + z;
+                cloud->points.push_back(point);
+            }
+        }
+    }
+    cloud->width = cloud->points.size();
+    cloud->height = 1;
+    cloud->is_dense = true;
+    return cloud;
+}
+
+void appendSwarmDatasetSpheres(const SwarmDatasetOptions &options,
+                               pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
+                               float resolution,
+                               float x_min,
+                               float x_max,
+                               float y_min,
+                               float y_max,
+                               int seed)
+{
+    if (!options.enabled || options.sphere_count_max <= 0 || options.sphere_radius <= 0.0f)
+        return;
+
+    const float sample_step = options.sample_step > 0.0f ? options.sample_step : resolution;
+    const float x_low = x_min + options.center_margin_xy;
+    const float x_high = x_max - options.center_margin_xy;
+    const float y_low = y_min + options.center_margin_xy;
+    const float y_high = y_max - options.center_margin_xy;
+    if (x_low >= x_high || y_low >= y_high)
+    {
+        std::cerr << "[swarm_dataset] invalid XY range for sphere placement." << std::endl;
+        return;
+    }
+
+    pcl::KdTreeFLANN<pcl::PointXYZ> static_kdtree;
+    static_kdtree.setInputCloud(cloud);
+
+    std::mt19937 generator(seed);
+    std::uniform_int_distribution<int> count_dist(options.sphere_count_min, options.sphere_count_max);
+    std::uniform_real_distribution<float> x_dist(x_low, x_high);
+    std::uniform_real_distribution<float> y_dist(y_low, y_high);
+    std::uniform_real_distribution<float> z_dist(options.center_z_min, options.center_z_max);
+
+    const int target_count = count_dist(generator);
+    std::vector<SphereObstacleSpec> spheres;
+    spheres.reserve(target_count);
+
+    for (int target_idx = 0; target_idx < target_count; ++target_idx)
+    {
+        bool placed = false;
+        for (int attempt = 0; attempt < options.max_attempts_per_obstacle; ++attempt)
+        {
+            SphereObstacleSpec spec;
+            spec.center = Eigen::Vector3f(x_dist(generator), y_dist(generator), z_dist(generator));
+            spec.radius = options.sphere_radius;
+
+            const float required_static_clearance = spec.radius + options.static_clearance;
+            pcl::PointXYZ search_point(spec.center.x(), spec.center.y(), spec.center.z());
+            std::vector<int> point_indices(1);
+            std::vector<float> point_dist_sq(1);
+            const int found_num = static_kdtree.nearestKSearch(search_point, 1, point_indices, point_dist_sq);
+            if (found_num > 0 && std::sqrt(point_dist_sq[0]) < required_static_clearance)
+                continue;
+
+            bool overlaps_existing = false;
+            for (const auto &existing : spheres)
+            {
+                const float required_center_distance =
+                    existing.radius + spec.radius + options.min_center_distance;
+                if ((existing.center - spec.center).norm() < required_center_distance)
+                {
+                    overlaps_existing = true;
+                    break;
+                }
+            }
+            if (overlaps_existing)
+                continue;
+
+            spheres.push_back(spec);
+            placed = true;
+            break;
+        }
+        if (!placed)
+        {
+            std::cerr << "[swarm_dataset] failed to place sphere " << target_idx
+                      << " after " << options.max_attempts_per_obstacle << " attempts." << std::endl;
+        }
+    }
+
+    for (const auto &spec : spheres)
+    {
+        pcl::PointCloud<pcl::PointXYZ>::Ptr sphere_cloud = createFilledSphereCloud(spec, sample_step);
+        *cloud += *sphere_cloud;
+    }
+    std::cout << "[swarm_dataset] appended " << spheres.size()
+              << " sphere obstacles to the dataset map. radius=" << options.sphere_radius << std::endl;
+}
 
 void prepareSavePath(const std::string &path, bool print=false)
 {
@@ -82,7 +296,9 @@ void printProgressBar(int current, int total, int bar_width = 50)
 
 int main(int argc, char **argv)
 {
-    YAML::Node config = YAML::LoadFile(CONFIG_FILE_PATH);
+    const DatasetCliOptions cli_options = parseCliOptions(argc, argv);
+    YAML::Node config = YAML::LoadFile(cli_options.config_path);
+    const SwarmDatasetOptions swarm_dataset_options = loadSwarmDatasetOptions(config);
 
     // 1. 相机参数
     CameraParams camera;
@@ -112,8 +328,16 @@ int main(int argc, char **argv)
 
     // 3. 数据集参数
     std::string save_path = config["save_path"].as<std::string>();
+    if (swarm_dataset_options.enabled && !swarm_dataset_options.save_path_override.empty())
+        save_path = swarm_dataset_options.save_path_override;
+    if (!cli_options.save_path_override.empty())
+        save_path = cli_options.save_path_override;
     int env_num = config["env_num"].as<int>();
     int image_num = config["image_num"].as<int>();
+    if (cli_options.env_num_override > 0)
+        env_num = cli_options.env_num_override;
+    if (cli_options.image_num_override > 0)
+        image_num = cli_options.image_num_override;
     float roll_range = config["roll_range"].as<float>();
     float pitch_range = config["pitch_range"].as<float>();
     float x_range = config["x_range"].as<float>();
@@ -163,6 +387,7 @@ int main(int argc, char **argv)
         map.setParam(config);
         map.setInfo(info);
         map.generate(config["maze_type"].as<int>());
+        appendSwarmDatasetSpheres(swarm_dataset_options, cloud, resolution, x_min, x_min + x_range, y_min, y_min + y_range, seed + map_i);
 
         // 构建 GridMap
         GridMap grid_map(cloud, resolution, occupy_threshold);
