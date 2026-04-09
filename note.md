@@ -49,7 +49,7 @@ cd /workspace/YOPO
 
 碰撞统计：
 ```bash
-rostopic echo /yopo/collision_counter_total
+source /opt/ros/noetic/setup.bash && rostopic echo /yopo/collision_counter_total
 ```
 
 RViz：

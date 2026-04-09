@@ -5,8 +5,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Etc/UTC
 
 # Keep proxy config (override by --build-arg if needed)
-ARG HTTP_PROXY=http://127.0.0.1:8889
-ARG HTTPS_PROXY=http://127.0.0.1:8889
+ARG HTTP_PROXY=http://127.0.0.1:7897
+ARG HTTPS_PROXY=http://127.0.0.1:7897
 ENV http_proxy=${HTTP_PROXY}
 ENV https_proxy=${HTTPS_PROXY}
 ENV HTTP_PROXY=${HTTP_PROXY}
