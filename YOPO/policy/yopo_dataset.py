@@ -107,7 +107,7 @@ class YOPODataset(Dataset):
 
     def __getitem__(self, item):
         # 1. read the image
-        # NOTE: The depth images are normalized from 0–20m to a 0–1 and converted to int16 during data collection.
+        # NOTE: The depth images are normalized to 0–1 using the simulator max_depth_dist before being saved as uint16.
         image = cv2.imread(self.img_list[item], -1).astype(np.float32)
         image = np.expand_dims(cv2.resize(image, (self.width, self.height), interpolation=cv2.INTER_NEAREST) / 65535.0, axis=0)
 

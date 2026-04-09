@@ -96,7 +96,7 @@ cd /workspace/YOPO
 
 ./tools/swarm_launch.sh --stop
 
-./tools/swarm_launch.sh --trial 0 --epoch 50 --uav-num 4 --radius 30 \
+./tools/swarm_launch.sh --trial 0 --epoch 50 --uav-num 5 --radius 20 \
   --swarm-tangent-bias 0 \
   --yopo-config /workspace/YOPO/YOPO/config/swarm_traj_opt.yaml \
   --weights-root saved_swarm

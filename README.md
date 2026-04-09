@@ -106,7 +106,7 @@ You can refer to [traj_opt.yaml](YOPO/config/traj_opt.yaml) for modification of 
 ```
 cd YOPO
 conda activate yopo
-python test_yopo_ros.py --trial=1 --epoch=50
+python test_yopo_ros_single.py --trial=1 --epoch=50
 ```
 
 **4. Visualization**
@@ -238,15 +238,15 @@ python yopo_trt_transfer.py --trial=1 --epoch=50
 ```
 cd YOPO
 conda activate yopo
-python test_yopo_ros.py --use_tensorrt=1
+python test_yopo_ros_single.py --use_tensorrt=1
 ```
 
 **4. Adapt to Your Platform**
-+ You need to change `env: simulation` at the end of `test_yopo_ros.py` to `env: 435` (this affects the unit of the depth image), and modify the odometry to your own topic (in the NWU frame).
++ You need to change `env: simulation` at the end of `test_yopo_ros_single.py` to `env: 435` (this affects the unit of the depth image), and modify the odometry to your own topic (in the NWU frame).
 
 + Configure your depth camera to match the training configuration (the pre-trained weights use a 16:9 resolution and a 90° FOV; for RealSense, you can set the resolution in ROS-driver file to 480×270).
 
-+ You may want to use the position controller like traditional planners in real flight to make it compatible with your controller. You should change `plan_from_reference: False` to `True` at the end of `test_yopo_ros.py`. You can test the changes in simulation using the position controller: `roslaunch so3_quadrotor_simulator simulator_position_control.launch
++ You may want to use the position controller like traditional planners in real flight to make it compatible with your controller. You should change `plan_from_reference: False` to `True` at the end of `test_yopo_ros_single.py`. You can test the changes in simulation using the position controller: `roslaunch so3_quadrotor_simulator simulator_position_control.launch
 `
 
 **5. Generalization**

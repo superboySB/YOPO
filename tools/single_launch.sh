@@ -84,7 +84,7 @@ stop_all() {
   pkill -f 'so3_quadrotor_simulator single_attitude_control.launch' >/dev/null 2>&1 || true
   pkill -f 'so3_quadrotor_simulator simulator_attitude_control.launch' >/dev/null 2>&1 || true
   pkill -f 'rosrun sensor_simulator sensor_simulator_cuda' >/dev/null 2>&1 || true
-  pkill -f 'python3 test_yopo_ros.py --trial=' >/dev/null 2>&1 || true
+  pkill -f 'python3 test_yopo_ros_single.py --trial=' >/dev/null 2>&1 || true
   pkill -f 'rviz -d single_yopo.rviz' >/dev/null 2>&1 || true
   pkill -f 'rviz -d yopo.rviz' >/dev/null 2>&1 || true
 }
@@ -158,7 +158,7 @@ main() {
   local yopo_env="export YOPO_CONFIG_PATH='${YOPO_CONFIG}'; "
   local cmd_controller="${env_setup}; ${wait_lib}; wait_for_master; cd /workspace/YOPO/Controller; source devel/setup.bash; roslaunch so3_quadrotor_simulator single_attitude_control.launch"
   local cmd_simulator="${env_setup}; ${wait_lib}; wait_for_master; wait_for_topic /sim/odom; cd /workspace/YOPO/Simulator; source devel/setup.bash; rosrun sensor_simulator sensor_simulator_cuda"
-  local cmd_planner="${env_setup}; ${wait_lib}; wait_for_master; wait_for_topic /sim/odom; wait_for_topic /depth_image; cd /workspace/YOPO/YOPO; ${yopo_env}python3 test_yopo_ros.py --trial=${TRIAL} --epoch=${EPOCH} --weights_root=${WEIGHTS_ROOT}"
+  local cmd_planner="${env_setup}; ${wait_lib}; wait_for_master; wait_for_topic /sim/odom; wait_for_topic /depth_image; cd /workspace/YOPO/YOPO; ${yopo_env}python3 test_yopo_ros_single.py --trial=${TRIAL} --epoch=${EPOCH} --weights_root=${WEIGHTS_ROOT}"
   local cmd_rviz="${env_setup}; ${wait_lib}; wait_for_master; wait_for_topic /mock_map; wait_for_topic /local_map_visual; wait_for_topic /depth_image; wait_for_topic /yopo_net/trajs_visual; cd /workspace/YOPO/YOPO; rviz -d single_yopo.rviz"
 
   tmux new-session -d -s "${SESSION}" -n roscore "bash -lc '${env_setup}; roscore'"

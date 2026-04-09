@@ -34,7 +34,10 @@ class SensorSimulator
 public:
     SensorSimulator(ros::NodeHandle &nh, ros::NodeHandle &pnh) : nh_(nh), pnh_(pnh)
     {
-        YAML::Node config = YAML::LoadFile(CONFIG_FILE_PATH);
+        std::string config_path = CONFIG_FILE_PATH;
+        pnh_.param("config_path", config_path, config_path);
+        ROS_INFO_STREAM("Loading simulator config from: " << config_path);
+        YAML::Node config = YAML::LoadFile(config_path);
         applyRosParamOverrides(config);
 
         camera_ = new CameraParams();

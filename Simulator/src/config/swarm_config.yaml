@@ -4,7 +4,7 @@ depth_topic: "/depth_image"
 lidar_topic: "/lidar_points"
 
 render_depth: true
-depth_fps: 33
+depth_fps: 10
 
 render_lidar: true
 lidar_fps: 10
@@ -70,29 +70,29 @@ swarm_dataset:
   enabled: true
   save_path: "../dataset_swarm/"
   placement_mode: "per_image"  # per_image: 为每张深度图单独采样球; map: 将球固定写入离线地图
-  sphere_count_min: 1
+  sphere_count_min: 0
   sphere_count_max: 3      # 对于 4 架无人机, 1~3 个球更接近“其余队友”的可见数量
   sphere_radius: 0.25      # 默认应与 swarm.collision_radius 保持一致
   sample_step: 0.05
   center_margin_xy: 4.0
   center_z_range: [1.2, 4.0]
-  visible_depth_min: 2.0
-  visible_depth_max: 10.0
+  visible_depth_min: 0.2
+  visible_depth_max: 20.0
   depth_margin: 0.8
   image_border: 8
-  camera_clearance: 1.0
-  static_clearance: 1.0
-  min_center_distance: 1.8
+  camera_clearance: 0.5
+  static_clearance: 0.5
+  min_center_distance: 0.6
   max_attempts_per_obstacle: 80
 
 # 3. 传感器参数 ==============================================================
 camera:
-  fx: 80.0
-  fy: 80.0
-  cx: 80.0
-  cy: 45.0
-  image_width: 160
-  image_height: 90
+  fx: 34.64101615137755  # 120px width -> horizontal FOV 120 deg
+  fy: 47.67014370376816  # 80px height -> vertical FOV 80 deg
+  cx: 60.0
+  cy: 40.0
+  image_width: 120
+  image_height: 80
   max_depth_dist: 20.0
   normalize_depth: false
   pitch: -0.0
