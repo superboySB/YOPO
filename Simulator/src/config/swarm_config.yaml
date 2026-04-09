@@ -69,12 +69,18 @@ swarm:
 swarm_dataset:
   enabled: true
   save_path: "../dataset_swarm/"
-  sphere_count_min: 6
-  sphere_count_max: 10
+  placement_mode: "per_image"  # per_image: 为每张深度图单独采样球; map: 将球固定写入离线地图
+  sphere_count_min: 1
+  sphere_count_max: 3      # 对于 4 架无人机, 1~3 个球更接近“其余队友”的可见数量
   sphere_radius: 0.25      # 默认应与 swarm.collision_radius 保持一致
   sample_step: 0.05
   center_margin_xy: 4.0
   center_z_range: [1.2, 4.0]
+  visible_depth_min: 2.0
+  visible_depth_max: 10.0
+  depth_margin: 0.8
+  image_border: 8
+  camera_clearance: 1.0
   static_clearance: 1.0
   min_center_distance: 1.8
   max_attempts_per_obstacle: 80

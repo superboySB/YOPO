@@ -88,12 +88,13 @@ class YOPOLoss(nn.Module):
         self.safety_weight = cfg["wc"]
         self.goal_weight = cfg["wg"]
 
-    def forward(self, state, prediction, goal, map_id):
+    def forward(self, state, prediction, goal, map_id, dynamic_obstacles=None):
         """
         Args:
             prediction: (batch_size, 3, 3) → [px, py, pz; vx, vy, vz; ax, ay, az] in world frame
             state: (batch_size, 3, 3) → [px, py, pz; vx, vy, vz; ax, ay, az] in world frame
             map_id: (batch_size) which ESDF map to query
+            dynamic_obstacles: (batch_size, num_spheres, 4) -> [cx, cy, cz, radius] in world frame
 
         Returns:
             cost: (batch_size) → weighted cost
@@ -105,7 +106,7 @@ class YOPOLoss(nn.Module):
         Dp = prediction.permute(0, 2, 1)
 
         smoothness_cost, acceleration_cost = self.smoothness_loss(Df, Dp)
-        safety_cost = self.safety_loss(Df, Dp, map_id)
+        safety_cost = self.safety_loss(Df, Dp, map_id, dynamic_obstacles)
         goal_cost = self.goal_loss(Df, Dp, goal)
 
         return self.smoothness_weight * smoothness_cost, self.safety_weight * safety_cost, self.goal_weight * goal_cost, self.accele_weight * acceleration_cost

@@ -163,6 +163,19 @@ Notes:
 - `collision_counter_total` counts entry events where the UAV body center enters an occupied map voxel, so it is a conservative static-obstacle proxy.
 - `uav_collision_counter_total` counts entry events where two UAV bodies come within the configured collision radius.
 
+**6. Swarm Helper Script**
+
+This repo also provides `tools/swarm_launch.sh` to start a multi-UAV rollout with controllers, simulator, planners, and RViz together. The aggregated local obstacle point-cloud visualization is disabled by default in swarm mode because it can become heavy when many UAVs are active. Add `--visualize-pointcloud 1` only when you want that RViz point-cloud view.
+
+Example:
+```
+cd YOPO
+./tools/swarm_launch.sh --trial 0 --epoch 50 --uav-num 4 --radius 30 \
+  --swarm-tangent-bias 0 \
+  --yopo-config /workspace/YOPO/YOPO/config/swarm_traj_opt.yaml \
+  --weights-root saved_swarm
+```
+
 
 ## Train the Policy
 **1. Data Collection** 

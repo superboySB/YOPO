@@ -33,7 +33,9 @@ class YOPODataset(Dataset):
         # dataset
         base_dir = os.path.dirname(os.path.abspath(__file__))
         data_dir = os.path.join(base_dir, "../", cfg["dataset_path"])
-        self.img_list, self.map_idx, self.positions, self.quaternions = [], [], np.empty((0, 3), dtype=np.float32), np.empty((0, 4), dtype=np.float32)
+        self.img_list, self.map_idx, self.dynamic_obstacles = [], [], []
+        self.positions = np.empty((0, 3), dtype=np.float32)
+        self.quaternions = np.empty((0, 4), dtype=np.float32)
 
         datafolders = [f.path for f in os.scandir(data_dir) if f.is_dir()]
         datafolders.sort(key=lambda x: int(os.path.basename(x)))
@@ -52,21 +54,44 @@ class YOPODataset(Dataset):
             image_file_names.sort(key=lambda x: int(os.path.basename(x).split('.')[0].split("_")[1]))  # sort by filename to align with the label
 
             states = np.loadtxt(data_dir + f"/pose-{data_idx}.csv", delimiter=',', skiprows=1).astype(np.float32)
+            if states.ndim == 1:
+                states = states[None, :]
             positions = states[:, 0:3]
             quaternions = states[:, 3:7]
 
-            file_names_train, file_names_val, positions_train, positions_val, quaternions_train, quaternions_val = train_test_split(
-                image_file_names, positions, quaternions, test_size=val_ratio, random_state=0)
+            dynamic_obstacle_file = os.path.join(data_dir, f"dynamic_obstacles-{data_idx}.csv")
+            if os.path.exists(dynamic_obstacle_file):
+                dynamic_rows = np.loadtxt(dynamic_obstacle_file, delimiter=',', skiprows=1).astype(np.float32)
+                if dynamic_rows.ndim == 1:
+                    dynamic_rows = dynamic_rows[None, :]
+                dynamic_values = dynamic_rows[:, 1:]
+                if dynamic_values.size == 0:
+                    dynamic_obstacles = np.zeros((dynamic_rows.shape[0], 0, 4), dtype=np.float32)
+                else:
+                    max_dynamic_obstacles = dynamic_values.shape[1] // 4
+                    dynamic_obstacles = dynamic_values.reshape(-1, max_dynamic_obstacles, 4).astype(np.float32)
+            else:
+                dynamic_obstacles = np.zeros((len(image_file_names), 0, 4), dtype=np.float32)
+
+            if dynamic_obstacles.shape[0] != len(image_file_names):
+                raise ValueError(
+                    f"dynamic obstacle rows ({dynamic_obstacles.shape[0]}) do not match images ({len(image_file_names)}) for map {data_idx}"
+                )
+
+            file_names_train, file_names_val, positions_train, positions_val, quaternions_train, quaternions_val, dynamic_train, dynamic_val = train_test_split(
+                image_file_names, positions, quaternions, dynamic_obstacles, test_size=val_ratio, random_state=0)
 
             if mode == 'train':
                 self.img_list.extend(file_names_train)
                 self.positions = np.vstack((self.positions, positions_train.astype(np.float32)))
                 self.quaternions = np.vstack((self.quaternions, quaternions_train.astype(np.float32)))
+                self.dynamic_obstacles.extend(dynamic_train.astype(np.float32))
                 self.map_idx.extend([data_idx] * len(file_names_train))
             elif mode == 'valid':
                 self.img_list.extend(file_names_val)
                 self.positions = np.vstack((self.positions, positions_val.astype(np.float32)))
                 self.quaternions = np.vstack((self.quaternions, quaternions_val.astype(np.float32)))
+                self.dynamic_obstacles.extend(dynamic_val.astype(np.float32))
                 self.map_idx.extend([data_idx] * len(file_names_val))
             else:
                 raise ValueError(f"Invalid mode {mode}. Choose from 'train', 'valid'.")
@@ -104,7 +129,7 @@ class YOPODataset(Dataset):
         random_obs = np.hstack((vel_b, acc_b, goal_b)).astype(np.float32)
         rot_wb = R_WB.as_matrix().astype(np.float32)  # transform to rot_matrix in numpy is faster than using quat in pytorch
         # vel & acc & goal are in body frame, NWU, and no-normalization
-        return image, self.positions[item], rot_wb, random_obs, self.map_idx[item]
+        return image, self.positions[item], rot_wb, random_obs, self.map_idx[item], self.dynamic_obstacles[item]
 
     def _get_random_state(self):
         while True:

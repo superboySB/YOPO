@@ -17,11 +17,12 @@ SWARM_TANGENT_BIAS=0.0
 SWARM_BIAS_RADIUS=8.0
 YOPO_CONFIG="/workspace/YOPO/YOPO/config/swarm_traj_opt.yaml"
 WEIGHTS_ROOT="saved"
+VISUALIZE_POINTCLOUD=0
 
 usage() {
   cat <<'EOF'
 Usage (inside container):
-  tools/swarm_launch.sh [--trial N] [--epoch N] [--uav-num N] [--radius R] [--altitude Z] [--swarm-tangent-bias B] [--swarm-bias-radius R] [--yopo-config PATH] [--weights-root DIR] [--detach] [--stop]
+  tools/swarm_launch.sh [--trial N] [--epoch N] [--uav-num N] [--radius R] [--altitude Z] [--swarm-tangent-bias B] [--swarm-bias-radius R] [--yopo-config PATH] [--weights-root DIR] [--visualize-pointcloud 0|1] [--detach] [--stop]
 
 Options:
   --trial N                YOPO checkpoint trial id (default: 1)
@@ -33,6 +34,7 @@ Options:
   --swarm-bias-radius R    distance-to-center activation range for tangential bias (default: 8.0)
   --yopo-config PATH       YOPO config yaml (default: /workspace/YOPO/YOPO/config/swarm_traj_opt.yaml)
   --weights-root DIR       checkpoint root under YOPO/ (default: saved)
+  --visualize-pointcloud N enable aggregated local obstacle point cloud in RViz (default: 0)
   --session NAME           tmux session name (default: yopo-swarm)
   --detach                 create session only, do not auto-attach
   --stop                   stop existing swarm session and related processes
@@ -84,6 +86,10 @@ parse_args() {
         ;;
       --weights-root)
         WEIGHTS_ROOT="${2:-}"
+        shift 2
+        ;;
+      --visualize-pointcloud)
+        VISUALIZE_POINTCLOUD="${2:-}"
         shift 2
         ;;
       --session)
@@ -193,6 +199,77 @@ wait_for_topic() {
 EOF
 }
 
+build_rviz_config() {
+  python3 - "/workspace/YOPO/YOPO/swarm_yopo.rviz" "${VISUALIZE_POINTCLOUD}" <<'PY'
+import sys
+import os
+import tempfile
+from pathlib import Path
+
+src_path = Path(sys.argv[1])
+enable_local_map = sys.argv[2] == "1"
+lines = src_path.read_text(encoding="utf-8").splitlines()
+target_idx = None
+
+def indent_count(text: str) -> int:
+    return len(text) - len(text.lstrip())
+
+for idx, line in enumerate(lines):
+    if line.strip() == "Name: Local_Map":
+        target_idx = idx
+        break
+
+if target_idx is None:
+    raise RuntimeError("Local_Map display not found in swarm_yopo.rviz")
+
+item_start = target_idx
+target_indent = indent_count(lines[target_idx])
+while item_start >= 0:
+    stripped = lines[item_start].strip()
+    if stripped.startswith("- ") and indent_count(lines[item_start]) < target_indent:
+        break
+    item_start -= 1
+
+if item_start < 0:
+    raise RuntimeError("Local_Map display block start not found in swarm_yopo.rviz")
+
+item_indent = indent_count(lines[item_start])
+item_end = target_idx + 1
+while item_end < len(lines):
+    stripped = lines[item_end].strip()
+    if stripped.startswith("- ") and indent_count(lines[item_end]) == item_indent:
+        break
+    item_end += 1
+
+enabled_updated = False
+value_updated = False
+for idx in range(item_start, item_end):
+    stripped = lines[idx].strip()
+    current_indent = indent_count(lines[idx])
+    if current_indent != target_indent:
+        continue
+    if stripped.startswith("Enabled:"):
+        indent = lines[idx][: len(lines[idx]) - len(lines[idx].lstrip())]
+        lines[idx] = f"{indent}Enabled: {'true' if enable_local_map else 'false'}"
+        enabled_updated = True
+    elif stripped.startswith("Value:"):
+        indent = lines[idx][: len(lines[idx]) - len(lines[idx].lstrip())]
+        lines[idx] = f"{indent}Value: {'true' if enable_local_map else 'false'}"
+        value_updated = True
+
+if not enabled_updated:
+    raise RuntimeError("Enabled field for Local_Map display not found in swarm_yopo.rviz")
+if not value_updated:
+    raise RuntimeError("Value field for Local_Map display not found in swarm_yopo.rviz")
+
+fd, out_path = tempfile.mkstemp(prefix="swarm_yopo_", suffix=".rviz")
+os.close(fd)
+Path(out_path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+Path(out_path).chmod(src_path.stat().st_mode)
+print(out_path)
+PY
+}
+
 main() {
   parse_args "$@"
 
@@ -203,6 +280,11 @@ main() {
   require_cmd rosrun
   require_cmd python3
   require_cmd rviz
+
+  if [[ "${VISUALIZE_POINTCLOUD}" != "0" && "${VISUALIZE_POINTCLOUD}" != "1" ]]; then
+    echo "Error: --visualize-pointcloud must be 0 or 1." >&2
+    exit 1
+  fi
 
   if [[ ! -f "${YOPO_CONFIG}" ]]; then
     echo "Error: YOPO config not found: ${YOPO_CONFIG}" >&2
@@ -225,6 +307,8 @@ main() {
   mapfile -t layout_lines < <(build_layout)
   local wait_lib
   wait_lib="$(build_wait_lib)"
+  local rviz_config
+  rviz_config="$(build_rviz_config)"
   local yopo_env="export YOPO_CONFIG_PATH='${YOPO_CONFIG}'; "
   local wait_for_all_odom_topics=""
   for line in "${layout_lines[@]}"; do
@@ -242,7 +326,7 @@ main() {
     tmux new-window -t "${SESSION}:" -n "ctrl_${uav_name}" "bash -lc '${cmd_controller}'"
   done
 
-  local cmd_simulator="${env_setup}; ${wait_lib}; wait_for_master; ${wait_for_all_odom_topics} cd /workspace/YOPO/Simulator; source devel/setup.bash; rosrun sensor_simulator sensor_simulator_cuda _swarm_enabled:=true _swarm_uav_num:=${UAV_NUM} _swarm_namespace_prefix:=uav _swarm_ring_radius:=${RADIUS} _swarm_altitude:=${ALTITUDE} _swarm_spawn_clear_radius:=${SPAWN_CLEAR_RADIUS} _swarm_collision_radius:=${COLLISION_RADIUS}"
+  local cmd_simulator="${env_setup}; ${wait_lib}; wait_for_master; ${wait_for_all_odom_topics} cd /workspace/YOPO/Simulator; source devel/setup.bash; rosrun sensor_simulator sensor_simulator_cuda _swarm_enabled:=true _swarm_uav_num:=${UAV_NUM} _swarm_namespace_prefix:=uav _swarm_ring_radius:=${RADIUS} _swarm_altitude:=${ALTITUDE} _swarm_spawn_clear_radius:=${SPAWN_CLEAR_RADIUS} _swarm_collision_radius:=${COLLISION_RADIUS} _visualize_local_map:=${VISUALIZE_POINTCLOUD}"
   tmux new-window -t "${SESSION}:" -n simulator "bash -lc '${cmd_simulator}'"
 
   for line in "${layout_lines[@]}"; do
@@ -252,14 +336,18 @@ main() {
     tmux new-window -t "${SESSION}:" -n "plan_${uav_name}" "bash -lc '${cmd_planner}'"
   done
 
-  local cmd_rviz="${env_setup}; ${wait_lib}; wait_for_master; wait_for_topic /mock_map; wait_for_topic /uav0/depth_image; wait_for_topic /uav0/yopo_net/trajs_visual; cd /workspace/YOPO/YOPO; rviz -d swarm_yopo.rviz"
+  local cmd_rviz="${env_setup}; ${wait_lib}; wait_for_master; wait_for_topic /mock_map; "
+  if [[ "${VISUALIZE_POINTCLOUD}" == "1" ]]; then
+    cmd_rviz+="wait_for_topic /local_map_visual; "
+  fi
+  cmd_rviz+="wait_for_topic /uav0/depth_image; wait_for_topic /uav0/yopo_net/trajs_visual; cd /workspace/YOPO/YOPO; rviz -d ${rviz_config}"
   tmux new-window -t "${SESSION}:" -n rviz "bash -lc '${cmd_rviz}'"
   tmux set-option -t "${SESSION}" remain-on-exit on
 
   tmux bind-key -T root C-c if-shell -F "#{==:#{session_name},${SESSION}}" "kill-session -t ${SESSION}" "send-keys C-c"
   tmux set-hook -t "${SESSION}" session-closed "unbind-key -T root C-c"
 
-  echo "[launch_swarm] started tmux session='${SESSION}', uav_num=${UAV_NUM}, radius=${RADIUS}, altitude=${ALTITUDE}, tangent_bias=${SWARM_TANGENT_BIAS}, trial=${TRIAL}, epoch=${EPOCH}"
+  echo "[launch_swarm] started tmux session='${SESSION}', uav_num=${UAV_NUM}, radius=${RADIUS}, altitude=${ALTITUDE}, tangent_bias=${SWARM_TANGENT_BIAS}, visualize_pointcloud=${VISUALIZE_POINTCLOUD}, trial=${TRIAL}, epoch=${EPOCH}"
   echo "[launch_swarm] Ctrl+C in this tmux session will stop all windows."
   echo "[launch_swarm] manual stop: tools/swarm_launch.sh --session ${SESSION} --stop"
 

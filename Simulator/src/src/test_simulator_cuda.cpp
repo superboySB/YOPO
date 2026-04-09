@@ -59,6 +59,7 @@ public:
 
         render_lidar_ = config["render_lidar"].as<bool>();
         render_depth_ = config["render_depth"].as<bool>();
+        visualize_local_map_ = config["visualize_local_map"] ? config["visualize_local_map"].as<bool>() : true;
         depth_pub_duration_ = ros::Duration(1.0 / config["depth_fps"].as<float>());
         lidar_pub_duration_ = ros::Duration(1.0 / config["lidar_fps"].as<float>());
 
@@ -83,6 +84,7 @@ public:
         size_z = size_z * scale;
 
         pcl_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("mock_map", 1);
+        local_map_visual_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("local_map_visual", 1);
         collision_counter_total_pub_ = nh_.advertise<std_msgs::Int32>("/yopo/collision_counter_total", 1);
         uav_collision_counter_total_pub_ = nh_.advertise<std_msgs::Int32>("/yopo/uav_collision_counter_total", 1);
 
@@ -161,6 +163,7 @@ private:
         Eigen::Quaternionf quat = Eigen::Quaternionf::Identity();
         Eigen::Quaternionf quat_wc = Eigen::Quaternionf::Identity();
         Eigen::Vector3f pos = Eigen::Vector3f::Zero();
+        pcl::PointCloud<pcl::PointXYZ> local_map_world;
 
         ros::Time next_depth_pub_time;
         ros::Time next_lidar_pub_time;
@@ -177,9 +180,11 @@ private:
     bool inStaticCollision(const RobotChannels &robot) const;
     bool inDynamicCollision(size_t robot_index) const;
     void publishCollisionCounter(size_t robot_index);
+    void publishLocalMapVisual(const ros::Time &stamp);
 
     bool render_depth_{false};
     bool render_lidar_{false};
+    bool visualize_local_map_{true};
     bool swarm_enabled_{false};
     int swarm_uav_num_{1};
     float collision_radius_{0.45f};
@@ -193,6 +198,7 @@ private:
     ros::NodeHandle nh_;
     ros::NodeHandle pnh_;
     ros::Publisher pcl_pub_;
+    ros::Publisher local_map_visual_pub_;
     ros::Publisher collision_counter_total_pub_;
     ros::Publisher uav_collision_counter_total_pub_;
     ros::Timer timer_map_;
@@ -230,6 +236,9 @@ void SensorSimulator::applyRosParamOverrides(YAML::Node &config)
     pnh_.param("swarm_spawn_clear_radius", spawn_clear_radius, spawn_clear_radius);
     pnh_.param("swarm_collision_radius", collision_radius, collision_radius);
 
+    bool visualize_local_map = config["visualize_local_map"] ? config["visualize_local_map"].as<bool>() : true;
+    pnh_.param("visualize_local_map", visualize_local_map, visualize_local_map);
+
     config["swarm"]["enabled"] = swarm_enabled;
     config["swarm"]["uav_num"] = swarm_uav_num;
     config["swarm"]["namespace_prefix"] = namespace_prefix;
@@ -237,6 +246,7 @@ void SensorSimulator::applyRosParamOverrides(YAML::Node &config)
     config["swarm"]["altitude"] = altitude;
     config["swarm"]["spawn_clear_radius"] = spawn_clear_radius;
     config["swarm"]["collision_radius"] = collision_radius;
+    config["visualize_local_map"] = visualize_local_map;
 }
 
 void SensorSimulator::setupRobots(const YAML::Node &config)
@@ -333,7 +343,7 @@ void SensorSimulator::renderDepthCallback(size_t robot_index, const ros::Time &s
     const auto dynamic_obstacles = getDynamicObstacles(robot_index);
     auto start = std::chrono::high_resolution_clock::now();
 
-    const auto &robot = robots_[robot_index];
+    auto &robot = robots_[robot_index];
     cudaMat::SE3<float> T_wc(robot.quat_wc.w(), robot.quat_wc.x(), robot.quat_wc.y(), robot.quat_wc.z(),
                              robot.pos.x(), robot.pos.y(), robot.pos.z());
     cv::Mat depth_image;
@@ -361,7 +371,7 @@ void SensorSimulator::renderLidarCallback(size_t robot_index, const ros::Time &s
     const auto dynamic_obstacles = getDynamicObstacles(robot_index);
     auto start = std::chrono::high_resolution_clock::now();
 
-    const auto &robot = robots_[robot_index];
+    auto &robot = robots_[robot_index];
     cudaMat::SE3<float> T_wc(robot.quat.w(), robot.quat.x(), robot.quat.y(), robot.quat.z(),
                              robot.pos.x(), robot.pos.y(), robot.pos.z());
     pcl::PointCloud<pcl::PointXYZ> lidar_points;
@@ -377,12 +387,57 @@ void SensorSimulator::renderLidarCallback(size_t robot_index, const ros::Time &s
     output.header.stamp = stamp;
     output.header.frame_id = "odom";
     robot.point_cloud_pub.publish(output);
+
+    if (!visualize_local_map_)
+    {
+        robot.local_map_world.clear();
+        return;
+    }
+
+    robot.local_map_world.clear();
+    robot.local_map_world.points.reserve(lidar_points.points.size());
+    for (const auto &point_local : lidar_points.points)
+    {
+        const float3 point_world = T_wc * make_float3(point_local.x, point_local.y, point_local.z);
+        robot.local_map_world.points.emplace_back(point_world.x, point_world.y, point_world.z);
+    }
+    robot.local_map_world.width = robot.local_map_world.points.size();
+    robot.local_map_world.height = 1;
+    robot.local_map_world.is_dense = true;
+    publishLocalMapVisual(stamp);
 }
 
 void SensorSimulator::timerMapCallback(const ros::TimerEvent &)
 {
     if (pcl_pub_.getNumSubscribers() > 0)
         pcl_pub_.publish(map_output_);
+}
+
+void SensorSimulator::publishLocalMapVisual(const ros::Time &stamp)
+{
+    if (!visualize_local_map_)
+        return;
+    if (local_map_visual_pub_.getNumSubscribers() == 0)
+        return;
+
+    pcl::PointCloud<pcl::PointXYZ> combined_cloud;
+    size_t total_points = 0;
+    for (const auto &robot : robots_)
+        total_points += robot.local_map_world.points.size();
+    combined_cloud.points.reserve(total_points);
+
+    for (const auto &robot : robots_)
+        combined_cloud += robot.local_map_world;
+
+    combined_cloud.width = combined_cloud.points.size();
+    combined_cloud.height = 1;
+    combined_cloud.is_dense = true;
+
+    sensor_msgs::PointCloud2 output;
+    pcl::toROSMsg(combined_cloud, output);
+    output.header.stamp = stamp;
+    output.header.frame_id = "world";
+    local_map_visual_pub_.publish(output);
 }
 
 void SensorSimulator::publishCollisionCounter(size_t robot_index)

@@ -86,12 +86,14 @@ class YopoTrainer:
         one_epoch_progress = self.progress_log.add_task(f"Epoch: {epoch}", total=len(self.train_dataloader))
         inspect_interval = max(1, len(self.train_dataloader) // 16)
         traj_losses, score_losses, smooth_losses, safety_losses, goal_losses, acc_losses, start_time = [], [], [], [], [], [], time.time()
-        for step, (depth, pos, rot, obs_b, map_id) in enumerate(self.train_dataloader):  # obs: body frame
+        for step, (depth, pos, rot, obs_b, map_id, dynamic_obstacles) in enumerate(self.train_dataloader):  # obs: body frame
             if depth.shape[0] != self.batch_size:  continue  # batch size == number of env
 
             self.optimizer.zero_grad()
 
-            trajectory_loss, score_loss, smooth_cost, safety_cost, goal_cost, acc_cost = self.forward_and_compute_loss(depth, pos, rot, obs_b, map_id)
+            trajectory_loss, score_loss, smooth_cost, safety_cost, goal_cost, acc_cost = self.forward_and_compute_loss(
+                depth, pos, rot, obs_b, map_id, dynamic_obstacles
+            )
 
             loss = self.loss_weight[0] * trajectory_loss + self.loss_weight[1] * score_loss
 
@@ -128,10 +130,12 @@ class YopoTrainer:
     def eval_one_epoch(self, epoch: int):
         one_epoch_progress = self.progress_log.add_task(f"Eval: {epoch}", total=len(self.val_dataloader))
         traj_losses, score_losses = [], []
-        for step, (depth, pos, rot, obs_b, map_id) in enumerate(self.val_dataloader):  # obs: body frame
+        for step, (depth, pos, rot, obs_b, map_id, dynamic_obstacles) in enumerate(self.val_dataloader):  # obs: body frame
             if depth.shape[0] != self.batch_size:  continue  # batch size == num of env
 
-            trajectory_loss, score_loss, _, _, _, _ = self.forward_and_compute_loss(depth, pos, rot, obs_b, map_id)
+            trajectory_loss, score_loss, _, _, _, _ = self.forward_and_compute_loss(
+                depth, pos, rot, obs_b, map_id, dynamic_obstacles
+            )
 
             traj_losses.append(self.loss_weight[0] * trajectory_loss.item())
             score_losses.append(self.loss_weight[1] * score_loss.item())
@@ -142,8 +146,8 @@ class YopoTrainer:
         self.tensorboard_log.add_scalar("Eval/ScoreLoss", np.mean(score_losses), epoch)
         self.progress_log.remove_task(one_epoch_progress)
 
-    def forward_and_compute_loss(self, depth, pos, rot, obs_b, map_id):
-        depth, pos, rot, obs_b, map_id = [x.to(self.device) for x in [depth, pos, rot, obs_b, map_id]]
+    def forward_and_compute_loss(self, depth, pos, rot, obs_b, map_id, dynamic_obstacles):
+        depth, pos, rot, obs_b, map_id, dynamic_obstacles = [x.to(self.device) for x in [depth, pos, rot, obs_b, map_id, dynamic_obstacles]]
 
         # 1. pre-process
         goal_w, start_vel_w, start_acc_w = state_body2world(pos, rot, obs_b[:, 6:9], obs_b[:, 0:3], obs_b[:, 3:6])
@@ -171,7 +175,9 @@ class YopoTrainer:
         # [B*V*H, 3, 3]: [px, py, pz; vx, vy, vz; ax, ay, az]
         end_state_w = torch.stack([end_pos_w, end_vel_w, end_acc_w], dim=1)
 
-        smooth_cost, safety_cost, goal_cost, acc_cost = self.yopo_loss(start_state_w, end_state_w, goal_w, map_id)
+        smooth_cost, safety_cost, goal_cost, acc_cost = self.yopo_loss(
+            start_state_w, end_state_w, goal_w, map_id, dynamic_obstacles
+        )
         trajectory_loss = (smooth_cost + safety_cost + goal_cost + acc_cost).mean()
 
         score_label = (smooth_cost + safety_cost + goal_cost + acc_cost).clone().detach()

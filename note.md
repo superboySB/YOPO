@@ -13,8 +13,6 @@ xhost +local:root
 docker run --name dzp-yopo -itd --privileged --gpus all --network host \
   --entrypoint bash \
   -e DISPLAY -e QT_X11_NO_MITSHM=1 \
-  -e http_proxy=http://127.0.0.1:8889 \
-  -e https_proxy=http://127.0.0.1:8889 \
   -v $HOME/.Xauthority:/root/.Xauthority \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
   --shm-size=4g \
@@ -23,6 +21,7 @@ docker run --name dzp-yopo -itd --privileged --gpus all --network host \
 
 docker exec -it dzp-yopo /bin/bash
 ```
+实际构建的时候注意dockerfile的代理地址可以换一下，解决构建加速问题
 
 ## 单智能体
 
@@ -102,6 +101,10 @@ cd /workspace/YOPO
   --yopo-config /workspace/YOPO/YOPO/config/swarm_traj_opt.yaml \
   --weights-root saved_swarm
 ```
+
+可选：
+- 多机模式默认不显示聚合局部点云，避免 UAV 数多时 RViz 负担太大。
+- 如果需要右侧窗口显示点云，可在命令后补 `--visualize-pointcloud 1`。
 
 碰撞统计：
 ```bash

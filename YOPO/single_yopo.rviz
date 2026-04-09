@@ -79,14 +79,14 @@ Visualization Manager:
       Invert Rainbow: false
       Max Color: 255; 255; 255
       Min Color: 0; 0; 0
-      Name: Map
+      Name: Local_Map
       Position Transformer: XYZ
       Queue Size: 10
       Selectable: true
       Size (Pixels): 3
       Size (m): 0.10000000149011612
       Style: Flat Squares
-      Topic: /lidar_points
+      Topic: /local_map_visual
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: true
