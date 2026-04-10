@@ -23,7 +23,7 @@ docker exec -it dzp-yopo /bin/bash
 ```
 实际构建的时候注意dockerfile的代理地址可以换一下，解决构建加速问题
 
-## 单智能体
+## 单智能体（复现原版）
 
 ### 测试
 代码有 C++ / CUDA 改动时先重编：
@@ -78,7 +78,7 @@ python3 train_yopo.py \
   --num-workers 4
 ```
 
-## 多智能体
+## 多智能体（Beta魔改）
 
 ### 测试
 代码有 C++ / CUDA 改动时先重编：
