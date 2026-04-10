@@ -51,6 +51,8 @@ cd /workspace/YOPO
 source /opt/ros/noetic/setup.bash && rostopic echo /yopo/collision_counter_total
 ```
 
+![](docs/screenshot-20260410-121554.png)
+
 RViz：
 - 配置文件：`YOPO/single_yopo.rviz`
 - 在 RViz 里用 `2D Nav Goal` 设目标
@@ -102,10 +104,6 @@ cd /workspace/YOPO
   --weights-root saved_swarm
 ```
 
-可选：
-- 多机模式默认不显示聚合局部点云，避免 UAV 数多时 RViz 负担太大。
-- 如果需要右侧窗口显示点云，可在命令后补 `--visualize-pointcloud 1`。
-
 碰撞统计：
 ```bash
 source /opt/ros/noetic/setup.bash && rostopic echo /yopo/collision_counter_total
@@ -113,10 +111,13 @@ source /opt/ros/noetic/setup.bash && rostopic echo /yopo/collision_counter_total
 source /opt/ros/noetic/setup.bash && rostopic echo /yopo/uav_collision_counter_total
 ```
 
+![](docs/20260410-121129.jpg)
+
 RViz：
 - 配置文件：`YOPO/swarm_yopo.rviz`
-- 默认显示 `uav0 ~ uav3` 四路 depth
-- 右侧轨迹分组按 `Traj_uav0 ~ Traj_uav3` 区分
+- 多机模式默认不显示聚合局部点云，避免 UAV 数多时 RViz 负担太大。
+- 如果需要右侧窗口显示点云，可在命令后补 `--visualize-pointcloud 1`。
+- 在 RViz 里用 `2D Nav Goal` 设的不是目标而是新的圆心，各个飞机独立与圆心形成新的圆，并通过这个圆心把对面作为目标，制造冲突
 
 ### 训练
 生成多机数据集：
