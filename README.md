@@ -97,11 +97,11 @@ source devel/setup.bash
 rosrun sensor_simulator sensor_simulator_cuda
 ```
 
-You can refer to [config.yaml](Simulator/src/config/config.yaml) for modifications of the sensor (e.g., camera and LiDAR parameters) and environment (e.g., scenario type and obstacle density).
+You can refer to [single_config.yaml](Simulator/src/config/single_config.yaml) for modifications of the sensor (e.g., camera and LiDAR parameters) and environment (e.g., scenario type and obstacle density).
 
 **3. Start the YOPO Planner** 
 
-You can refer to [traj_opt.yaml](YOPO/config/traj_opt.yaml) for modification of the flight speed (The given weights are pretrained at 6 m/s and perform smoothly at speeds between 0 - 6 m/s, and more pretrained models are available at [Releases](https://github.com/TJU-Aerial-Robotics/YOPO/releases)).
+You can refer to [single_traj_opt.yaml](YOPO/config/single_traj_opt.yaml) for modification of the flight speed (The given weights are pretrained at 6 m/s and perform smoothly at speeds between 0 - 6 m/s, and more pretrained models are available at [Releases](https://github.com/TJU-Aerial-Robotics/YOPO/releases)).
 
 ```
 cd YOPO
@@ -114,7 +114,7 @@ python test_yopo_ros_single.py --trial=1 --epoch=50
 Start the RVIZ to visualize the images and trajectory. 
 ```
 cd YOPO
-rviz -d yopo.rviz
+rviz -d single_yopo.rviz
 ```
 
 Left: Random Forest (maze_type=5); Right: 3D Perlin (maze_type=1).
@@ -128,53 +128,15 @@ You can click the `2D Nav Goal` on RVIZ as the goal (the map is infinite so the 
     <img src="docs/click_in_rviz.gif" alt="click_in_rviz" />
 </p>
 
-**5. Collision Counters and Event Monitoring**
+**5. Collision Counter**
 
-The simulator now exposes two kinds of collision counters:
-
-- Static-map collision counters
-  - Total: `/yopo/collision_counter_total`
-  - Per-UAV: `/uav0/yopo/collision_counter`, `/uav1/yopo/collision_counter`, ...
-- UAV-to-UAV collision counters
-  - Total: `/yopo/uav_collision_counter_total`
-  - Per-UAV: `/uav0/yopo/uav_collision_counter`, `/uav1/yopo/uav_collision_counter`, ...
-
-You can inspect the total counters directly:
+The simulator exposes a static-map collision counter:
 ```
 rostopic echo /yopo/collision_counter_total
-rostopic echo /yopo/uav_collision_counter_total
-```
-
-For swarm tests, you can also watch counter increments as events:
-```
-cd YOPO
-source /opt/ros/noetic/setup.bash
-python3 tools/watch_collision_events.py --uav-num 4
-```
-
-And if you want a single summary for one swarm rollout:
-```
-cd YOPO
-source /opt/ros/noetic/setup.bash
-python3 tools/monitor_swarm_run.py --uav-num 4 --timeout 120
 ```
 
 Notes:
 - `collision_counter_total` counts entry events where the UAV body center enters an occupied map voxel, so it is a conservative static-obstacle proxy.
-- `uav_collision_counter_total` counts entry events where two UAV bodies come within the configured collision radius.
-
-**6. Swarm Helper Script**
-
-This repo also provides `tools/swarm_launch.sh` to start a multi-UAV rollout with controllers, simulator, planners, and RViz together. The aggregated local obstacle point-cloud visualization is disabled by default in swarm mode because it can become heavy when many UAVs are active. Add `--visualize-pointcloud 1` only when you want that RViz point-cloud view.
-
-Example:
-```
-cd YOPO
-./tools/swarm_launch.sh --trial 0 --epoch 50 --uav-num 4 --radius 30 \
-  --swarm-tangent-bias 0 \
-  --yopo-config /workspace/YOPO/YOPO/config/swarm_traj_opt.yaml \
-  --weights-root saved_swarm
-```
 
 
 ## Train the Policy
@@ -194,7 +156,7 @@ YOPO/
 ├── Controller/
 ├── dataset/
 ```
-You can refer to [config.yaml](Simulator/src/config/config.yaml) for modifications of the sampling state, sensor, and environment. Besides, we use random `vel/acc/goal` for data augmentation, and the distribution can be found in [state_samples](docs/state_samples.png)
+You can refer to [single_config.yaml](Simulator/src/config/single_config.yaml) for modifications of the sampling state, sensor, and environment. Besides, we use random `vel/acc/goal` for data augmentation, and the distribution can be found in [state_samples](docs/state_samples.png)
 
 **2. Train the Policy**
 ```
@@ -213,7 +175,7 @@ tensorboard --logdir=./
     <img src="docs/train_log.png" alt="train_log" width="100%"/>
 </p>
 
-Besides, you can refer to [traj_opt.yaml](YOPO/config/traj_opt.yaml) for modifications of trajectory optimization (e.g. the speed and penalties).
+Besides, you can refer to [single_traj_opt.yaml](YOPO/config/single_traj_opt.yaml) for modifications of trajectory optimization (e.g. the speed and penalties).
 
 
 ## TensorRT Deployment

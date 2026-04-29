@@ -765,22 +765,6 @@ Maps::setParam(const YAML::Node& config)
   _wall_thick = config["wall_thick"].as<double>();
   _wall_num = config["wall_number"].as<int>();
   _wall_ceiling = config["wall_ceiling"].as<int>();
-  if (config["swarm"])
-  {
-    swarm_enabled = config["swarm"]["enabled"].as<bool>();
-    swarm_uav_num = config["swarm"]["uav_num"].as<int>();
-    swarm_ring_radius = config["swarm"]["ring_radius"].as<double>();
-    swarm_spawn_clear_radius = config["swarm"]["spawn_clear_radius"].as<double>();
-    swarm_namespace_prefix = config["swarm"]["namespace_prefix"].as<std::string>();
-  }
-  else
-  {
-    swarm_enabled = false;
-    swarm_uav_num = 1;
-    swarm_ring_radius = 0.0;
-    swarm_spawn_clear_radius = 0.0;
-    swarm_namespace_prefix = "uav";
-  }
 }
 
 
@@ -815,61 +799,6 @@ Maps::generate(int type)
       break;
   }
 
-  clearSwarmSpawnAreas();
-}
-
-std::vector<Eigen::Vector2f>
-Maps::getSwarmRingPositions() const
-{
-  std::vector<Eigen::Vector2f> positions;
-  if (!swarm_enabled || swarm_uav_num <= 0 || swarm_ring_radius <= 0.0)
-    return positions;
-
-  positions.reserve(swarm_uav_num);
-  for (int i = 0; i < swarm_uav_num; ++i)
-  {
-    const double angle = 2.0 * M_PI * static_cast<double>(i) / static_cast<double>(swarm_uav_num);
-    positions.emplace_back(static_cast<float>(swarm_ring_radius * std::cos(angle)),
-                           static_cast<float>(swarm_ring_radius * std::sin(angle)));
-  }
-  return positions;
-}
-
-void
-Maps::clearSwarmSpawnAreas()
-{
-  if (!swarm_enabled || swarm_uav_num <= 0 || swarm_spawn_clear_radius <= 0.0 || info.cloud->points.empty())
-    return;
-
-  std::vector<Eigen::Vector2f> clear_positions = getSwarmRingPositions();
-  clear_positions.reserve(clear_positions.size() * 2);
-  const size_t spawn_count = clear_positions.size();
-  for (size_t i = 0; i < spawn_count; ++i)
-  {
-    const auto &spawn = clear_positions[i];
-    clear_positions.emplace_back(-spawn.x(), -spawn.y());
-  }
-  const float clear_radius_sq = static_cast<float>(swarm_spawn_clear_radius * swarm_spawn_clear_radius);
-
-  auto &points = info.cloud->points;
-  points.erase(std::remove_if(points.begin(), points.end(),
-                              [&](const pcl::PointXYZ &point) {
-                                if (point.z <= 0.1f)
-                                  return false;
-                                for (const auto &center : clear_positions)
-                                {
-                                  const float dx = point.x - center.x();
-                                  const float dy = point.y - center.y();
-                                  if (dx * dx + dy * dy <= clear_radius_sq)
-                                    return true;
-                                }
-                                return false;
-                              }),
-               points.end());
-
-  info.cloud->width = info.cloud->points.size();
-  info.cloud->height = 1;
-  info.cloud->is_dense = true;
 }
 
 pcl::PointXYZ

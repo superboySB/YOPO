@@ -35,13 +35,12 @@ class SafetyLoss(nn.Module):
         self.sdf_maps = self.get_sdf_from_ply(data_dir)
         print("Map built!")
 
-    def forward(self, Df, Dp, map_id, dynamic_obstacles=None):
+    def forward(self, Df, Dp, map_id):
         """
         Args:
             Dp: decision parameters: (batch_size, 3, 3) → [px, vx, ax; py, vy, ay; pz, vz, az]
             Df: fixed parameters: (batch_size, 3, 3) → [px, vx, ax; py, vy, ay; pz, vz, az]
             map_id: (batch_size) which esdf map to query
-            dynamic_obstacles: (batch_size, num_spheres, 4) -> [cx, cy, cz, radius] in world frame
         Returns:
             cost_colli: (batch_size) → safety loss
         """
@@ -58,7 +57,7 @@ class SafetyLoss(nn.Module):
         pos_batch = pos_coe.reshape(-1, self.traj_num * pos_coe.shape[1], 3)
 
         # get info from sdf_map
-        cost, dist = self.get_distance_cost(pos_batch, map_id, dynamic_obstacles)
+        cost, dist = self.get_distance_cost(pos_batch, map_id)
 
         if self.time_integral:
             # Compute average time integral of trajectory cost
@@ -74,7 +73,7 @@ class SafetyLoss(nn.Module):
 
         return cost_colli
 
-    def get_distance_cost(self, pos, map_id, dynamic_obstacles=None):
+    def get_distance_cost(self, pos, map_id):
         """
         pos:     (B, N, 3) - 点在世界坐标系下的位置
         map_id:  (B) - 每个 batch 使用哪张 sdf_map
@@ -97,29 +96,11 @@ class SafetyLoss(nn.Module):
         grid_point = th.clamp(grid_point, min=-0.99, max=0.99)  # (B, N)
 
         static_dist_query = F.grid_sample(sdf_maps, grid_point, mode='bilinear', padding_mode='zeros', align_corners=True)  # (B, 1, 1, 1, N)
-        static_dist_query = static_dist_query.view(B, N)
-
-        dynamic_dist_query = self.get_dynamic_sphere_distance(pos, dynamic_obstacles)
-        dist_query = th.minimum(static_dist_query, dynamic_dist_query)
+        dist_query = static_dist_query.view(B, N)
 
         # Cost function
         cost = self.cost_function(dist_query)  # (B, N)
         return cost, dist_query
-
-    def get_dynamic_sphere_distance(self, pos, dynamic_obstacles):
-        if dynamic_obstacles is None or dynamic_obstacles.numel() == 0:
-            return th.full((pos.shape[0], pos.shape[1]), float("inf"), device=pos.device)
-
-        centers = dynamic_obstacles[:, :, :3]
-        radii = dynamic_obstacles[:, :, 3]
-        valid_mask = radii > 0
-        if not valid_mask.any().item():
-            return th.full((pos.shape[0], pos.shape[1]), float("inf"), device=pos.device)
-
-        dist_to_centers = th.linalg.norm(pos.unsqueeze(2) - centers.unsqueeze(1), dim=-1)
-        sphere_dist = dist_to_centers - radii.unsqueeze(1)
-        sphere_dist = sphere_dist.masked_fill(~valid_mask.unsqueeze(1), float("inf"))
-        return sphere_dist.amin(dim=2)
 
     def cost_function(self, d):
         return th.exp(-(d - self.d0) / self.r)

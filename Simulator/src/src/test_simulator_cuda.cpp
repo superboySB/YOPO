@@ -14,20 +14,16 @@
 #include <pcl_ros/point_cloud.h>
 #include <cv_bridge/cv_bridge.h>
 #include <yaml-cpp/yaml.h>
-#include <boost/bind/bind.hpp>
 
-#include <algorithm>
-#include <array>
 #include <chrono>
+#include <cmath>
 #include <iostream>
 #include <string>
-#include <vector>
 
 #include "sensor_simulator.cuh"
 #include "maps.hpp"
 
 using namespace raycast;
-using boost::placeholders::_1;
 
 class SensorSimulator
 {
@@ -62,14 +58,9 @@ public:
 
         render_lidar_ = config["render_lidar"].as<bool>();
         render_depth_ = config["render_depth"].as<bool>();
-        visualize_local_map_ = config["visualize_local_map"] ? config["visualize_local_map"].as<bool>() : true;
         depth_pub_duration_ = ros::Duration(1.0 / config["depth_fps"].as<float>());
         lidar_pub_duration_ = ros::Duration(1.0 / config["lidar_fps"].as<float>());
-
-        swarm_enabled_ = config["swarm"]["enabled"].as<bool>();
-        swarm_uav_num_ = std::max(1, config["swarm"]["uav_num"].as<int>());
-        swarm_namespace_prefix_ = config["swarm"]["namespace_prefix"].as<std::string>();
-        collision_radius_ = config["swarm"]["collision_radius"].as<float>();
+        visualize_local_map_ = config["visualize_local_map"] ? config["visualize_local_map"].as<bool>() : true;
 
         const std::string ply_file = config["ply_file"].as<std::string>();
         const bool use_random_map = config["random_map"].as<bool>();
@@ -88,8 +79,10 @@ public:
 
         pcl_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("mock_map", 1);
         local_map_visual_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("local_map_visual", 1);
+        image_pub_ = nh_.advertise<sensor_msgs::Image>(config["depth_topic"].as<std::string>(), 1);
+        point_cloud_pub_ = nh_.advertise<sensor_msgs::PointCloud2>(config["lidar_topic"].as<std::string>(), 1);
+        collision_counter_pub_ = nh_.advertise<std_msgs::Int32>("/yopo/collision_counter", 1);
         collision_counter_total_pub_ = nh_.advertise<std_msgs::Int32>("/yopo/collision_counter_total", 1);
-        uav_collision_counter_total_pub_ = nh_.advertise<std_msgs::Int32>("/yopo/uav_collision_counter_total", 1);
 
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>());
         if (use_random_map)
@@ -136,221 +129,93 @@ public:
         printf("2.Mapping... \n");
         grid_map_ = new GridMap(cloud, resolution, occupy_threshold);
 
-        setupRobots(config);
+        const ros::Time now = ros::Time::now();
+        next_depth_pub_time_ = now;
+        next_lidar_pub_time_ = now;
+        odom_sub_ = nh_.subscribe(
+            config["odom_topic"].as<std::string>(),
+            1,
+            &SensorSimulator::odomCallback,
+            this,
+            ros::TransportHints().tcpNoDelay());
         timer_map_ = nh_.createTimer(ros::Duration(1.0), &SensorSimulator::timerMapCallback, this);
 
-        printf("3.Simulation Ready! robots=%zu swarm=%s\n", robots_.size(), swarm_enabled_ ? "true" : "false");
+        printf("3.Simulation Ready!\n");
         ros::spin();
     }
 
-    void odomCallback(const nav_msgs::Odometry::ConstPtr &msg, size_t robot_index);
-    void renderDepthCallback(size_t robot_index, const ros::Time &stamp);
-    void renderLidarCallback(size_t robot_index, const ros::Time &stamp);
+    void odomCallback(const nav_msgs::Odometry::ConstPtr &msg);
+    void renderDepthCallback(const ros::Time &stamp);
+    void renderLidarCallback(const ros::Time &stamp);
     void timerMapCallback(const ros::TimerEvent &);
-    void publishCollisionCounterTotal();
+    void publishCollisionCounters();
 
 private:
-    struct RobotChannels
-    {
-        std::string name;
-        std::string odom_topic;
-        std::string depth_topic;
-        std::string lidar_topic;
-
-        ros::Publisher image_pub;
-        ros::Publisher point_cloud_pub;
-        ros::Publisher collision_pub;
-        ros::Publisher uav_collision_pub;
-        ros::Subscriber odom_sub;
-
-        Eigen::Quaternionf quat = Eigen::Quaternionf::Identity();
-        Eigen::Quaternionf quat_wc = Eigen::Quaternionf::Identity();
-        Eigen::Vector3f pos = Eigen::Vector3f::Zero();
-        pcl::PointCloud<pcl::PointXYZ> local_map_world;
-
-        ros::Time next_depth_pub_time;
-        ros::Time next_lidar_pub_time;
-        int collision_counter = 0;
-        int uav_collision_counter = 0;
-        bool in_static_collision = false;
-        bool in_uav_collision = false;
-        bool odom_init = false;
-    };
-
     void applyRosParamOverrides(YAML::Node &config);
-    void setupRobots(const YAML::Node &config);
-    std::vector<SphereObstacle> getDynamicObstacles(size_t robot_index) const;
-    bool inStaticCollision(const RobotChannels &robot) const;
-    bool inDynamicCollision(size_t robot_index) const;
-    void publishCollisionCounter(size_t robot_index);
+    bool inStaticCollision() const;
     void publishLocalMapVisual(const ros::Time &stamp);
 
     bool render_depth_{false};
     bool render_lidar_{false};
     bool visualize_local_map_{true};
-    bool swarm_enabled_{false};
-    int swarm_uav_num_{1};
-    float collision_radius_{0.45f};
-    std::string swarm_namespace_prefix_{"uav"};
+    bool odom_init_{false};
+    bool in_static_collision_{false};
 
+    Eigen::Quaternionf quat_{Eigen::Quaternionf::Identity()};
+    Eigen::Quaternionf quat_wc_{Eigen::Quaternionf::Identity()};
     Eigen::Quaternionf quat_bc_{Eigen::Quaternionf::Identity()};
+    Eigen::Vector3f pos_{Eigen::Vector3f::Zero()};
     CameraParams *camera_{nullptr};
     LidarParams *lidar_{nullptr};
     GridMap *grid_map_{nullptr};
+    pcl::PointCloud<pcl::PointXYZ> local_map_world_;
 
     ros::NodeHandle nh_;
     ros::NodeHandle pnh_;
     ros::Publisher pcl_pub_;
     ros::Publisher local_map_visual_pub_;
+    ros::Publisher image_pub_;
+    ros::Publisher point_cloud_pub_;
+    ros::Publisher collision_counter_pub_;
     ros::Publisher collision_counter_total_pub_;
-    ros::Publisher uav_collision_counter_total_pub_;
+    ros::Subscriber odom_sub_;
     ros::Timer timer_map_;
     sensor_msgs::PointCloud2 map_output_;
-    std::vector<RobotChannels> robots_;
 
+    ros::Time next_depth_pub_time_;
+    ros::Time next_lidar_pub_time_;
     ros::Duration depth_pub_duration_;
     ros::Duration lidar_pub_duration_;
     double depth_time_{0.0};
     double lidar_time_{0.0};
     int depth_count_{0};
     int lidar_count_{0};
-    int collision_counter_total_{0};
-    int uav_collision_counter_total_{0};
+    int collision_counter_{0};
 };
 
 void SensorSimulator::applyRosParamOverrides(YAML::Node &config)
 {
-    if (!config["swarm"])
-        config["swarm"] = YAML::Node(YAML::NodeType::Map);
-
-    bool swarm_enabled = config["swarm"]["enabled"] ? config["swarm"]["enabled"].as<bool>() : false;
-    int swarm_uav_num = config["swarm"]["uav_num"] ? config["swarm"]["uav_num"].as<int>() : 1;
-    std::string namespace_prefix = config["swarm"]["namespace_prefix"] ? config["swarm"]["namespace_prefix"].as<std::string>() : "uav";
-    double ring_radius = config["swarm"]["ring_radius"] ? config["swarm"]["ring_radius"].as<double>() : 8.0;
-    double altitude = config["swarm"]["altitude"] ? config["swarm"]["altitude"].as<double>() : 2.0;
-    double spawn_clear_radius = config["swarm"]["spawn_clear_radius"] ? config["swarm"]["spawn_clear_radius"].as<double>() : 2.2;
-    double collision_radius = config["swarm"]["collision_radius"] ? config["swarm"]["collision_radius"].as<double>() : 0.45;
-
-    pnh_.param("swarm_enabled", swarm_enabled, swarm_enabled);
-    pnh_.param("swarm_uav_num", swarm_uav_num, swarm_uav_num);
-    pnh_.param("swarm_namespace_prefix", namespace_prefix, namespace_prefix);
-    pnh_.param("swarm_ring_radius", ring_radius, ring_radius);
-    pnh_.param("swarm_altitude", altitude, altitude);
-    pnh_.param("swarm_spawn_clear_radius", spawn_clear_radius, spawn_clear_radius);
-    pnh_.param("swarm_collision_radius", collision_radius, collision_radius);
-
     bool visualize_local_map = config["visualize_local_map"] ? config["visualize_local_map"].as<bool>() : true;
     pnh_.param("visualize_local_map", visualize_local_map, visualize_local_map);
-
-    config["swarm"]["enabled"] = swarm_enabled;
-    config["swarm"]["uav_num"] = swarm_uav_num;
-    config["swarm"]["namespace_prefix"] = namespace_prefix;
-    config["swarm"]["ring_radius"] = ring_radius;
-    config["swarm"]["altitude"] = altitude;
-    config["swarm"]["spawn_clear_radius"] = spawn_clear_radius;
-    config["swarm"]["collision_radius"] = collision_radius;
     config["visualize_local_map"] = visualize_local_map;
 }
 
-void SensorSimulator::setupRobots(const YAML::Node &config)
+bool SensorSimulator::inStaticCollision() const
 {
-    robots_.clear();
-
-    if (swarm_enabled_)
-    {
-        robots_.resize(swarm_uav_num_);
-        for (int i = 0; i < swarm_uav_num_; ++i)
-        {
-            RobotChannels robot;
-            robot.name = swarm_namespace_prefix_ + std::to_string(i);
-            robot.odom_topic = "/" + robot.name + "/sim/odom";
-            robot.depth_topic = "/" + robot.name + "/depth_image";
-            robot.lidar_topic = "/" + robot.name + "/lidar_points";
-            robots_[i] = robot;
-        }
-    }
-    else
-    {
-        RobotChannels robot;
-        robot.name = "uav0";
-        robot.odom_topic = config["odom_topic"].as<std::string>();
-        robot.depth_topic = config["depth_topic"].as<std::string>();
-        robot.lidar_topic = config["lidar_topic"].as<std::string>();
-        robots_.push_back(robot);
-    }
-
-    const ros::Time now = ros::Time::now();
-    for (size_t i = 0; i < robots_.size(); ++i)
-    {
-        robots_[i].image_pub = nh_.advertise<sensor_msgs::Image>(robots_[i].depth_topic, 1);
-        robots_[i].point_cloud_pub = nh_.advertise<sensor_msgs::PointCloud2>(robots_[i].lidar_topic, 1);
-        robots_[i].collision_pub = nh_.advertise<std_msgs::Int32>("/" + robots_[i].name + "/yopo/collision_counter", 1);
-        robots_[i].uav_collision_pub = nh_.advertise<std_msgs::Int32>("/" + robots_[i].name + "/yopo/uav_collision_counter", 1);
-        robots_[i].odom_sub = nh_.subscribe<nav_msgs::Odometry>(
-            robots_[i].odom_topic,
-            1,
-            boost::bind(&SensorSimulator::odomCallback, this, _1, i),
-            ros::VoidPtr(),
-            ros::TransportHints().tcpNoDelay());
-        robots_[i].next_depth_pub_time = now;
-        robots_[i].next_lidar_pub_time = now;
-    }
+    return grid_map_->mapQueryHost(Vector3f(pos_.x(), pos_.y(), pos_.z())) == 1;
 }
 
-std::vector<SphereObstacle> SensorSimulator::getDynamicObstacles(size_t robot_index) const
-{
-    std::vector<SphereObstacle> obstacles;
-    if (!swarm_enabled_ || robots_.size() <= 1)
-        return obstacles;
-
-    obstacles.reserve(robots_.size() - 1);
-    for (size_t i = 0; i < robots_.size(); ++i)
-    {
-        if (i == robot_index || !robots_[i].odom_init)
-            continue;
-
-        SphereObstacle obstacle;
-        obstacle.center = Vector3f(robots_[i].pos.x(), robots_[i].pos.y(), robots_[i].pos.z());
-        obstacle.radius = collision_radius_;
-        obstacles.push_back(obstacle);
-    }
-    return obstacles;
-}
-
-bool SensorSimulator::inStaticCollision(const RobotChannels &robot) const
-{
-    return grid_map_->mapQueryHost(Vector3f(robot.pos.x(), robot.pos.y(), robot.pos.z())) == 1;
-}
-
-bool SensorSimulator::inDynamicCollision(size_t robot_index) const
-{
-    if (!swarm_enabled_)
-        return false;
-
-    for (size_t i = 0; i < robots_.size(); ++i)
-    {
-        if (i == robot_index || !robots_[i].odom_init)
-            continue;
-
-        if ((robots_[robot_index].pos - robots_[i].pos).norm() <= 2.0f * collision_radius_)
-            return true;
-    }
-    return false;
-}
-
-void SensorSimulator::renderDepthCallback(size_t robot_index, const ros::Time &stamp)
+void SensorSimulator::renderDepthCallback(const ros::Time &stamp)
 {
     if (!render_depth_)
         return;
 
-    const auto dynamic_obstacles = getDynamicObstacles(robot_index);
     auto start = std::chrono::high_resolution_clock::now();
 
-    auto &robot = robots_[robot_index];
-    cudaMat::SE3<float> T_wc(robot.quat_wc.w(), robot.quat_wc.x(), robot.quat_wc.y(), robot.quat_wc.z(),
-                             robot.pos.x(), robot.pos.y(), robot.pos.z());
+    cudaMat::SE3<float> T_wc(quat_wc_.w(), quat_wc_.x(), quat_wc_.y(), quat_wc_.z(),
+                             pos_.x(), pos_.y(), pos_.z());
     cv::Mat depth_image;
-    renderDepthImage(grid_map_, camera_, T_wc, depth_image, dynamic_obstacles);
+    renderDepthImage(grid_map_, camera_, T_wc, depth_image);
 
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
@@ -363,22 +228,20 @@ void SensorSimulator::renderDepthCallback(size_t robot_index, const ros::Time &s
     cv_image.encoding = sensor_msgs::image_encodings::TYPE_32FC1;
     cv_image.image = depth_image;
     cv_image.toImageMsg(ros_image);
-    robot.image_pub.publish(ros_image);
+    image_pub_.publish(ros_image);
 }
 
-void SensorSimulator::renderLidarCallback(size_t robot_index, const ros::Time &stamp)
+void SensorSimulator::renderLidarCallback(const ros::Time &stamp)
 {
     if (!render_lidar_)
         return;
 
-    const auto dynamic_obstacles = getDynamicObstacles(robot_index);
     auto start = std::chrono::high_resolution_clock::now();
 
-    auto &robot = robots_[robot_index];
-    cudaMat::SE3<float> T_wc(robot.quat.w(), robot.quat.x(), robot.quat.y(), robot.quat.z(),
-                             robot.pos.x(), robot.pos.y(), robot.pos.z());
+    cudaMat::SE3<float> T_wc(quat_.w(), quat_.x(), quat_.y(), quat_.z(),
+                             pos_.x(), pos_.y(), pos_.z());
     pcl::PointCloud<pcl::PointXYZ> lidar_points;
-    renderLidarPointcloud(grid_map_, lidar_, T_wc, lidar_points, dynamic_obstacles);
+    renderLidarPointcloud(grid_map_, lidar_, T_wc, lidar_points);
 
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
@@ -389,24 +252,24 @@ void SensorSimulator::renderLidarCallback(size_t robot_index, const ros::Time &s
     pcl::toROSMsg(lidar_points, output);
     output.header.stamp = stamp;
     output.header.frame_id = "odom";
-    robot.point_cloud_pub.publish(output);
+    point_cloud_pub_.publish(output);
 
     if (!visualize_local_map_)
     {
-        robot.local_map_world.clear();
+        local_map_world_.clear();
         return;
     }
 
-    robot.local_map_world.clear();
-    robot.local_map_world.points.reserve(lidar_points.points.size());
+    local_map_world_.clear();
+    local_map_world_.points.reserve(lidar_points.points.size());
     for (const auto &point_local : lidar_points.points)
     {
         const float3 point_world = T_wc * make_float3(point_local.x, point_local.y, point_local.z);
-        robot.local_map_world.points.emplace_back(point_world.x, point_world.y, point_world.z);
+        local_map_world_.points.emplace_back(point_world.x, point_world.y, point_world.z);
     }
-    robot.local_map_world.width = robot.local_map_world.points.size();
-    robot.local_map_world.height = 1;
-    robot.local_map_world.is_dense = true;
+    local_map_world_.width = local_map_world_.points.size();
+    local_map_world_.height = 1;
+    local_map_world_.is_dense = true;
     publishLocalMapVisual(stamp);
 }
 
@@ -423,98 +286,58 @@ void SensorSimulator::publishLocalMapVisual(const ros::Time &stamp)
     if (local_map_visual_pub_.getNumSubscribers() == 0)
         return;
 
-    pcl::PointCloud<pcl::PointXYZ> combined_cloud;
-    size_t total_points = 0;
-    for (const auto &robot : robots_)
-        total_points += robot.local_map_world.points.size();
-    combined_cloud.points.reserve(total_points);
-
-    for (const auto &robot : robots_)
-        combined_cloud += robot.local_map_world;
-
-    combined_cloud.width = combined_cloud.points.size();
-    combined_cloud.height = 1;
-    combined_cloud.is_dense = true;
-
     sensor_msgs::PointCloud2 output;
-    pcl::toROSMsg(combined_cloud, output);
+    pcl::toROSMsg(local_map_world_, output);
     output.header.stamp = stamp;
     output.header.frame_id = "world";
     local_map_visual_pub_.publish(output);
 }
 
-void SensorSimulator::publishCollisionCounter(size_t robot_index)
+void SensorSimulator::publishCollisionCounters()
 {
     std_msgs::Int32 msg;
-    msg.data = robots_[robot_index].collision_counter;
-    robots_[robot_index].collision_pub.publish(msg);
-
-    std_msgs::Int32 uav_msg;
-    uav_msg.data = robots_[robot_index].uav_collision_counter;
-    robots_[robot_index].uav_collision_pub.publish(uav_msg);
+    msg.data = collision_counter_;
+    collision_counter_pub_.publish(msg);
+    collision_counter_total_pub_.publish(msg);
 }
 
-void SensorSimulator::publishCollisionCounterTotal()
+void SensorSimulator::odomCallback(const nav_msgs::Odometry::ConstPtr &msg)
 {
-    std_msgs::Int32 total_msg;
-    total_msg.data = collision_counter_total_;
-    collision_counter_total_pub_.publish(total_msg);
+    quat_.x() = msg->pose.pose.orientation.x;
+    quat_.y() = msg->pose.pose.orientation.y;
+    quat_.z() = msg->pose.pose.orientation.z;
+    quat_.w() = msg->pose.pose.orientation.w;
+    quat_wc_ = quat_ * quat_bc_;
 
-    std_msgs::Int32 uav_total_msg;
-    uav_total_msg.data = uav_collision_counter_total_;
-    uav_collision_counter_total_pub_.publish(uav_total_msg);
-}
+    pos_.x() = msg->pose.pose.position.x;
+    pos_.y() = msg->pose.pose.position.y;
+    pos_.z() = msg->pose.pose.position.z;
+    odom_init_ = true;
 
-void SensorSimulator::odomCallback(const nav_msgs::Odometry::ConstPtr &msg, size_t robot_index)
-{
-    auto &robot = robots_[robot_index];
-    robot.quat.x() = msg->pose.pose.orientation.x;
-    robot.quat.y() = msg->pose.pose.orientation.y;
-    robot.quat.z() = msg->pose.pose.orientation.z;
-    robot.quat.w() = msg->pose.pose.orientation.w;
-    robot.quat_wc = robot.quat * quat_bc_;
-
-    robot.pos.x() = msg->pose.pose.position.x;
-    robot.pos.y() = msg->pose.pose.position.y;
-    robot.pos.z() = msg->pose.pose.position.z;
-    robot.odom_init = true;
-
-    const bool static_collision = inStaticCollision(robot);
-    const bool dynamic_collision = inDynamicCollision(robot_index);
-    if (static_collision && !robot.in_static_collision)
+    const bool static_collision = inStaticCollision();
+    if (static_collision && !in_static_collision_)
     {
-        robot.collision_counter += 1;
-        collision_counter_total_ += 1;
-        ROS_WARN_THROTTLE(1.0, "[%s] occupied-voxel collision detected. robot_total=%d all_total=%d",
-                          robot.name.c_str(), robot.collision_counter, collision_counter_total_);
+        collision_counter_ += 1;
+        ROS_WARN_THROTTLE(1.0, "Occupied-voxel collision detected. total=%d", collision_counter_);
     }
-    if (dynamic_collision && !robot.in_uav_collision)
-    {
-        robot.uav_collision_counter += 1;
-        uav_collision_counter_total_ += 1;
-        ROS_WARN_THROTTLE(1.0, "[%s] UAV-UAV collision detected. robot_total=%d all_total=%d",
-                          robot.name.c_str(), robot.uav_collision_counter, uav_collision_counter_total_);
-    }
-    robot.in_static_collision = static_collision;
-    robot.in_uav_collision = dynamic_collision;
-    publishCollisionCounter(robot_index);
-    publishCollisionCounterTotal();
+    in_static_collision_ = static_collision;
+    publishCollisionCounters();
 
     const ros::Time tnow = ros::Time::now();
-    if (fabs((tnow - robot.next_depth_pub_time).toSec()) > 10 * depth_pub_duration_.toSec())
-        robot.next_depth_pub_time = tnow;
-    if (fabs((tnow - robot.next_lidar_pub_time).toSec()) > 10 * lidar_pub_duration_.toSec())
-        robot.next_lidar_pub_time = tnow;
+    if (fabs((tnow - next_depth_pub_time_).toSec()) > 10 * depth_pub_duration_.toSec())
+        next_depth_pub_time_ = tnow;
+    if (fabs((tnow - next_lidar_pub_time_).toSec()) > 10 * lidar_pub_duration_.toSec())
+        next_lidar_pub_time_ = tnow;
 
-    if (tnow >= robot.next_depth_pub_time)
+    if (tnow >= next_depth_pub_time_)
     {
-        robot.next_depth_pub_time += depth_pub_duration_;
-        renderDepthCallback(robot_index, msg->header.stamp);
+        next_depth_pub_time_ += depth_pub_duration_;
+        renderDepthCallback(msg->header.stamp);
     }
-    if (tnow >= robot.next_lidar_pub_time)
+    if (tnow >= next_lidar_pub_time_)
     {
-        robot.next_lidar_pub_time += lidar_pub_duration_;
-        renderLidarCallback(robot_index, msg->header.stamp);
+        next_lidar_pub_time_ += lidar_pub_duration_;
+        renderLidarCallback(msg->header.stamp);
     }
 
     const ros::Duration render_duration = ros::Time::now() - tnow;

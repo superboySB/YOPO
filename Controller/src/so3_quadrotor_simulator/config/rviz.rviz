@@ -165,7 +165,6 @@ Visualization Manager:
       RangeZ_min: 0.800000012
       TopicPoint: point_list
       TopicSelect: select_list
-      TopicSwarm: swarm
     - Class: rviz_plugins/Goal3DTool
       Topic: goal
   Value: true

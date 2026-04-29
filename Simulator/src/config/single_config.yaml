@@ -55,16 +55,6 @@ wall_thick: 0.5
 wall_number: 100       # 墙面数量
 wall_ceiling: 1        # 是否添加天花板
 
-# 2.3 Swarm 参数 =============================================================
-swarm:
-  enabled: false
-  uav_num: 4
-  namespace_prefix: "uav"
-  ring_radius: 16.0
-  altitude: 2.0
-  spawn_clear_radius: 2.6
-  collision_radius: 0.25
-
 # 3. 传感器参数 ==============================================================
 camera:
   fx: 80.0             # focal length x

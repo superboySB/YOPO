@@ -1,1 +1,0 @@
-swarm_run_trials.sh

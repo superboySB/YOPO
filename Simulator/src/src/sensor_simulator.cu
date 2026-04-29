@@ -8,50 +8,6 @@ namespace raycast
             occupied[0] = grid_map.mapQuery(pos);
     }
 
-    __device__ __forceinline__ float dotFloat3(const float3 &a, const float3 &b)
-    {
-        return a.x * b.x + a.y * b.y + a.z * b.z;
-    }
-
-    __device__ __forceinline__ float3 subFloat3(const float3 &a, const float3 &b)
-    {
-        return make_float3(a.x - b.x, a.y - b.y, a.z - b.z);
-    }
-
-    __device__ float findNearestSphereHit(const float3 &ray_origin_w,
-                                          const float3 &ray_dir_w,
-                                          const SphereObstacle *dynamic_obstacles,
-                                          int dynamic_obstacle_count,
-                                          float max_ray_length)
-    {
-        float best_hit = max_ray_length + 1.0f;
-
-        for (int i = 0; i < dynamic_obstacle_count; ++i)
-        {
-            const SphereObstacle obstacle = dynamic_obstacles[i];
-            if (obstacle.radius <= 0.0f)
-                continue;
-
-            const float3 center_w = make_float3(obstacle.center.x, obstacle.center.y, obstacle.center.z);
-            const float3 oc = subFloat3(ray_origin_w, center_w);
-            const float b = dotFloat3(oc, ray_dir_w);
-            const float c = dotFloat3(oc, oc) - obstacle.radius * obstacle.radius;
-            const float discriminant = b * b - c;
-            if (discriminant < 0.0f)
-                continue;
-
-            const float sqrt_discriminant = sqrtf(discriminant);
-            float hit = -b - sqrt_discriminant;
-            if (hit <= 0.0f)
-                hit = -b + sqrt_discriminant;
-
-            if (hit > 0.0f && hit <= max_ray_length && hit < best_hit)
-                best_hit = hit;
-        }
-
-        return best_hit <= max_ray_length ? best_hit : -1.0f;
-    }
-
     GridMap::GridMap(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, float resolution, int occupy_threshold)
     {
         const float epsilon = 0.001f;
@@ -174,9 +130,7 @@ namespace raycast
     __global__ void cameraRaycastKernel(float *depth_values,
                                         GridMap grid_map,
                                         CameraParams camera_param,
-                                        cudaMat::SE3<float> T_wc,
-                                        const SphereObstacle *dynamic_obstacles,
-                                        int dynamic_obstacle_count)
+                                        cudaMat::SE3<float> T_wc)
     {
         int u = threadIdx.x;
         int v = blockIdx.x;
@@ -193,20 +147,12 @@ namespace raycast
         y /= length;
         z /= length;
 
-        const float3 ray_dir_c = make_float3(x, y, z);
-        const float3 ray_dir_w = T_wc.rotate(ray_dir_c);
-        const float3 ray_origin_w = T_wc.getTranslation();
-
-        const float max_ray_length = camera_param.max_depth_dist / fmaxf(x, 1e-4f);
-        const float dynamic_hit = findNearestSphereHit(ray_origin_w, ray_dir_w, dynamic_obstacles, dynamic_obstacle_count, max_ray_length);
-        const float dynamic_depth = dynamic_hit > 0.0f ? dynamic_hit * x : camera_param.max_depth_dist;
-
         const float dx = 0.5f * grid_map.raycast_step_;
         const float dy = (y / x) * dx;
         const float dz = (z / x) * dx;
 
         int scale = 0;
-        float depth = dynamic_depth;
+        float depth = camera_param.max_depth_dist;
 
         while (1)
         {
@@ -217,15 +163,7 @@ namespace raycast
             const float point_z = scale * dz;
 
             if (point_x >= camera_param.max_depth_dist)
-            {
-                depth = dynamic_depth;
                 break;
-            }
-            if (dynamic_hit > 0.0f && point_x >= dynamic_depth)
-            {
-                depth = dynamic_depth;
-                break;
-            }
 
             const float3 point_c = make_float3(point_x, point_y, point_z);
             const float3 point_w = T_wc * point_c;
@@ -249,41 +187,26 @@ namespace raycast
     void renderDepthImage(GridMap *grid_map,
                           CameraParams *camera_param,
                           cudaMat::SE3<float> &T_wc,
-                          cv::Mat &depth_image,
-                          const std::vector<SphereObstacle> &dynamic_obstacles)
+                          cv::Mat &depth_image)
     {
         float *depth_values;
         size_t num_elements = camera_param->image_width * camera_param->image_height;
         cudaMallocManaged(&depth_values, num_elements * sizeof(float));
 
-        SphereObstacle *dynamic_obstacles_cuda = nullptr;
-        if (!dynamic_obstacles.empty())
-        {
-            cudaMallocManaged(&dynamic_obstacles_cuda, dynamic_obstacles.size() * sizeof(SphereObstacle));
-            cudaMemcpy(dynamic_obstacles_cuda,
-                       dynamic_obstacles.data(),
-                       dynamic_obstacles.size() * sizeof(SphereObstacle),
-                       cudaMemcpyHostToDevice);
-        }
-
         cameraRaycastKernel<<<camera_param->image_height, camera_param->image_width>>>(
-            depth_values, *grid_map, *camera_param, T_wc, dynamic_obstacles_cuda, dynamic_obstacles.size());
+            depth_values, *grid_map, *camera_param, T_wc);
         cudaDeviceSynchronize();
 
         depth_image.create(camera_param->image_height, camera_param->image_width, CV_32FC1);
         cudaMemcpy(depth_image.data, depth_values, num_elements * sizeof(float), cudaMemcpyDeviceToHost);
 
-        if (dynamic_obstacles_cuda != nullptr)
-            cudaFree(dynamic_obstacles_cuda);
         cudaFree(depth_values);
     }
 
     __global__ void lidarRaycastKernel(Vector3f *point_values,
                                        GridMap grid_map,
                                        LidarParams lidar_param,
-                                       cudaMat::SE3<float> T_wc,
-                                       const SphereObstacle *dynamic_obstacles,
-                                       int dynamic_obstacle_count)
+                                       cudaMat::SE3<float> T_wc)
     {
         int h = threadIdx.x;
         int v = blockIdx.x;
@@ -304,11 +227,6 @@ namespace raycast
         const float dy = ray_direction_local.y * grid_map.raycast_step_;
         const float dz = ray_direction_local.z * grid_map.raycast_step_;
 
-        const float3 ray_dir_c = make_float3(ray_direction_local.x, ray_direction_local.y, ray_direction_local.z);
-        const float3 ray_dir_w = T_wc.rotate(ray_dir_c);
-        const float3 ray_origin_w = T_wc.getTranslation();
-        const float dynamic_hit = findNearestSphereHit(ray_origin_w, ray_dir_w, dynamic_obstacles, dynamic_obstacle_count, lidar_param.max_lidar_dist);
-
         int scale = 0;
         Vector3f point_value(0, 0, 0);
 
@@ -323,13 +241,6 @@ namespace raycast
 
             if (ray_length >= lidar_param.max_lidar_dist)
                 break;
-            if (dynamic_hit > 0.0f && ray_length >= dynamic_hit)
-            {
-                point_value = Vector3f(ray_direction_local.x * dynamic_hit,
-                                       ray_direction_local.y * dynamic_hit,
-                                       ray_direction_local.z * dynamic_hit);
-                break;
-            }
 
             const float3 point_c = make_float3(point_x, point_y, point_z);
             const float3 point_w = T_wc * point_c;
@@ -351,25 +262,14 @@ namespace raycast
     void renderLidarPointcloud(GridMap *grid_map,
                                LidarParams *lidar_param,
                                cudaMat::SE3<float> &T_wc,
-                               pcl::PointCloud<pcl::PointXYZ> &lidar_points,
-                               const std::vector<SphereObstacle> &dynamic_obstacles)
+                               pcl::PointCloud<pcl::PointXYZ> &lidar_points)
     {
         Vector3f *point_values;
         size_t num_elements = lidar_param->vertical_lines * lidar_param->horizontal_num;
         cudaMallocManaged(&point_values, num_elements * sizeof(Vector3f));
 
-        SphereObstacle *dynamic_obstacles_cuda = nullptr;
-        if (!dynamic_obstacles.empty())
-        {
-            cudaMallocManaged(&dynamic_obstacles_cuda, dynamic_obstacles.size() * sizeof(SphereObstacle));
-            cudaMemcpy(dynamic_obstacles_cuda,
-                       dynamic_obstacles.data(),
-                       dynamic_obstacles.size() * sizeof(SphereObstacle),
-                       cudaMemcpyHostToDevice);
-        }
-
         lidarRaycastKernel<<<lidar_param->vertical_lines, lidar_param->horizontal_num>>>(
-            point_values, *grid_map, *lidar_param, T_wc, dynamic_obstacles_cuda, dynamic_obstacles.size());
+            point_values, *grid_map, *lidar_param, T_wc);
         cudaDeviceSynchronize();
 
         std::vector<Vector3f> cpu_points(num_elements);
@@ -383,8 +283,6 @@ namespace raycast
                 lidar_points.points.emplace_back(point.x, point.y, point.z);
         }
 
-        if (dynamic_obstacles_cuda != nullptr)
-            cudaFree(dynamic_obstacles_cuda);
         cudaFree(point_values);
     }
 }
