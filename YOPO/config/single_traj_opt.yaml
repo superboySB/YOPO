@@ -1,3 +1,5 @@
+# YOPOv2-Tracker reproduction config.
+
 # IMPORTANT: velocity in testing (modifiable)
 velocity: 6
 
@@ -16,6 +18,14 @@ wc: 1.0    # collision    (distance to obstacle)
 dataset_path: "../dataset"
 image_height: 96
 image_width: 160
+camera_fx: 80.0
+camera_fy: 80.0
+camera_cx: 80.0
+camera_cy: 48.0
+camera_max_depth: 20.0
+input_channels: 2       # depth + detector-style target bbox mask
+observation_dim: 6      # velocity + acceleration
+output_dim: 14          # primitive offset(3), end v/a(6), cost(1), objectness(1), target uv/depth(3)
 
 # trajectory and primitive param (Note: traj_time = 2 * radio / vel_max) (can be visualized in rviz)
 horizon_num: 5
@@ -50,3 +60,32 @@ goal_yaw_std: 20.0
 # extend the map to avoid trajectory exceeding bounds (especially in z-axis) and treating the sky outside the map as obstacle
 map_expand_min: [0, 0, 0.2]
 map_expand_max: [0, 0, 6.0]
+
+# tracking head
+target_position_scale: 20.0
+target_radius: 0.35
+target_mask_min_px: 3
+target_mask_max_px: 48
+target_mask_augment: true
+target_mask_jitter_px: 4.0
+target_mask_scale_jitter: 0.25
+target_mask_dropout_prob: 0.05
+target_mask_false_positive_prob: 0.15
+target_mask_false_positive_max: 2
+target_mask_false_positive_min_px: 3
+target_mask_false_positive_max_px: 18
+objectness_weight: 1.0
+target_position_weight: 1.0
+objectness_positive_weight: 5.0
+objectness_negative_weight: 1.0
+positive_grid_radius: 0
+ignore_grid_radius: 1
+objectness_threshold: 0.45
+selection_objectness_bonus: 0.2
+target_ema_alpha: 0.35
+target_velocity_ema_alpha: 0.25
+
+# inference follow/hold behavior
+follow_distance: 2.0
+follow_deadband: 0.35
+follow_target_speed_threshold: 0.35

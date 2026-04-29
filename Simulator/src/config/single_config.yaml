@@ -1,10 +1,14 @@
 # 1. ROS节点参数 =============================================================
 odom_topic: "/sim/odom"
 depth_topic: "/depth_image"
+target_mask_topic: "/target_mask_image"
 lidar_topic: "/lidar_points"
+target_odom_topic: "/target/odom"
+target_marker_topic: "/target/marker"
 
 render_depth: true
 depth_fps: 33          # odom 100hz, depth 33hz, 每3帧odom渲染一次
+render_target_mask: true
 
 render_lidar: true
 lidar_fps: 10
@@ -60,12 +64,21 @@ camera:
   fx: 80.0             # focal length x
   fy: 80.0             # focal length y
   cx: 80.0             # principal point x (image center)
-  cy: 45.0              # principal point y (image center)
+  cy: 48.0              # principal point y (image center)
   image_width: 160
-  image_height: 90
+  image_height: 96
   max_depth_dist: 20.0
   normalize_depth: false
   pitch: -0.0           # 相机相对机体的俯仰角 (仰为负, cpu版尚未添加)
+
+target:
+  radius: 0.35          # 目标无人机近似半径，用于深度遮挡和bbox大小
+  min_depth: 2.5
+  max_depth: 14.0
+  max_yaw_deg: 35.0
+  max_pitch_deg: 22.0
+  occlusion_margin: 0.3
+  mask_bbox_scale: 1.2  # 检测框相对投影半径的放大系数
 
 lidar:
   vertical_lines: 16             # 纵向16线

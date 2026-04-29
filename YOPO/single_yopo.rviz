@@ -63,6 +63,18 @@ Visualization Manager:
       Transport Hint: raw
       Unreliable: false
       Value: true
+    - Class: rviz/Image
+      Enabled: true
+      Image Topic: /target_mask_image
+      Max Value: 1
+      Median window: 5
+      Min Value: 0
+      Name: Target_Mask
+      Normalize Range: true
+      Queue Size: 2
+      Transport Hint: raw
+      Unreliable: false
+      Value: true
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
@@ -144,7 +156,7 @@ Visualization Manager:
           Size (Pixels): 8
           Size (m): 0.20000000298023224
           Style: Points
-          Topic: /yopo_net/best_traj_visual
+          Topic: /yopo_tracker/best_traj_visual
           Unreliable: false
           Use Fixed Frame: true
           Use rainbow: true
@@ -172,7 +184,7 @@ Visualization Manager:
           Size (Pixels): 8
           Size (m): 0.20000000298023224
           Style: Points
-          Topic: /yopo_net/trajs_visual
+          Topic: /yopo_tracker/trajs_visual
           Unreliable: false
           Use Fixed Frame: true
           Use rainbow: true
@@ -200,7 +212,7 @@ Visualization Manager:
           Size (Pixels): 3
           Size (m): 0.20000000298023224
           Style: Flat Squares
-          Topic: /yopo_net/lattice_trajs_visual
+          Topic: /yopo_tracker/lattice_trajs_visual
           Unreliable: false
           Use Fixed Frame: true
           Use rainbow: true
@@ -214,6 +226,42 @@ Visualization Manager:
       Namespaces:
         mesh: true
       Queue Size: 100
+      Value: true
+    - Class: rviz/Marker
+      Enabled: true
+      Marker Topic: /target/marker
+      Name: Target_Drone
+      Namespaces:
+        target_drone: true
+      Queue Size: 100
+      Value: true
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 4
+        Min Value: -5
+        Value: false
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz/PointCloud2
+      Color: 239; 41; 41
+      Color Transformer: FlatColor
+      Decay Time: 0
+      Enabled: true
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Min Color: 0; 0; 0
+      Name: Target_Estimate
+      Position Transformer: XYZ
+      Queue Size: 10
+      Selectable: true
+      Size (Pixels): 12
+      Size (m): 0.30000001192092896
+      Style: Spheres
+      Topic: /yopo_tracker/target_estimate
+      Unreliable: false
+      Use Fixed Frame: true
+      Use rainbow: true
       Value: true
   Enabled: true
   Global Options:

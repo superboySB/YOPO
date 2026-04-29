@@ -26,6 +26,7 @@ def parser():
     parser.add_argument("--learning-rate", type=float, default=1.5e-4, help="optimizer learning rate")
     parser.add_argument("--num-workers", type=int, default=4, help="dataloader workers")
     parser.add_argument("--save-root", type=str, default="saved", help="checkpoint/tensorboard root under YOPO/")
+    parser.add_argument("--save-interval", type=int, default=10, help="save checkpoint every N epochs; <=0 disables interval saving")
     return parser
 
 
@@ -54,6 +55,7 @@ if __name__ == "__main__":
         save_on_exit=True,
     )
 
-    trainer.train(epoch=args.epochs)
+    save_interval = args.save_interval if args.save_interval > 0 else None
+    trainer.train(epoch=args.epochs, save_interval=save_interval)
 
-    print("Run YOPO Finish!")
+    print("Run YOPOv2-Tracker training Finish!")

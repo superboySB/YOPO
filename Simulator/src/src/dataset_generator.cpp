@@ -11,6 +11,7 @@
 #include <fstream>
 #include <iomanip>
 #include <algorithm>
+#include <cmath>
 #include <random>
 #include <string>
 #include <vector>
@@ -100,6 +101,67 @@ void saveDepthAs16BitPNG(const cv::Mat &depth_float, float max_depth_dist, const
     cv::imwrite(filepath, depth_scaled);
 }
 
+bool projectTarget(const Eigen::Vector3f &target_c,
+                   const CameraParams &camera,
+                   float &u,
+                   float &v)
+{
+    if (target_c.x() <= 0.1f || target_c.x() > camera.max_depth_dist)
+        return false;
+    u = camera.cx - camera.fx * target_c.y() / target_c.x();
+    v = camera.cy - camera.fy * target_c.z() / target_c.x();
+    return u >= 0.0f && u < camera.image_width && v >= 0.0f && v < camera.image_height;
+}
+
+void overlayTargetAndMask(cv::Mat &depth_image,
+                   cv::Mat &target_mask,
+                   const Eigen::Vector3f &target_c,
+                   const CameraParams &camera,
+                   float target_radius,
+                   float occlusion_margin,
+                   float mask_bbox_scale)
+{
+    float u_center = 0.0f;
+    float v_center = 0.0f;
+    if (!projectTarget(target_c, camera, u_center, v_center))
+        return;
+
+    const int radius_px = std::max(2, std::min(24, static_cast<int>(std::ceil(camera.fx * target_radius / target_c.x()))));
+    const int u0 = std::max(0, static_cast<int>(std::floor(u_center)) - radius_px);
+    const int u1 = std::min(camera.image_width - 1, static_cast<int>(std::ceil(u_center)) + radius_px);
+    const int v0 = std::max(0, static_cast<int>(std::floor(v_center)) - radius_px);
+    const int v1 = std::min(camera.image_height - 1, static_cast<int>(std::ceil(v_center)) + radius_px);
+
+    const int bbox_half = std::max(2, static_cast<int>(std::ceil(radius_px * mask_bbox_scale)));
+    const int bu0 = std::max(0, static_cast<int>(std::floor(u_center)) - bbox_half);
+    const int bu1 = std::min(camera.image_width - 1, static_cast<int>(std::ceil(u_center)) + bbox_half);
+    const int bv0 = std::max(0, static_cast<int>(std::floor(v_center)) - bbox_half);
+    const int bv1 = std::min(camera.image_height - 1, static_cast<int>(std::ceil(v_center)) + bbox_half);
+    cv::rectangle(target_mask, cv::Point(bu0, bv0), cv::Point(bu1, bv1), cv::Scalar(255), cv::FILLED);
+
+    for (int py = v0; py <= v1; ++py)
+    {
+        for (int px = u0; px <= u1; ++px)
+        {
+            const float y_at_target_x = -(px - camera.cx) / camera.fx * target_c.x();
+            const float z_at_target_x = -(py - camera.cy) / camera.fy * target_c.x();
+            const float dy = y_at_target_x - target_c.y();
+            const float dz = z_at_target_x - target_c.z();
+            const float lateral_sq = dy * dy + dz * dz;
+            const float radius_sq = target_radius * target_radius;
+            if (lateral_sq > radius_sq)
+                continue;
+
+            const float surface_depth = target_c.x() - std::sqrt(std::max(0.0f, radius_sq - lateral_sq));
+            float &depth_ref = depth_image.at<float>(py, px);
+            if (surface_depth <= depth_ref + occlusion_margin)
+            {
+                depth_ref = std::min(depth_ref, surface_depth);
+            }
+        }
+    }
+}
+
 Eigen::Quaternionf RPY2Quat(float roll_deg, float pitch_deg, float yaw_deg)
 {
     float roll = roll_deg * M_PI / 180.0f;
@@ -179,6 +241,13 @@ int main(int argc, char **argv)
     float z_max = config["z_range"][1].as<float>();
     float safe_dist = config["safe_dist"].as<float>();
     float ply_res = config["ply_res"].as<float>();
+    float target_radius = config["target"] && config["target"]["radius"] ? config["target"]["radius"].as<float>() : 0.35f;
+    float target_min_depth = config["target"] && config["target"]["min_depth"] ? config["target"]["min_depth"].as<float>() : 2.5f;
+    float target_max_depth = config["target"] && config["target"]["max_depth"] ? config["target"]["max_depth"].as<float>() : 14.0f;
+    float target_max_yaw = config["target"] && config["target"]["max_yaw_deg"] ? config["target"]["max_yaw_deg"].as<float>() : 35.0f;
+    float target_max_pitch = config["target"] && config["target"]["max_pitch_deg"] ? config["target"]["max_pitch_deg"].as<float>() : 22.0f;
+    float target_occlusion_margin = config["target"] && config["target"]["occlusion_margin"] ? config["target"]["occlusion_margin"].as<float>() : 0.3f;
+    float target_mask_bbox_scale = config["target"] && config["target"]["mask_bbox_scale"] ? config["target"]["mask_bbox_scale"].as<float>() : 1.2f;
 
     // 中心对齐，计算偏移量
     int dataset_num = env_num * image_num;
@@ -242,6 +311,8 @@ int main(int argc, char **argv)
         // 收集当前环境的数据
         std::ofstream pose_file(save_path + "pose-" + std::to_string(map_i) + ".csv");
         pose_file << "px,py,pz,qw,qx,qy,qz\n";
+        std::ofstream target_file(save_path + "target-" + std::to_string(map_i) + ".csv");
+        target_file << "tx,ty,tz,tvx,tvy,tvz,visible,u,v,depth\n";
         for (int image_i = 0; image_i < image_num; ++image_i)
         {
             Eigen::Vector3f pos;
@@ -269,18 +340,66 @@ int main(int argc, char **argv)
 
             cv::Mat depth_image;
             renderDepthImage(&grid_map, &camera, T_wc, depth_image);
+            cv::Mat target_mask = cv::Mat::zeros(camera.image_height, camera.image_width, CV_8UC1);
 
-            std::string filename = image_path + "/img_" + std::to_string(image_i) + ".png";
-            saveDepthAs16BitPNG(depth_image, camera.max_depth_dist, filename);
+            Eigen::Matrix3f R_wc = quat_wc.toRotationMatrix();
+            Eigen::Vector3f target_c(target_min_depth, 0.0f, 0.0f);
+            Eigen::Vector3f target_w = pos + R_wc * target_c;
+            float target_u = -1.0f;
+            float target_v = -1.0f;
+            bool target_visible = false;
+            for (int attempt = 0; attempt < 120; ++attempt)
+            {
+                const float depth = target_min_depth + uniform_uniform(generator) * (target_max_depth - target_min_depth);
+                const float yaw_rad = (2.0f * uniform_uniform(generator) - 1.0f) * target_max_yaw * M_PI / 180.0f;
+                const float pitch_rad = (2.0f * uniform_uniform(generator) - 1.0f) * target_max_pitch * M_PI / 180.0f;
+                target_c = Eigen::Vector3f(
+                    depth * std::cos(pitch_rad) * std::cos(yaw_rad),
+                    -depth * std::cos(pitch_rad) * std::sin(yaw_rad),
+                    -depth * std::sin(pitch_rad));
+
+                if (!projectTarget(target_c, camera, target_u, target_v))
+                    continue;
+                target_w = pos + R_wc * target_c;
+                if (grid_map.mapQueryHost(Vector3f(target_w.x(), target_w.y(), target_w.z())) == 1)
+                    continue;
+
+                const float map_depth = depth_image.at<float>(
+                    std::max(0, std::min(camera.image_height - 1, static_cast<int>(std::round(target_v)))),
+                    std::max(0, std::min(camera.image_width - 1, static_cast<int>(std::round(target_u)))));
+                if (target_c.x() - target_radius < map_depth + target_occlusion_margin)
+                {
+                    target_visible = true;
+                    break;
+                }
+            }
+
+            if (target_visible)
+                overlayTargetAndMask(depth_image, target_mask, target_c, camera, target_radius, target_occlusion_margin, target_mask_bbox_scale);
+
+            const std::string depth_filename = image_path + "/depth_" + std::to_string(image_i) + ".png";
+            const std::string mask_filename = image_path + "/mask_" + std::to_string(image_i) + ".png";
+            saveDepthAs16BitPNG(depth_image, camera.max_depth_dist, depth_filename);
+            cv::imwrite(mask_filename, target_mask);
 
             pose_file << std::fixed << std::setprecision(6)
                       << pos.x() << "," << pos.y() << "," << pos.z() << ","
                       << quat_wc.w() << "," << quat_wc.x() << ","
                       << quat_wc.y() << "," << quat_wc.z() << "\n";
+            const Eigen::Vector3f target_v_w(
+                normal_distribution(generator) * 0.5f,
+                normal_distribution(generator) * 0.5f,
+                normal_distribution(generator) * 0.2f);
+            target_file << std::fixed << std::setprecision(6)
+                        << target_w.x() << "," << target_w.y() << "," << target_w.z() << ","
+                        << target_v_w.x() << "," << target_v_w.y() << "," << target_v_w.z() << ","
+                        << (target_visible ? 1 : 0) << ","
+                        << target_u << "," << target_v << "," << target_c.x() << "\n";
 
             printProgressBar(map_i * image_num + image_i + 1, dataset_num);
         }
         pose_file.close();
+        target_file.close();
         grid_map.freeGridMap();
     }
 

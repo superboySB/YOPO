@@ -8,6 +8,13 @@ class StateTransform:
     def __init__(self):
         self.lattice_primitive = LatticePrimitive.get_instance()
         self.goal_length = cfg['goal_length']
+        self.target_position_scale = cfg["target_position_scale"]
+        self.image_width = cfg["image_width"]
+        self.image_height = cfg["image_height"]
+        self.camera_fx = cfg["camera_fx"]
+        self.camera_fy = cfg["camera_fy"]
+        self.camera_cx = cfg["camera_cx"]
+        self.camera_cy = cfg["camera_cy"]
 
     def pred_to_endstate(self, endstate_pred: torch.Tensor) -> torch.Tensor:
         """
@@ -22,9 +29,12 @@ class StateTransform:
 
         # 获取 lattice angle 和 rotation (.flip: 由于lattice和grid的顺序相反)
         yaw, pitch = self.lattice_primitive.getAngleLattice()  # [15]
+        yaw = yaw.to(device=endstate_pred.device, dtype=endstate_pred.dtype)
+        pitch = pitch.to(device=endstate_pred.device, dtype=endstate_pred.dtype)
         yaw = yaw.flip(0)[None, :].expand(B, -1)  # [B, 15]
         pitch = pitch.flip(0)[None, :].expand(B, -1)  # [B, 15]
         Rbp = self.lattice_primitive.getRotation().flip(0)  # [15, 3, 3]
+        Rbp = Rbp.to(device=endstate_pred.device, dtype=endstate_pred.dtype)
         Rbp = Rbp[None, :, :, :].expand(B, -1, -1, -1)  # [B, 15, 3, 3]
 
         delta_yaw = endstate_pred[:, :, 0] * self.lattice_primitive.yaw_diff  # [B, 15]
@@ -49,6 +59,67 @@ class StateTransform:
 
         endstate = endstate.permute(0, 2, 1).reshape(B, 9, V, H)  # [B, 9, 3, 5]
         return endstate
+
+    def pred_to_target(self, target_pred: torch.Tensor) -> torch.Tensor:
+        """
+            Decode YOPOv2-Tracker target predictions.
+            target_pred: [batch; du dv depth; primitive_v; primitive_h].
+            du/dv are cell-local logits and depth is a normalized range logit.
+            return: [batch; x y z; primitive_v; primitive_h] in the camera/body frame.
+        """
+        B, V, H = target_pred.shape[0], target_pred.shape[2], target_pred.shape[3]
+        device = target_pred.device
+        dtype = target_pred.dtype
+        stride_u = float(self.image_width) / float(H)
+        stride_v = float(self.image_height) / float(V)
+
+        h_idx = torch.arange(H, dtype=dtype, device=device).view(1, 1, H)
+        v_idx = torch.arange(V, dtype=dtype, device=device).view(1, V, 1)
+
+        u = (h_idx + torch.sigmoid(target_pred[:, 0])) * stride_u
+        v = (v_idx + torch.sigmoid(target_pred[:, 1])) * stride_v
+        depth = torch.sigmoid(target_pred[:, 2]) * self.target_position_scale
+
+        x = depth
+        y = -(u - self.camera_cx) / self.camera_fx * depth
+        z = -(v - self.camera_cy) / self.camera_fy * depth
+        return torch.stack([x, y, z], dim=1)
+
+    def pred_to_target_cpu(self, target_pred: np.ndarray, grid_id=None) -> np.ndarray:
+        """
+            CPU decoder used by the ROS node.
+            target_pred: [N, 3] raw network predictions in flattened image-grid order.
+            grid_id: optional flattened grid indices matching target_pred rows.
+        """
+        target_pred = np.asarray(target_pred, dtype=np.float32)
+        if target_pred.ndim == 1:
+            target_pred = target_pred[None, :]
+
+        if grid_id is None:
+            grid_id = np.arange(target_pred.shape[0], dtype=np.int64)
+        if isinstance(grid_id, torch.Tensor):
+            grid_id = grid_id.cpu().numpy()
+        grid_id = np.asarray(grid_id, dtype=np.int64).reshape(-1)
+
+        H = self.lattice_primitive.horizon_num
+        V = self.lattice_primitive.vertical_num
+        stride_u = float(self.image_width) / float(H)
+        stride_v = float(self.image_height) / float(V)
+
+        h_idx = grid_id % H
+        v_idx = grid_id // H
+        h_idx = np.clip(h_idx, 0, H - 1)
+        v_idx = np.clip(v_idx, 0, V - 1)
+
+        sigmoid = lambda x: 1.0 / (1.0 + np.exp(-x))
+        u = (h_idx + sigmoid(target_pred[:, 0])) * stride_u
+        v = (v_idx + sigmoid(target_pred[:, 1])) * stride_v
+        depth = sigmoid(target_pred[:, 2]) * self.target_position_scale
+
+        x = depth
+        y = -(u - self.camera_cx) / self.camera_fx * depth
+        z = -(v - self.camera_cy) / self.camera_fy * depth
+        return np.stack((x, y, z), axis=1)
 
     def pred_to_endstate_cpu(self, endstate_pred: np.ndarray, lattice_id: torch.Tensor) -> np.ndarray:
         """
@@ -80,26 +151,31 @@ class StateTransform:
     def prepare_input(self, obs):
         """
             Transform the observation to the primitive frame (Body frame → Primitive frame → Body frame).
-            obs: [batch; vx, vy, yz, ax, ay, az, gx, gy, gz] in body frame
-            :return [batch; vx, vy, yz, ax, ay, az, gx, gy, gz; primitive_v; primitive_h] in primitive frame
+            obs: [batch; vx, vy, vz, ax, ay, az] in body frame
+            :return [batch; vx, vy, vz, ax, ay, az; primitive_v; primitive_h] in primitive frame
         """
         B, N = obs.shape[0], self.lattice_primitive.traj_num
+        obs_dim = obs.shape[1]
+        if obs_dim % 3 != 0:
+            raise ValueError(f"Observation dimension must be a multiple of 3, got {obs_dim}")
+        obs_rows = obs_dim // 3
 
         # 获取所有 Rbp 并倒序排列 (由于lattice和grid的顺序相反)
         Rbp_all = self.lattice_primitive.getRotation().flip(0)  # shape: [N, 3, 3]
+        Rbp_all = Rbp_all.to(device=obs.device, dtype=obs.dtype)
 
-        obs = obs.view(B, 3, 3)  # [B, 3, 3]
+        obs = obs.view(B, obs_rows, 3)  # [B, obs_rows, 3]
 
         # 扩展 obs 和 Rbp 到 [B, N, 3, 3]
-        obs_exp = obs[:, None, :, :].expand(B, N, 3, 3)
+        obs_exp = obs[:, None, :, :].expand(B, N, obs_rows, 3)
         Rbp_exp = Rbp_all[None, :, :, :].expand(B, N, 3, 3)
 
         # 执行批量坐标变换
         transformed = torch.matmul(obs_exp, Rbp_exp)  # [B, N, 3, 3]
 
-        transformed_flat = transformed.view(B, N, 9)  # [B, N, 9]
-        out = transformed_flat.permute(0, 2, 1).contiguous()  # [B, 9, N]
-        out = out.view(B, 9, self.lattice_primitive.vertical_num, self.lattice_primitive.horizon_num)  # [B, 9, V, H]
+        transformed_flat = transformed.view(B, N, obs_dim)  # [B, N, obs_dim]
+        out = transformed_flat.permute(0, 2, 1).contiguous()  # [B, obs_dim, N]
+        out = out.view(B, obs_dim, self.lattice_primitive.vertical_num, self.lattice_primitive.horizon_num)
         return out
 
     def unnormalize_obs(self, vel_acc):
@@ -110,6 +186,9 @@ class StateTransform:
     def normalize_obs(self, vel_acc_goal):
         vel_acc_goal[:, 0:3] = vel_acc_goal[:, 0:3] / self.lattice_primitive.vel_max
         vel_acc_goal[:, 3:6] = vel_acc_goal[:, 3:6] / self.lattice_primitive.acc_max
+
+        if vel_acc_goal.shape[1] < 9:
+            return vel_acc_goal
 
         # Clamp the goal direction to unit length
         goal_norm = vel_acc_goal[:, 6:9].norm(dim=1, keepdim=True)

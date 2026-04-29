@@ -14,6 +14,7 @@
 #include <pcl_ros/point_cloud.h>
 #include <cv_bridge/cv_bridge.h>
 #include <yaml-cpp/yaml.h>
+#include <visualization_msgs/Marker.h>
 
 #include <chrono>
 #include <cmath>
@@ -58,9 +59,13 @@ public:
 
         render_lidar_ = config["render_lidar"].as<bool>();
         render_depth_ = config["render_depth"].as<bool>();
+        render_target_mask_ = config["render_target_mask"] ? config["render_target_mask"].as<bool>() : true;
         depth_pub_duration_ = ros::Duration(1.0 / config["depth_fps"].as<float>());
         lidar_pub_duration_ = ros::Duration(1.0 / config["lidar_fps"].as<float>());
         visualize_local_map_ = config["visualize_local_map"] ? config["visualize_local_map"].as<bool>() : true;
+        target_radius_ = config["target"] && config["target"]["radius"] ? config["target"]["radius"].as<float>() : 0.35f;
+        target_occlusion_margin_ = config["target"] && config["target"]["occlusion_margin"] ? config["target"]["occlusion_margin"].as<float>() : 0.3f;
+        target_mask_bbox_scale_ = config["target"] && config["target"]["mask_bbox_scale"] ? config["target"]["mask_bbox_scale"].as<float>() : 1.2f;
 
         const std::string ply_file = config["ply_file"].as<std::string>();
         const bool use_random_map = config["random_map"].as<bool>();
@@ -80,6 +85,8 @@ public:
         pcl_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("mock_map", 1);
         local_map_visual_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("local_map_visual", 1);
         image_pub_ = nh_.advertise<sensor_msgs::Image>(config["depth_topic"].as<std::string>(), 1);
+        target_mask_pub_ = nh_.advertise<sensor_msgs::Image>(
+            config["target_mask_topic"] ? config["target_mask_topic"].as<std::string>() : std::string("/target_mask_image"), 1);
         point_cloud_pub_ = nh_.advertise<sensor_msgs::PointCloud2>(config["lidar_topic"].as<std::string>(), 1);
         collision_counter_pub_ = nh_.advertise<std_msgs::Int32>("/yopo/collision_counter", 1);
         collision_counter_total_pub_ = nh_.advertise<std_msgs::Int32>("/yopo/collision_counter_total", 1);
@@ -138,6 +145,12 @@ public:
             &SensorSimulator::odomCallback,
             this,
             ros::TransportHints().tcpNoDelay());
+        target_odom_sub_ = nh_.subscribe(
+            config["target_odom_topic"] ? config["target_odom_topic"].as<std::string>() : std::string("/target/odom"),
+            1,
+            &SensorSimulator::targetOdomCallback,
+            this,
+            ros::TransportHints().tcpNoDelay());
         timer_map_ = nh_.createTimer(ros::Duration(1.0), &SensorSimulator::timerMapCallback, this);
 
         printf("3.Simulation Ready!\n");
@@ -149,22 +162,27 @@ public:
     void renderLidarCallback(const ros::Time &stamp);
     void timerMapCallback(const ros::TimerEvent &);
     void publishCollisionCounters();
+    void targetOdomCallback(const nav_msgs::Odometry::ConstPtr &msg);
 
 private:
     void applyRosParamOverrides(YAML::Node &config);
     bool inStaticCollision() const;
     void publishLocalMapVisual(const ros::Time &stamp);
+    void overlayTargetAndMask(cv::Mat &depth_image, cv::Mat &target_mask) const;
 
     bool render_depth_{false};
     bool render_lidar_{false};
+    bool render_target_mask_{true};
     bool visualize_local_map_{true};
     bool odom_init_{false};
+    bool target_odom_init_{false};
     bool in_static_collision_{false};
 
     Eigen::Quaternionf quat_{Eigen::Quaternionf::Identity()};
     Eigen::Quaternionf quat_wc_{Eigen::Quaternionf::Identity()};
     Eigen::Quaternionf quat_bc_{Eigen::Quaternionf::Identity()};
     Eigen::Vector3f pos_{Eigen::Vector3f::Zero()};
+    Eigen::Vector3f target_pos_{Eigen::Vector3f::Zero()};
     CameraParams *camera_{nullptr};
     LidarParams *lidar_{nullptr};
     GridMap *grid_map_{nullptr};
@@ -175,10 +193,12 @@ private:
     ros::Publisher pcl_pub_;
     ros::Publisher local_map_visual_pub_;
     ros::Publisher image_pub_;
+    ros::Publisher target_mask_pub_;
     ros::Publisher point_cloud_pub_;
     ros::Publisher collision_counter_pub_;
     ros::Publisher collision_counter_total_pub_;
     ros::Subscriber odom_sub_;
+    ros::Subscriber target_odom_sub_;
     ros::Timer timer_map_;
     sensor_msgs::PointCloud2 map_output_;
 
@@ -191,6 +211,9 @@ private:
     int depth_count_{0};
     int lidar_count_{0};
     int collision_counter_{0};
+    float target_radius_{0.35f};
+    float target_occlusion_margin_{0.3f};
+    float target_mask_bbox_scale_{1.2f};
 };
 
 void SensorSimulator::applyRosParamOverrides(YAML::Node &config)
@@ -216,6 +239,12 @@ void SensorSimulator::renderDepthCallback(const ros::Time &stamp)
                              pos_.x(), pos_.y(), pos_.z());
     cv::Mat depth_image;
     renderDepthImage(grid_map_, camera_, T_wc, depth_image);
+    cv::Mat target_mask;
+    if (render_target_mask_)
+    {
+        target_mask = cv::Mat::zeros(camera_->image_height, camera_->image_width, CV_8UC1);
+        overlayTargetAndMask(depth_image, target_mask);
+    }
 
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
@@ -229,6 +258,67 @@ void SensorSimulator::renderDepthCallback(const ros::Time &stamp)
     cv_image.image = depth_image;
     cv_image.toImageMsg(ros_image);
     image_pub_.publish(ros_image);
+
+    if (render_target_mask_)
+    {
+        sensor_msgs::Image mask_msg;
+        cv_bridge::CvImage mask_bridge;
+        mask_bridge.header.stamp = stamp;
+        mask_bridge.encoding = sensor_msgs::image_encodings::MONO8;
+        mask_bridge.image = target_mask;
+        mask_bridge.toImageMsg(mask_msg);
+        target_mask_pub_.publish(mask_msg);
+    }
+}
+
+void SensorSimulator::overlayTargetAndMask(cv::Mat &depth_image, cv::Mat &target_mask) const
+{
+    if (!target_odom_init_)
+        return;
+
+    const Eigen::Matrix3f R_cw = quat_wc_.toRotationMatrix().transpose();
+    const Eigen::Vector3f target_c = R_cw * (target_pos_ - pos_);
+    if (target_c.x() <= 0.1f || target_c.x() > camera_->max_depth_dist)
+        return;
+
+    const float u_center = camera_->cx - camera_->fx * target_c.y() / target_c.x();
+    const float v_center = camera_->cy - camera_->fy * target_c.z() / target_c.x();
+    const int radius_px = std::max(2, std::min(24, static_cast<int>(std::ceil(camera_->fx * target_radius_ / target_c.x()))));
+    const int u0 = std::max(0, static_cast<int>(std::floor(u_center)) - radius_px);
+    const int u1 = std::min(camera_->image_width - 1, static_cast<int>(std::ceil(u_center)) + radius_px);
+    const int v0 = std::max(0, static_cast<int>(std::floor(v_center)) - radius_px);
+    const int v1 = std::min(camera_->image_height - 1, static_cast<int>(std::ceil(v_center)) + radius_px);
+    if (u0 > u1 || v0 > v1)
+        return;
+
+    const int bbox_half = std::max(2, static_cast<int>(std::ceil(radius_px * target_mask_bbox_scale_)));
+    const int bu0 = std::max(0, static_cast<int>(std::floor(u_center)) - bbox_half);
+    const int bu1 = std::min(camera_->image_width - 1, static_cast<int>(std::ceil(u_center)) + bbox_half);
+    const int bv0 = std::max(0, static_cast<int>(std::floor(v_center)) - bbox_half);
+    const int bv1 = std::min(camera_->image_height - 1, static_cast<int>(std::ceil(v_center)) + bbox_half);
+    cv::rectangle(target_mask, cv::Point(bu0, bv0), cv::Point(bu1, bv1), cv::Scalar(255), cv::FILLED);
+
+    for (int v = v0; v <= v1; ++v)
+    {
+        for (int u = u0; u <= u1; ++u)
+        {
+            const float y_at_target_x = -(u - camera_->cx) / camera_->fx * target_c.x();
+            const float z_at_target_x = -(v - camera_->cy) / camera_->fy * target_c.x();
+            const float dy = y_at_target_x - target_c.y();
+            const float dz = z_at_target_x - target_c.z();
+            const float lateral_sq = dy * dy + dz * dz;
+            const float radius_sq = target_radius_ * target_radius_;
+            if (lateral_sq > radius_sq)
+                continue;
+
+            const float surface_depth = target_c.x() - std::sqrt(std::max(0.0f, radius_sq - lateral_sq));
+            float &depth_ref = depth_image.at<float>(v, u);
+            if (surface_depth <= depth_ref + target_occlusion_margin_)
+            {
+                depth_ref = std::min(depth_ref, surface_depth);
+            }
+        }
+    }
 }
 
 void SensorSimulator::renderLidarCallback(const ros::Time &stamp)
@@ -299,6 +389,14 @@ void SensorSimulator::publishCollisionCounters()
     msg.data = collision_counter_;
     collision_counter_pub_.publish(msg);
     collision_counter_total_pub_.publish(msg);
+}
+
+void SensorSimulator::targetOdomCallback(const nav_msgs::Odometry::ConstPtr &msg)
+{
+    target_pos_.x() = msg->pose.pose.position.x;
+    target_pos_.y() = msg->pose.pose.position.y;
+    target_pos_.z() = msg->pose.pose.position.z;
+    target_odom_init_ = true;
 }
 
 void SensorSimulator::odomCallback(const nav_msgs::Odometry::ConstPtr &msg)

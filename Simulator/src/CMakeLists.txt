@@ -10,6 +10,7 @@ find_package(catkin REQUIRED COMPONENTS
         nav_msgs
         std_msgs
         sensor_msgs
+        visualization_msgs
         cv_bridge
 )
 find_package(Eigen3 REQUIRED)
@@ -47,7 +48,7 @@ set(CMAKE_CUDA_FLAGS_RELEASE "-O3")
 catkin_package(
         INCLUDE_DIRS include
         LIBRARIES sensor_simulator
-        CATKIN_DEPENDS roscpp nav_msgs std_msgs sensor_msgs cv_bridge
+        CATKIN_DEPENDS roscpp nav_msgs std_msgs sensor_msgs visualization_msgs cv_bridge
         DEPENDS OpenCV)
 
 ## Specify additional locations of header files

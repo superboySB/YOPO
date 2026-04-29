@@ -13,10 +13,10 @@ YOPO/saved/*
 YOPO/saved_swarm/*
 dataset/
 dataset_swarm/
+dataset_tracker_smoke/
 yopo_sim/
 
-!YOPO/saved/YOPO_1/
-!YOPO/saved_swarm/YOPO_0/
+!YOPO/saved/YOPO_0/
 *.pyc
 bags/
 *.bag
