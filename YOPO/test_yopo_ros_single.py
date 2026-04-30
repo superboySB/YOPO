@@ -51,6 +51,9 @@ class YopoTracker:
         self.target_measurement_timeout = cfg["target_measurement_timeout"]
         self.target_hold_timeout = cfg["target_hold_timeout"]
         self.use_mask_target_estimate = cfg["use_mask_target_estimate"]
+        self.target_mask_timeout = cfg["target_mask_timeout"]
+        self.target_lost_timeout = cfg["target_lost_timeout"]
+        self.target_mask_min_pixels = int(cfg["target_mask_min_pixels"])
         self.Rotation_bc = R.from_euler('ZYX', [0, self.config['pitch_angle_deg'], 0], degrees=True).as_matrix()
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -74,6 +77,10 @@ class YopoTracker:
         self.mask_target_stamp = None
         self.hover_hold_pos = None
         self.hover_target_w = None
+        self.target_detected_in_frame = False
+        self.last_target_seen_stamp = None
+        self.lost_hold_pos = None
+        self.lost_mode = False
         self.hold_mode = False
         self.optimal_poly_x = None
         self.optimal_poly_y = None
@@ -126,6 +133,10 @@ class YopoTracker:
         self.mask_target_stamp = None
         self.hover_hold_pos = None
         self.hover_target_w = None
+        self.target_detected_in_frame = False
+        self.last_target_seen_stamp = None
+        self.lost_hold_pos = None
+        self.lost_mode = False
         print("Target estimate reset.")
 
     def callback_target_gt(self, data):
@@ -208,11 +219,16 @@ class YopoTracker:
         depth = cv2.inpaint(depth_u8, np.uint8(nan_mask), 1, cv2.INPAINT_NS).astype(np.float32) / 255.0
 
         target_mask = self.latest_target_mask
-        if target_mask is None:
+        mask_is_fresh = False
+        if target_mask is not None and self.latest_target_mask_stamp is not None:
+            stamp_delta = abs((depth_msg.header.stamp - self.latest_target_mask_stamp).to_sec())
+            mask_is_fresh = stamp_delta <= self.target_mask_timeout
+        if target_mask is None or not mask_is_fresh:
             target_mask = np.zeros((self.height, self.width), dtype=np.float32)
         else:
             target_mask = cv2.resize(target_mask, (self.width, self.height), interpolation=cv2.INTER_NEAREST)
             target_mask = target_mask.astype(np.float32) / 255.0
+        self.target_detected_in_frame = np.count_nonzero(target_mask > 0.5) >= self.target_mask_min_pixels
         self.update_mask_target_estimate(depth_m, target_mask, depth_msg.header.stamp)
         image = np.concatenate((depth[None, :, :], target_mask[None, :, :]), axis=0)
         return image.reshape(1, cfg["input_channels"], self.height, self.width).astype(np.float32)
@@ -251,6 +267,7 @@ class YopoTracker:
         start_pos = self.get_current_position()
         self.mask_target_w = np.dot(self.Rotation_wc, target_c) + start_pos
         self.mask_target_stamp = stamp
+        self.last_target_seen_stamp = stamp
 
     def get_current_position(self):
         if self.plan_from_reference and self.desire_pos is not None:
@@ -304,14 +321,15 @@ class YopoTracker:
         target_est_w = np.dot(self.Rotation_wc, selected_target_c) + start_pos
         if self.mask_target_w is not None:
             self.update_target_estimate(self.mask_target_w, data.header.stamp)
-        elif selected_objectness >= self.objectness_threshold:
+        elif self.target_detected_in_frame and selected_objectness >= self.objectness_threshold:
             self.update_target_estimate(target_est_w, data.header.stamp)
 
         with self.lock:
             start_vel = self.get_current_velocity()
             poly_start_vel = start_vel
             poly_start_acc = self.desire_acc
-            hold_setpoint = self.get_tracking_setpoint(start_pos)
+            lost_setpoint = self.get_lost_target_setpoint(start_pos)
+            hold_setpoint = lost_setpoint if lost_setpoint is not None else self.get_tracking_setpoint(start_pos)
             if hold_setpoint is None:
                 self.hold_mode = False
                 end_pos = endstate_w[action_id, :, 0] + start_pos
@@ -330,6 +348,27 @@ class YopoTracker:
         self.visualize_target_estimate()
         time5 = time.time()
         self.print_time(time0, time1, time2, time3, time4, time5)
+
+    def get_lost_target_setpoint(self, start_pos):
+        if self.mask_target_w is not None:
+            if self.lost_mode:
+                rospy.loginfo("Target detector reacquired target; resume tracking.")
+            self.lost_mode = False
+            self.lost_hold_pos = None
+            return None
+
+        reference_stamp = self.last_target_seen_stamp or self.target_est_stamp
+        if reference_stamp is not None:
+            age = (rospy.Time.now() - reference_stamp).to_sec()
+            if age <= self.target_lost_timeout:
+                return None
+
+        if not self.lost_mode:
+            rospy.logwarn("Target detector lost target; braking and waiting for reacquisition.")
+        self.lost_mode = True
+        if self.lost_hold_pos is None:
+            self.lost_hold_pos = start_pos.copy()
+        return self.lost_hold_pos.copy(), np.zeros(3), np.zeros(3), True
 
     def get_tracking_setpoint(self, start_pos):
         if self.target_est_w is None:

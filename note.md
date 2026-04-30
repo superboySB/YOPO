@@ -119,7 +119,7 @@ cd /workspace/YOPO && \
 - `--trial N --epoch X` 选择后机 with-tracker 模型：`YOPO/saved/with_tracker/YOPO_N/epochX.pth`
 
 
-如果训练得到新的 tracker `YOPO/saved/with_tracker/YOPO_3/epoch50.pth`，前机仍用 `YOPO/saved/no_tracker/YOPO_1/epoch50.pth`，就改成：
+如果训练得到新的 tracker `YOPO/saved/with_tracker/YOPO_0/epoch50.pth`，前机仍用 `YOPO/saved/no_tracker/YOPO_1/epoch50.pth`，就改成：
 
 ```bash
 cd /workspace/YOPO && \
@@ -154,35 +154,32 @@ RViz 中应该能看到：
 3. 在地图上点击一个新位置。
 4. target 会用 no-tracker 避障模型飞向这个 waypoint；同一次点击也会重置 tracker 的 target estimate；follower 会用 with-tracker 模型继续追踪新的 target 位置。
 
-近距离行为：
+行为树要点：
 
-- policy 优先用 `/target_mask_image` 的 bbox 加 `/depth_image` 反投影估计 target 位置；网络 target head 作为 fallback。
-- target 运动或距离较远时，follower 使用 tracker 网络候选轨迹，保留避障+tracking 的联合选择。
-- target 停止且 tracker 进入 `follow_capture_distance` 后，policy 会锁住一个固定 hover setpoint，并让 SO3 controller 走 position-control 分支，避免追到以后继续围着目标盘旋。
-- target 再次移动或 RViz 收到新的 `2D Nav Goal` 后，会清掉旧 hover setpoint 并重新追踪。
-- target no-tracker 到达 waypoint 容差范围后，会悬停在自己已经由避障网络飞到的安全到达位置，而不是强行吸附到点击的精确点；这样 RViz 点到树或占据 voxel 附近时，不会在最后一步绕过避障逻辑。
-
-target 行为：
-
-- target 不是匀速脚本，也不会再直接发布虚拟 `/target/odom`。
-- target 由第二套 quadrotor dynamics、SO3 controller 和 YOPO-Simple 避障 policy 驱动。
-- target policy 的 `velocity / vel_max_train / acc_max_train` 会从 `YOPO/config/single_traj_opt.yaml` 继承，和 follower 测试速度保持一致。
-- target 碰撞计数在 `/yopo/target_collision_counter_total`，follower 碰撞计数在 `/yopo/collision_counter_total`。
+- target 在视野内且距离较远时，follower 使用 tracker 网络候选轨迹，保留避障+tracking 的联合选择。
+- target 停止且 follower 进入 `follow_capture_distance` 后，follower 锁住固定观察点，避免追到后绕圈。
+- target mask 为空或过期超过 `target_lost_timeout` 时，follower 进入 lost-target brake：锁定当前安全位置刹停，并朝最后一次目标估计方向转头等待重捕获，避免目标被障碍遮挡或飞出视野后继续无目标前冲。
+- target 再次移动或 RViz 收到新的 `2D Nav Goal` 后，会清掉旧 hover / lost 状态并重新追踪。
 
 相关参数在 `YOPO/config/single_traj_opt.yaml`：
 
-- `follow_distance`
-- `follow_deadband`
-- `follow_capture_distance`
-- `follow_target_speed_threshold`
-- `follow_max_step`
-- `target_velocity_ema_alpha`
-- `target_measurement_timeout`
-- `target_hold_timeout`
-- `use_mask_target_estimate`
+- `velocity`：后机 follower / YOPOv2-Tracker 测试推理速度，单位是 m/s。它控制 tracker primitive 的速度尺度。
+- `target_velocity`：前机 target / no-tracker YOPO 测试推理速度，单位是 m/s。只影响被追的那架无人机；不影响后机。
+- `target_acc_max`：前机 target / no-tracker YOPO 测试推理加速度上限，单位是 m/s^2。只影响被追的那架无人机；不影响后机。
+- `follow_distance`：follower 追到 target 后希望保持的水平观察距离，单位是米。当前用于生成 target 后方的 standoff/hover 点；距离设得稍大，可以给 target 横向移动留出更多视野余量。
+- `follow_deadband`：观察距离的死区宽度，单位是米。距离在 `follow_distance ± follow_deadband` 内时，follower 不会因为微小误差反复前后修正，从而减少追到后绕圈或抖动。
+- `follow_capture_distance`：进入近距离保持逻辑的最大水平距离，单位是米。target 停止且 follower 小于这个距离后，才会从网络轨迹切到固定观察点 position-control；它需要大于 `follow_distance + follow_deadband`。
+- `follow_target_speed_threshold`：判断 target 是否已经停止的速度阈值，单位是 m/s。target 速度低于这个值时，follower 可以进入 hover/保持距离逻辑；高于这个值时继续用 tracker 网络追。
+- `follow_max_step`：一次保持距离修正允许移动的最大步长，单位是米。防止 standoff 点突然跳得太远，导致控制指令过激。
+- `target_velocity_ema_alpha`：target 估计速度的指数滑动平均系数。值越大越跟随最新测量，值越小越平滑。
+- `target_measurement_timeout`：target 测量在运动状态下允许过期的时间，单位是秒。超过后，如果没有可靠 hover 状态，就不再信任旧估计。
+- `target_hold_timeout`：target 静止时允许保留旧 target 估计的时间，单位是秒。静止目标可以比运动目标保留更久，避免检测短暂丢帧就立刻退出保持逻辑。
+- `use_mask_target_estimate`：是否优先用 `/target_mask_image` 加 `/depth_image` 反投影估计 target 三维位置。开启时，检测框得到的位置优先于网络 target head。
+- `target_mask_timeout`：检测框消息和深度帧允许的最大时间差，单位是秒。超过后认为 mask 过期，不再用于当前帧。
+- `target_lost_timeout`：target mask 丢失后进入 lost-target brake 的等待时间，单位是秒。超过这个时间还没重新看到 target，follower 会刹停等待重捕获。
+- `target_mask_min_pixels`：判断检测框有效所需的最少前景像素数。低于这个数量时认为 mask 为空或噪声。
 
-常用检查：
-
+常用指标检查：
 ```bash
 source /opt/ros/noetic/setup.bash
 rostopic echo /target/odom

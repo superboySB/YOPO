@@ -1,7 +1,12 @@
 # YOPOv2-Tracker reproduction config.
 
-# IMPORTANT: velocity in testing (modifiable)
+# IMPORTANT: follower velocity in testing (modifiable)
 velocity: 6
+
+# IMPORTANT: front target velocity/acceleration in testing.
+# If omitted, target falls back to velocity/acc_max_train.
+target_velocity: 5.0
+target_acc_max: 4.5
 
 # IMPORTANT: vel_max and acc_max in training
 # not the actual values in testing, ensure consistency between testing and training, please refer to ../policy/primitive.py
@@ -86,11 +91,14 @@ target_ema_alpha: 0.35
 target_velocity_ema_alpha: 0.25
 
 # inference follow/hold behavior
-follow_distance: 3.0
-follow_deadband: 0.55
-follow_capture_distance: 5.0
+follow_distance: 4.5
+follow_deadband: 0.75
+follow_capture_distance: 6.8
 follow_target_speed_threshold: 0.25
 follow_max_step: 4.0
 target_measurement_timeout: 0.4
 target_hold_timeout: 4.0
 use_mask_target_estimate: true
+target_mask_timeout: 0.2
+target_lost_timeout: 0.35
+target_mask_min_pixels: 4
