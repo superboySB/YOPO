@@ -15,12 +15,12 @@ class TargetMotionNode:
         self.goal_topic = rospy.get_param("~goal_topic", "/move_base_simple/goal")
         self.frame_id = rospy.get_param("~frame_id", "world")
         self.rate = float(rospy.get_param("~rate", 50.0))
-        self.mode = rospy.get_param("~mode", "circle")
-        self.radius = float(rospy.get_param("~radius", 7.0))
-        self.speed = float(rospy.get_param("~speed", 1.2))
+        self.mode = rospy.get_param("~mode", "hover")
+        self.radius = float(rospy.get_param("~radius", 2.5))
+        self.speed = float(rospy.get_param("~speed", 1.0))
         self.height = float(rospy.get_param("~height", 2.5))
         self.goal_tolerance = float(rospy.get_param("~goal_tolerance", 0.25))
-        self.center_x = float(rospy.get_param("~center_x", 8.0))
+        self.center_x = float(rospy.get_param("~center_x", 6.0))
         self.center_y = float(rospy.get_param("~center_y", 0.0))
         self.phase = float(rospy.get_param("~phase", 0.0))
 
@@ -37,7 +37,12 @@ class TargetMotionNode:
     def sample_scripted(self, t):
         omega = self.speed / max(self.radius, 1e-3)
         a = omega * t + self.phase
-        if self.mode == "line":
+        if self.mode == "hover":
+            x = self.center_x
+            y = self.center_y
+            vx = 0.0
+            vy = 0.0
+        elif self.mode == "line":
             x = self.center_x + self.speed * t
             y = self.center_y + 2.0 * math.sin(0.5 * a)
             vx = self.speed
@@ -52,8 +57,12 @@ class TargetMotionNode:
             y = self.center_y + self.radius * math.sin(a)
             vx = -self.radius * omega * math.sin(a)
             vy = self.radius * omega * math.cos(a)
-        z = self.height + 0.4 * math.sin(0.7 * a)
-        vz = 0.4 * 0.7 * omega * math.cos(0.7 * a)
+        if self.mode == "hover":
+            z = self.height
+            vz = 0.0
+        else:
+            z = self.height + 0.4 * math.sin(0.7 * a)
+            vz = 0.4 * 0.7 * omega * math.cos(0.7 * a)
         yaw = math.atan2(vy, vx) if abs(vx) + abs(vy) > 1e-4 else 0.0
         return (x, y, z), (vx, vy, vz), yaw
 

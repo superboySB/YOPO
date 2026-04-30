@@ -21,6 +21,7 @@ def parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--trial", type=int, default=1, help="trial number")
     parser.add_argument("--epoch", type=int, default=50, help="epoch number")
+    parser.add_argument("--weights-root", type=str, default="saved/with_tracker", help="tracker checkpoint root under YOPO/")
     parser.add_argument("--dir", type=str, default='yopo_tracker_trt.pth', help="output file name")
     return parser
 
@@ -28,7 +29,10 @@ def parser():
 if __name__ == "__main__":
     args = parser().parse_args()
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    weight = base_dir + "/saved/YOPO_{}/epoch{}.pth".format(args.trial, args.epoch)
+    weights_root = args.weights_root
+    if not os.path.isabs(weights_root):
+        weights_root = os.path.join(base_dir, weights_root)
+    weight = os.path.join(weights_root, "YOPO_{}".format(args.trial), "epoch{}.pth".format(args.epoch))
 
     print("Loading Network...")
     device = "cuda" if torch.cuda.is_available() else "cpu"

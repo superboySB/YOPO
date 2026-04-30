@@ -86,6 +86,11 @@ target_ema_alpha: 0.35
 target_velocity_ema_alpha: 0.25
 
 # inference follow/hold behavior
-follow_distance: 2.0
-follow_deadband: 0.35
-follow_target_speed_threshold: 0.35
+follow_distance: 3.0
+follow_deadband: 0.55
+follow_capture_distance: 5.0
+follow_target_speed_threshold: 0.25
+follow_max_step: 4.0
+target_measurement_timeout: 0.4
+target_hold_timeout: 4.0
+use_mask_target_estimate: true

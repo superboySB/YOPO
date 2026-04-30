@@ -154,10 +154,7 @@ void overlayTargetAndMask(cv::Mat &depth_image,
 
             const float surface_depth = target_c.x() - std::sqrt(std::max(0.0f, radius_sq - lateral_sq));
             float &depth_ref = depth_image.at<float>(py, px);
-            if (surface_depth <= depth_ref + occlusion_margin)
-            {
-                depth_ref = std::min(depth_ref, surface_depth);
-            }
+            depth_ref = surface_depth;
         }
     }
 }

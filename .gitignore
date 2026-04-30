@@ -10,13 +10,15 @@ Simulator/logs/
 Simulator/.catkin_tools/
 
 YOPO/saved/*
+!YOPO/saved/no_tracker/
+!YOPO/saved/no_tracker/**
+!YOPO/saved/with_tracker/
+!YOPO/saved/with_tracker/**
 YOPO/saved_swarm/*
 dataset/
 dataset_swarm/
-dataset_tracker_smoke/
 yopo_sim/
 
-!YOPO/saved/YOPO_0/
 *.pyc
 bags/
 *.bag

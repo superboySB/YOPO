@@ -2,6 +2,7 @@
 odom_topic: "/sim/odom"
 depth_topic: "/depth_image"
 target_mask_topic: "/target_mask_image"
+target_depth_topic: "/target_depth_image"
 lidar_topic: "/lidar_points"
 target_odom_topic: "/target/odom"
 target_marker_topic: "/target/marker"

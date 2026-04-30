@@ -45,7 +45,12 @@ class YopoTracker:
         self.target_velocity_ema_alpha = cfg["target_velocity_ema_alpha"]
         self.follow_distance = cfg["follow_distance"]
         self.follow_deadband = cfg["follow_deadband"]
+        self.follow_capture_distance = cfg["follow_capture_distance"]
         self.follow_target_speed_threshold = cfg["follow_target_speed_threshold"]
+        self.follow_max_step = cfg["follow_max_step"]
+        self.target_measurement_timeout = cfg["target_measurement_timeout"]
+        self.target_hold_timeout = cfg["target_hold_timeout"]
+        self.use_mask_target_estimate = cfg["use_mask_target_estimate"]
         self.Rotation_bc = R.from_euler('ZYX', [0, self.config['pitch_angle_deg'], 0], degrees=True).as_matrix()
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -65,6 +70,10 @@ class YopoTracker:
         self.target_est_w = None
         self.target_est_vel_w = np.zeros(3)
         self.target_est_stamp = None
+        self.mask_target_w = None
+        self.mask_target_stamp = None
+        self.hover_hold_pos = None
+        self.hover_target_w = None
         self.hold_mode = False
         self.optimal_poly_x = None
         self.optimal_poly_y = None
@@ -113,6 +122,10 @@ class YopoTracker:
         self.target_est_w = None
         self.target_est_vel_w = np.zeros(3)
         self.target_est_stamp = None
+        self.mask_target_w = None
+        self.mask_target_stamp = None
+        self.hover_hold_pos = None
+        self.hover_target_w = None
         print("Target estimate reset.")
 
     def callback_target_gt(self, data):
@@ -179,14 +192,16 @@ class YopoTracker:
 
     def make_image_input(self, depth_msg):
         if depth_msg.encoding == "32FC1":
-            depth = np.frombuffer(depth_msg.data, dtype=np.float32).reshape(depth_msg.height, depth_msg.width)
+            depth_m = np.frombuffer(depth_msg.data, dtype=np.float32).reshape(depth_msg.height, depth_msg.width)
         elif depth_msg.encoding == "16UC1":
-            depth = np.frombuffer(depth_msg.data, dtype=np.uint16).reshape(depth_msg.height, depth_msg.width).astype(np.float32) / 1000.0
+            depth_m = np.frombuffer(depth_msg.data, dtype=np.uint16).reshape(depth_msg.height, depth_msg.width).astype(np.float32) / 1000.0
         else:
             raise ValueError(f"Unsupported depth encoding: {depth_msg.encoding}. Expected '32FC1' or '16UC1'.")
 
+        depth = depth_m
         if depth.shape[0] != self.height or depth.shape[1] != self.width:
             depth = cv2.resize(depth, (self.width, self.height), interpolation=cv2.INTER_NEAREST)
+            depth_m = cv2.resize(depth_m, (self.width, self.height), interpolation=cv2.INTER_NEAREST)
         depth = np.minimum(depth, self.max_dis) / self.max_dis
         nan_mask = np.isnan(depth) | (depth < self.min_dis / self.max_dis)
         depth_u8 = np.uint8(np.nan_to_num(depth, nan=0.0) * 255)
@@ -198,8 +213,62 @@ class YopoTracker:
         else:
             target_mask = cv2.resize(target_mask, (self.width, self.height), interpolation=cv2.INTER_NEAREST)
             target_mask = target_mask.astype(np.float32) / 255.0
+        self.update_mask_target_estimate(depth_m, target_mask, depth_msg.header.stamp)
         image = np.concatenate((depth[None, :, :], target_mask[None, :, :]), axis=0)
         return image.reshape(1, cfg["input_channels"], self.height, self.width).astype(np.float32)
+
+    def update_mask_target_estimate(self, depth_m, target_mask, stamp):
+        self.mask_target_w = None
+        if not self.use_mask_target_estimate:
+            return
+        if target_mask is None or np.count_nonzero(target_mask > 0.5) < 4:
+            return
+
+        ys, xs = np.nonzero(target_mask > 0.5)
+        u_center = 0.5 * (float(xs.min()) + float(xs.max()))
+        v_center = 0.5 * (float(ys.min()) + float(ys.max()))
+        half = max(2, int(0.12 * max(xs.max() - xs.min() + 1, ys.max() - ys.min() + 1)))
+        u0 = max(0, int(round(u_center)) - half)
+        u1 = min(self.width - 1, int(round(u_center)) + half)
+        v0 = max(0, int(round(v_center)) - half)
+        v1 = min(self.height - 1, int(round(v_center)) + half)
+
+        center_depth = depth_m[v0:v1 + 1, u0:u1 + 1]
+        valid = center_depth[np.isfinite(center_depth)]
+        valid = valid[(valid > self.min_dis) & (valid < self.max_dis)]
+        if valid.size == 0:
+            mask_depth = depth_m[target_mask > 0.5]
+            valid = mask_depth[np.isfinite(mask_depth)]
+            valid = valid[(valid > self.min_dis) & (valid < self.max_dis)]
+        if valid.size == 0:
+            return
+
+        depth_surface = float(np.percentile(valid, 20.0))
+        target_x = min(depth_surface + float(cfg["target_radius"]), self.max_dis)
+        target_y = -(u_center - float(cfg["camera_cx"])) * target_x / float(cfg["camera_fx"])
+        target_z = -(v_center - float(cfg["camera_cy"])) * target_x / float(cfg["camera_fy"])
+        target_c = np.array((target_x, target_y, target_z), dtype=np.float64)
+        start_pos = self.get_current_position()
+        self.mask_target_w = np.dot(self.Rotation_wc, target_c) + start_pos
+        self.mask_target_stamp = stamp
+
+    def get_current_position(self):
+        if self.plan_from_reference and self.desire_pos is not None:
+            return self.desire_pos
+        return np.array((
+            self.odom.pose.pose.position.x,
+            self.odom.pose.pose.position.y,
+            self.odom.pose.pose.position.z,
+        ))
+
+    def get_current_velocity(self):
+        if self.plan_from_reference and self.desire_vel is not None:
+            return self.desire_vel
+        return np.array((
+            self.odom.twist.twist.linear.x,
+            self.odom.twist.twist.linear.y,
+            self.odom.twist.twist.linear.z,
+        ))
 
     @torch.inference_mode()
     def callback_depth(self, data):
@@ -207,11 +276,12 @@ class YopoTracker:
             return
 
         time0 = time.time()
+        obs_norm = self.process_odom()
         image = self.make_image_input(data)
 
         time1 = time.time()
         image_input = torch.from_numpy(image).to(self.device, non_blocking=True)
-        obs_norm = self.process_odom().to(self.device, non_blocking=True)
+        obs_norm = obs_norm.to(self.device, non_blocking=True)
         obs_input = self.state_transform.prepare_input(obs_norm)
 
         time2 = time.time()
@@ -230,24 +300,18 @@ class YopoTracker:
 
         selected_target_c = target_b[action_id] if self.visualize else target_b[0]
         selected_objectness = objectness[action_id] if self.visualize else objectness[0]
-        start_pos = self.desire_pos if self.plan_from_reference else np.array((
-            self.odom.pose.pose.position.x,
-            self.odom.pose.pose.position.y,
-            self.odom.pose.pose.position.z,
-        ))
+        start_pos = self.get_current_position()
         target_est_w = np.dot(self.Rotation_wc, selected_target_c) + start_pos
-        if selected_objectness >= self.objectness_threshold:
+        if self.mask_target_w is not None:
+            self.update_target_estimate(self.mask_target_w, data.header.stamp)
+        elif selected_objectness >= self.objectness_threshold:
             self.update_target_estimate(target_est_w, data.header.stamp)
 
         with self.lock:
-            start_vel = self.desire_vel if self.plan_from_reference else np.array((
-                self.odom.twist.twist.linear.x,
-                self.odom.twist.twist.linear.y,
-                self.odom.twist.twist.linear.z,
-            ))
+            start_vel = self.get_current_velocity()
             poly_start_vel = start_vel
             poly_start_acc = self.desire_acc
-            hold_setpoint = self.get_follow_hold_setpoint(start_pos)
+            hold_setpoint = self.get_tracking_setpoint(start_pos)
             if hold_setpoint is None:
                 self.hold_mode = False
                 end_pos = endstate_w[action_id, :, 0] + start_pos
@@ -267,19 +331,29 @@ class YopoTracker:
         time5 = time.time()
         self.print_time(time0, time1, time2, time3, time4, time5)
 
-    def get_follow_hold_setpoint(self, start_pos):
+    def get_tracking_setpoint(self, start_pos):
         if self.target_est_w is None:
             return None
+        if self.target_est_stamp is not None:
+            age = (rospy.Time.now() - self.target_est_stamp).to_sec()
+            timeout = self.target_measurement_timeout
+            if self.target_gt is not None and np.linalg.norm(self.target_gt_vel) <= self.follow_target_speed_threshold:
+                timeout = self.target_hold_timeout
+            if age > timeout and self.hover_hold_pos is None:
+                self.hover_hold_pos = None
+                self.hover_target_w = None
+                return None
 
         rel = self.target_est_w - start_pos
-        dist = np.linalg.norm(rel)
-        if dist > self.follow_distance + self.follow_deadband:
-            return None
-
+        rel_xy = rel.copy()
+        rel_xy[2] = 0.0
+        dist = np.linalg.norm(rel_xy)
         if dist > 1e-3:
-            view_dir = rel / dist
+            view_dir = rel_xy / dist
         else:
-            view_dir = self.Rotation_wc[:, 0]
+            view_dir = self.Rotation_wc[:, 0].copy()
+            view_dir[2] = 0.0
+            view_dir = view_dir / (np.linalg.norm(view_dir) + 1e-6)
 
         target_vel = self.target_est_vel_w
         if self.target_gt is not None:
@@ -287,11 +361,36 @@ class YopoTracker:
         target_speed = np.linalg.norm(target_vel)
         target_is_moving = target_speed > self.follow_target_speed_threshold
         lower_bound = max(0.1, self.follow_distance - self.follow_deadband)
+        upper_bound = self.follow_distance + self.follow_deadband
+        standoff_pos = self.target_est_w - view_dir * self.follow_distance
+        standoff_pos[2] = self.target_est_w[2]
 
-        if dist < lower_bound or target_is_moving:
-            hold_pos = self.target_est_w - view_dir * self.follow_distance
+        if target_is_moving:
+            self.hover_hold_pos = None
+            self.hover_target_w = None
+            return None
+        if dist > self.follow_capture_distance:
+            self.hover_hold_pos = None
+            self.hover_target_w = None
+            return None
+
+        if dist > upper_bound or dist < lower_bound:
+            self.hover_hold_pos = None
+            self.hover_target_w = None
+            hold_pos = standoff_pos
         else:
-            hold_pos = start_pos
+            if (
+                self.hover_hold_pos is None
+                or self.hover_target_w is None
+                or np.linalg.norm(self.target_est_w - self.hover_target_w) > 0.5 * self.follow_deadband
+            ):
+                self.hover_hold_pos = standoff_pos.copy()
+                self.hover_target_w = self.target_est_w.copy()
+            hold_pos = self.hover_hold_pos
+        step = hold_pos - start_pos
+        step_norm = np.linalg.norm(step)
+        if step_norm > self.follow_max_step:
+            hold_pos = start_pos + step / step_norm * self.follow_max_step
 
         hold_vel = target_vel if target_is_moving else np.zeros(3)
         hold_acc = np.zeros(3)
@@ -303,23 +402,29 @@ class YopoTracker:
         self.optimal_poly_z = Poly5Solver(start_pos[2], start_vel[2], start_acc[2], end_pos[2], end_vel[2], end_acc[2], self.traj_time)
 
     def control_pub(self, _timer):
-        if self.ctrl_time is None or self.ctrl_time > self.traj_time:
+        if self.ctrl_time is None:
+            return
+        if self.ctrl_time > self.traj_time and not self.hold_mode:
             return
 
         with self.lock:
             self.ctrl_time += self.ctrl_dt
+            eval_time = min(self.ctrl_time, self.traj_time) if self.hold_mode else self.ctrl_time
             control_msg = PositionCommand()
             control_msg.header.stamp = rospy.Time.now()
-            control_msg.trajectory_flag = control_msg.TRAJECTORY_STATUS_READY
-            control_msg.position.x = self.optimal_poly_x.get_position(self.ctrl_time)
-            control_msg.position.y = self.optimal_poly_y.get_position(self.ctrl_time)
-            control_msg.position.z = self.optimal_poly_z.get_position(self.ctrl_time)
-            control_msg.velocity.x = self.optimal_poly_x.get_velocity(self.ctrl_time)
-            control_msg.velocity.y = self.optimal_poly_y.get_velocity(self.ctrl_time)
-            control_msg.velocity.z = self.optimal_poly_z.get_velocity(self.ctrl_time)
-            control_msg.acceleration.x = self.optimal_poly_x.get_acceleration(self.ctrl_time)
-            control_msg.acceleration.y = self.optimal_poly_y.get_acceleration(self.ctrl_time)
-            control_msg.acceleration.z = self.optimal_poly_z.get_acceleration(self.ctrl_time)
+            if self.hold_mode:
+                control_msg.trajectory_flag = control_msg.TRAJECTORY_STATUS_EMPTY
+            else:
+                control_msg.trajectory_flag = control_msg.TRAJECTORY_STATUS_READY
+            control_msg.position.x = self.optimal_poly_x.get_position(eval_time)
+            control_msg.position.y = self.optimal_poly_y.get_position(eval_time)
+            control_msg.position.z = self.optimal_poly_z.get_position(eval_time)
+            control_msg.velocity.x = self.optimal_poly_x.get_velocity(eval_time)
+            control_msg.velocity.y = self.optimal_poly_y.get_velocity(eval_time)
+            control_msg.velocity.z = self.optimal_poly_z.get_velocity(eval_time)
+            control_msg.acceleration.x = self.optimal_poly_x.get_acceleration(eval_time)
+            control_msg.acceleration.y = self.optimal_poly_y.get_acceleration(eval_time)
+            control_msg.acceleration.z = self.optimal_poly_z.get_acceleration(eval_time)
             self.desire_pos = np.array([control_msg.position.x, control_msg.position.y, control_msg.position.z])
             self.desire_vel = np.array([control_msg.velocity.x, control_msg.velocity.y, control_msg.velocity.z])
             self.desire_acc = np.array([control_msg.acceleration.x, control_msg.acceleration.y, control_msg.acceleration.z])
@@ -474,7 +579,7 @@ def parser():
     parser.add_argument("--use_tensorrt", type=int, default=0, help="use tensorrt or not")
     parser.add_argument("--trial", type=int, default=1, help="trial number")
     parser.add_argument("--epoch", type=int, default=50, help="epoch number")
-    parser.add_argument("--weights_root", type=str, default="saved", help="checkpoint root under YOPO/")
+    parser.add_argument("--weights_root", type=str, default="saved/with_tracker", help="tracker checkpoint root under YOPO/")
     return parser
 
 

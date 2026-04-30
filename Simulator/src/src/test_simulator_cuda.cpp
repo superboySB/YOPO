@@ -87,9 +87,13 @@ public:
         image_pub_ = nh_.advertise<sensor_msgs::Image>(config["depth_topic"].as<std::string>(), 1);
         target_mask_pub_ = nh_.advertise<sensor_msgs::Image>(
             config["target_mask_topic"] ? config["target_mask_topic"].as<std::string>() : std::string("/target_mask_image"), 1);
+        target_depth_pub_ = nh_.advertise<sensor_msgs::Image>(
+            config["target_depth_topic"] ? config["target_depth_topic"].as<std::string>() : std::string("/target_depth_image"), 1);
         point_cloud_pub_ = nh_.advertise<sensor_msgs::PointCloud2>(config["lidar_topic"].as<std::string>(), 1);
         collision_counter_pub_ = nh_.advertise<std_msgs::Int32>("/yopo/collision_counter", 1);
         collision_counter_total_pub_ = nh_.advertise<std_msgs::Int32>("/yopo/collision_counter_total", 1);
+        target_collision_counter_pub_ = nh_.advertise<std_msgs::Int32>("/yopo/target_collision_counter", 1);
+        target_collision_counter_total_pub_ = nh_.advertise<std_msgs::Int32>("/yopo/target_collision_counter_total", 1);
 
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>());
         if (use_random_map)
@@ -167,6 +171,7 @@ public:
 private:
     void applyRosParamOverrides(YAML::Node &config);
     bool inStaticCollision() const;
+    bool inTargetStaticCollision() const;
     void publishLocalMapVisual(const ros::Time &stamp);
     void overlayTargetAndMask(cv::Mat &depth_image, cv::Mat &target_mask) const;
 
@@ -180,6 +185,8 @@ private:
 
     Eigen::Quaternionf quat_{Eigen::Quaternionf::Identity()};
     Eigen::Quaternionf quat_wc_{Eigen::Quaternionf::Identity()};
+    Eigen::Quaternionf target_quat_{Eigen::Quaternionf::Identity()};
+    Eigen::Quaternionf target_quat_wc_{Eigen::Quaternionf::Identity()};
     Eigen::Quaternionf quat_bc_{Eigen::Quaternionf::Identity()};
     Eigen::Vector3f pos_{Eigen::Vector3f::Zero()};
     Eigen::Vector3f target_pos_{Eigen::Vector3f::Zero()};
@@ -194,9 +201,12 @@ private:
     ros::Publisher local_map_visual_pub_;
     ros::Publisher image_pub_;
     ros::Publisher target_mask_pub_;
+    ros::Publisher target_depth_pub_;
     ros::Publisher point_cloud_pub_;
     ros::Publisher collision_counter_pub_;
     ros::Publisher collision_counter_total_pub_;
+    ros::Publisher target_collision_counter_pub_;
+    ros::Publisher target_collision_counter_total_pub_;
     ros::Subscriber odom_sub_;
     ros::Subscriber target_odom_sub_;
     ros::Timer timer_map_;
@@ -211,6 +221,8 @@ private:
     int depth_count_{0};
     int lidar_count_{0};
     int collision_counter_{0};
+    int target_collision_counter_{0};
+    bool target_in_static_collision_{false};
     float target_radius_{0.35f};
     float target_occlusion_margin_{0.3f};
     float target_mask_bbox_scale_{1.2f};
@@ -226,6 +238,13 @@ void SensorSimulator::applyRosParamOverrides(YAML::Node &config)
 bool SensorSimulator::inStaticCollision() const
 {
     return grid_map_->mapQueryHost(Vector3f(pos_.x(), pos_.y(), pos_.z())) == 1;
+}
+
+bool SensorSimulator::inTargetStaticCollision() const
+{
+    if (!target_odom_init_)
+        return false;
+    return grid_map_->mapQueryHost(Vector3f(target_pos_.x(), target_pos_.y(), target_pos_.z())) == 1;
 }
 
 void SensorSimulator::renderDepthCallback(const ros::Time &stamp)
@@ -258,6 +277,22 @@ void SensorSimulator::renderDepthCallback(const ros::Time &stamp)
     cv_image.image = depth_image;
     cv_image.toImageMsg(ros_image);
     image_pub_.publish(ros_image);
+
+    if (target_odom_init_)
+    {
+        cudaMat::SE3<float> target_T_wc(
+            target_quat_wc_.w(), target_quat_wc_.x(), target_quat_wc_.y(), target_quat_wc_.z(),
+            target_pos_.x(), target_pos_.y(), target_pos_.z());
+        cv::Mat target_depth_image;
+        renderDepthImage(grid_map_, camera_, target_T_wc, target_depth_image);
+        sensor_msgs::Image target_depth_msg;
+        cv_bridge::CvImage target_depth_bridge;
+        target_depth_bridge.header.stamp = stamp;
+        target_depth_bridge.encoding = sensor_msgs::image_encodings::TYPE_32FC1;
+        target_depth_bridge.image = target_depth_image;
+        target_depth_bridge.toImageMsg(target_depth_msg);
+        target_depth_pub_.publish(target_depth_msg);
+    }
 
     if (render_target_mask_)
     {
@@ -313,10 +348,7 @@ void SensorSimulator::overlayTargetAndMask(cv::Mat &depth_image, cv::Mat &target
 
             const float surface_depth = target_c.x() - std::sqrt(std::max(0.0f, radius_sq - lateral_sq));
             float &depth_ref = depth_image.at<float>(v, u);
-            if (surface_depth <= depth_ref + target_occlusion_margin_)
-            {
-                depth_ref = std::min(depth_ref, surface_depth);
-            }
+            depth_ref = surface_depth;
         }
     }
 }
@@ -389,10 +421,20 @@ void SensorSimulator::publishCollisionCounters()
     msg.data = collision_counter_;
     collision_counter_pub_.publish(msg);
     collision_counter_total_pub_.publish(msg);
+
+    std_msgs::Int32 target_msg;
+    target_msg.data = target_collision_counter_;
+    target_collision_counter_pub_.publish(target_msg);
+    target_collision_counter_total_pub_.publish(target_msg);
 }
 
 void SensorSimulator::targetOdomCallback(const nav_msgs::Odometry::ConstPtr &msg)
 {
+    target_quat_.x() = msg->pose.pose.orientation.x;
+    target_quat_.y() = msg->pose.pose.orientation.y;
+    target_quat_.z() = msg->pose.pose.orientation.z;
+    target_quat_.w() = msg->pose.pose.orientation.w;
+    target_quat_wc_ = target_quat_ * quat_bc_;
     target_pos_.x() = msg->pose.pose.position.x;
     target_pos_.y() = msg->pose.pose.position.y;
     target_pos_.z() = msg->pose.pose.position.z;
@@ -419,6 +461,13 @@ void SensorSimulator::odomCallback(const nav_msgs::Odometry::ConstPtr &msg)
         ROS_WARN_THROTTLE(1.0, "Occupied-voxel collision detected. total=%d", collision_counter_);
     }
     in_static_collision_ = static_collision;
+    const bool target_static_collision = inTargetStaticCollision();
+    if (target_static_collision && !target_in_static_collision_)
+    {
+        target_collision_counter_ += 1;
+        ROS_WARN_THROTTLE(1.0, "Target occupied-voxel collision detected. total=%d", target_collision_counter_);
+    }
+    target_in_static_collision_ = target_static_collision;
     publishCollisionCounters();
 
     const ros::Time tnow = ros::Time::now();

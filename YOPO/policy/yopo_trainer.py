@@ -36,8 +36,10 @@ class YopoTrainer:
         if save_on_exit: self._exit_func = atexit.register(self.save_model)
         # logger
         self.progress_log = Progress()
-        self.tensorboard_path = self.get_next_log_path(tensorboard_path)
-        self.tensorboard_log = SummaryWriter(log_dir=self.tensorboard_path)
+        self.run_dir = self.get_next_log_path(tensorboard_path)
+        self.tensorboard_path = self.run_dir
+        self.checkpoint_path = self.run_dir
+        self.tensorboard_log = SummaryWriter(log_dir=self.run_dir)
         # params
         self.traj_num = cfg['traj_num']
         self.image_width = cfg["image_width"]
@@ -83,11 +85,12 @@ class YopoTrainer:
                 self.eval_one_epoch(self.epoch_i)
                 if save_interval is not None and (self.epoch_i + 1) % save_interval == 0:
                     self.progress_log.console.log("Saving model...")
-                    policy_path = self.tensorboard_path + "/epoch{}.pth".format(self.epoch_i + 1, 0)
-                    torch.save(self.policy.state_dict(), policy_path)
+                    self.save_checkpoint(self.epoch_i + 1)
             self.progress_log.console.log("Train YOPO Finish!")
             self.progress_log.remove_task(total_progress)
             self._finish_exit_save(save_interval)
+            self.tensorboard_log.flush()
+            self.tensorboard_log.close()
 
     def train_one_epoch(self, epoch: int, total_progress):
         one_epoch_progress = self.progress_log.add_task(f"Epoch: {epoch}", total=len(self.train_dataloader))
@@ -253,9 +256,14 @@ class YopoTrainer:
     def save_model(self):
         if hasattr(self, "epoch_i"):
             self.progress_log.console.log("Saving model...")
-            policy_path = self.tensorboard_path + "/epoch{}.pth".format(self.epoch_i + 1, 0)
-            torch.save(self.policy.state_dict(), policy_path)
+            self.save_checkpoint(self.epoch_i + 1)
             self._unregister_exit_save()
+
+    def save_checkpoint(self, epoch):
+        policy_path = os.path.join(self.checkpoint_path, "epoch{}.pth".format(epoch))
+        torch.save(self.policy.state_dict(), policy_path)
+        self.tensorboard_log.flush()
+        self.progress_log.console.log("Saved checkpoint to ", policy_path)
 
     def _finish_exit_save(self, save_interval):
         if not hasattr(self, "_exit_func"):
@@ -282,5 +290,5 @@ class YopoTrainer:
         next_n = max(nums, default=-1) + 1
         next_path = os.path.join(base_path, f"YOPO_{next_n}")
         os.makedirs(next_path, exist_ok=False)
-        print("record tensorboard log to ", next_path)
+        print("record tensorboard logs and checkpoints to ", next_path)
         return next_path

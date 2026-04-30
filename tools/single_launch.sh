@@ -6,24 +6,28 @@ EPOCH=50
 SESSION="yopo-sim"
 DETACH=0
 STOP_ONLY=0
-NO_RVIZ=0
 YOPO_CONFIG="/workspace/YOPO/YOPO/config/single_traj_opt.yaml"
-WEIGHTS_ROOT="saved"
+WEIGHTS_ROOT="saved/with_tracker"
+TARGET_TRIAL=1
+TARGET_EPOCH=50
+TARGET_WEIGHTS_ROOT="saved/no_tracker"
 
 usage() {
   cat <<'EOF'
 Usage (inside container):
-  tools/single_launch.sh --trial N [--epoch N] [--session NAME] [--yopo-config PATH] [--weights-root DIR] [--detach] [--no-rviz]
+  tools/single_launch.sh --trial N [--epoch N] [--session NAME] [--yopo-config PATH] [--weights-root DIR] [--target-trial N] [--target-epoch N] [--target-weights-root DIR] [--detach]
   tools/single_launch.sh [--session NAME] --stop
 
 Options:
-  --trial N        YOPO tracker checkpoint trial id produced by training (required unless --stop)
-  --epoch N        YOPO checkpoint epoch id (default: 50)
+  --trial N        follower YOPOv2-Tracker trial under YOPO/saved/with_tracker (required unless --stop)
+  --epoch N        follower YOPOv2-Tracker epoch id (default: 50)
   --session NAME   tmux session name (default: yopo-sim)
   --yopo-config PATH  YOPO config yaml (default: /workspace/YOPO/YOPO/config/single_traj_opt.yaml)
-  --weights-root DIR  checkpoint root under YOPO/ (default: saved)
+  --weights-root DIR  follower tracker checkpoint root under YOPO/ (default: saved/with_tracker)
+  --target-trial N    front no-tracker YOPO avoidance trial under YOPO/saved/no_tracker (default: 1)
+  --target-epoch N    front no-tracker YOPO avoidance epoch id (default: 50)
+  --target-weights-root DIR  front no-tracker checkpoint root under YOPO/ (default: saved/no_tracker)
   --detach         Create session only, do not auto-attach
-  --no-rviz        Do not start RViz, useful for headless smoke tests
   --stop           Stop existing simulation session and related processes
   -h, --help       Show help
 EOF
@@ -59,12 +63,20 @@ parse_args() {
         WEIGHTS_ROOT="${2:-}"
         shift 2
         ;;
+      --target-trial)
+        TARGET_TRIAL="${2:-}"
+        shift 2
+        ;;
+      --target-epoch)
+        TARGET_EPOCH="${2:-}"
+        shift 2
+        ;;
+      --target-weights-root)
+        TARGET_WEIGHTS_ROOT="${2:-}"
+        shift 2
+        ;;
       --detach)
         DETACH=1
-        shift
-        ;;
-      --no-rviz)
-        NO_RVIZ=1
         shift
         ;;
       --stop)
@@ -89,10 +101,12 @@ stop_all() {
   pkill -f '/opt/ros/noetic/bin/roscore' >/dev/null 2>&1 || true
   pkill -f '/opt/ros/noetic/bin/rosmaster' >/dev/null 2>&1 || true
   pkill -f 'so3_quadrotor_simulator single_attitude_control.launch' >/dev/null 2>&1 || true
+  pkill -f 'so3_quadrotor_simulator tracking_attitude_control.launch' >/dev/null 2>&1 || true
   pkill -f 'so3_quadrotor_simulator simulator_attitude_control.launch' >/dev/null 2>&1 || true
   pkill -f 'rosrun sensor_simulator sensor_simulator_cuda' >/dev/null 2>&1 || true
   pkill -f 'rosrun sensor_simulator target_motion_node.py' >/dev/null 2>&1 || true
   pkill -f 'python3 test_yopo_ros_single.py --trial=' >/dev/null 2>&1 || true
+  pkill -f 'python3 test_target_yopo_ros.py --trial=' >/dev/null 2>&1 || true
   pkill -f 'rviz -d single_yopo.rviz' >/dev/null 2>&1 || true
   pkill -f 'rviz -d yopo.rviz' >/dev/null 2>&1 || true
 }
@@ -141,9 +155,7 @@ main() {
   require_cmd tmux
   require_cmd roslaunch
   require_cmd rosrun
-  if [[ "${NO_RVIZ}" -eq 0 ]]; then
-    require_cmd rviz
-  fi
+  require_cmd rviz
 
   if [[ ! -f "${YOPO_CONFIG}" ]]; then
     echo "Error: YOPO config not found: ${YOPO_CONFIG}" >&2
@@ -158,7 +170,7 @@ main() {
 
   if [[ -z "${TRIAL}" ]]; then
     echo "Error: --trial is required because legacy avoidance checkpoints are incompatible with YOPOv2-Tracker." >&2
-    echo "Train first, then launch with the printed YOPO_N id, for example: tools/single_launch.sh --trial 3 --epoch 50" >&2
+    echo "Train first into YOPO/saved/with_tracker, then launch with the printed YOPO_N id, for example: tools/single_launch.sh --trial 3 --epoch 50" >&2
     exit 1
   fi
 
@@ -173,6 +185,18 @@ main() {
     echo "Error: tracker checkpoint not found: ${weight_path}" >&2
     exit 1
   fi
+  local target_weights_root_abs
+  if [[ "${TARGET_WEIGHTS_ROOT}" = /* ]]; then
+    target_weights_root_abs="${TARGET_WEIGHTS_ROOT}"
+  else
+    target_weights_root_abs="/workspace/YOPO/YOPO/${TARGET_WEIGHTS_ROOT}"
+  fi
+  local target_weight_path="${target_weights_root_abs}/YOPO_${TARGET_TRIAL}/epoch${TARGET_EPOCH}.pth"
+  if [[ ! -f "${target_weight_path}" ]]; then
+    echo "Error: target avoidance checkpoint not found: ${target_weight_path}" >&2
+    echo "Copy it from /root/YOPO-YOPO-Simple/YOPO/saved/YOPO_1/epoch50.pth into YOPO/saved/no_tracker/ or pass matching --target-weights-root/--target-trial/--target-epoch." >&2
+    exit 1
+  fi
 
   if tmux has-session -t "${SESSION}" 2>/dev/null; then
     echo "Error: tmux session '${SESSION}' already exists." >&2
@@ -184,27 +208,28 @@ main() {
   local wait_lib
   wait_lib="$(build_wait_lib)"
   local yopo_env="export YOPO_CONFIG_PATH='${YOPO_CONFIG}'; "
-  local cmd_controller="${env_setup}; ${wait_lib}; wait_for_master; cd /workspace/YOPO/Controller; source devel/setup.bash; roslaunch so3_quadrotor_simulator single_attitude_control.launch"
-  local cmd_target="${env_setup}; ${wait_lib}; wait_for_master; cd /workspace/YOPO/Simulator; source devel/setup.bash; rosrun sensor_simulator target_motion_node.py"
+  local target_env="export YOPO_TRACKER_CONFIG_PATH='${YOPO_CONFIG}'; export PYTHONPATH='/workspace/YOPO/YOPO:/workspace/YOPO/YOPO/target_avoidance':\${PYTHONPATH:-}; "
+  local cmd_controller="${env_setup}; ${wait_lib}; wait_for_master; cd /workspace/YOPO/Controller; source devel/setup.bash; roslaunch so3_quadrotor_simulator tracking_attitude_control.launch"
+  local cmd_target="${env_setup}; ${wait_lib}; wait_for_master; wait_for_topic /target/odom; wait_for_topic /target_depth_image; cd /workspace/YOPO/YOPO/target_avoidance; ${target_env}python3 test_target_yopo_ros.py --trial=${TARGET_TRIAL} --epoch=${TARGET_EPOCH} --weights_root=${target_weights_root_abs}"
   local cmd_simulator="${env_setup}; ${wait_lib}; wait_for_master; wait_for_topic /sim/odom; wait_for_topic /target/odom; cd /workspace/YOPO/Simulator; source devel/setup.bash; rosrun sensor_simulator sensor_simulator_cuda"
-  local cmd_planner="${env_setup}; ${wait_lib}; wait_for_master; wait_for_topic /sim/odom; wait_for_topic /target/odom; wait_for_topic /depth_image; wait_for_topic /target_mask_image; cd /workspace/YOPO/YOPO; ${yopo_env}python3 test_yopo_ros_single.py --trial=${TRIAL} --epoch=${EPOCH} --weights_root=${WEIGHTS_ROOT}"
+  local cmd_planner="${env_setup}; ${wait_lib}; wait_for_master; wait_for_topic /sim/odom; wait_for_topic /target/odom; wait_for_topic /depth_image; wait_for_topic /target_mask_image; cd /workspace/YOPO/YOPO; ${yopo_env}python3 test_yopo_ros_single.py --trial=${TRIAL} --epoch=${EPOCH} --weights_root=${weights_root_abs}"
   local cmd_rviz="${env_setup}; ${wait_lib}; wait_for_master; wait_for_topic /mock_map; wait_for_topic /local_map_visual; wait_for_topic /depth_image; wait_for_topic /target_mask_image; wait_for_topic /target/marker; wait_for_topic /yopo_tracker/trajs_visual; cd /workspace/YOPO/YOPO; rviz -d single_yopo.rviz"
 
   tmux new-session -d -s "${SESSION}" -n roscore "bash -lc '${env_setup}; roscore'"
   tmux new-window -t "${SESSION}:" -n controller "bash -lc '${cmd_controller}'"
-  tmux new-window -t "${SESSION}:" -n target "bash -lc '${cmd_target}'"
+  tmux new-window -t "${SESSION}:" -n target_yopo "bash -lc '${cmd_target}'"
   tmux new-window -t "${SESSION}:" -n simulator "bash -lc '${cmd_simulator}'"
   tmux new-window -t "${SESSION}:" -n planner "bash -lc '${cmd_planner}'"
-  if [[ "${NO_RVIZ}" -eq 0 ]]; then
-    tmux new-window -t "${SESSION}:" -n rviz "bash -lc '${cmd_rviz}'"
-  fi
+  tmux new-window -t "${SESSION}:" -n rviz "bash -lc '${cmd_rviz}'"
   tmux set-option -t "${SESSION}" remain-on-exit on
 
   # In this session, Ctrl+C stops all 4 windows at once.
   tmux bind-key -T root C-c if-shell -F "#{==:#{session_name},${SESSION}}" "kill-session -t ${SESSION}" "send-keys C-c"
   tmux set-hook -t "${SESSION}" session-closed "unbind-key -T root C-c"
 
-  echo "[launch_sim] started tmux session='${SESSION}', trial=${TRIAL}, epoch=${EPOCH}"
+  echo "[launch_sim] started tmux session='${SESSION}'"
+  echo "[launch_sim] follower tracker: ${weight_path}"
+  echo "[launch_sim] front no-tracker target: ${target_weight_path}"
   echo "[launch_sim] Ctrl+C in this tmux session will stop all windows."
   echo "[launch_sim] manual stop: tools/single_launch.sh --session ${SESSION} --stop"
 
