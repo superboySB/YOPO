@@ -7,6 +7,7 @@ import torch.nn.functional as F
 import open3d as o3d
 from scipy.ndimage import distance_transform_edt
 from config.config import cfg
+from policy.gate_utils import cfg_get
 
 
 class SafetyLoss(nn.Module):
@@ -20,12 +21,12 @@ class SafetyLoss(nn.Module):
 
         self._L = L
         self.sgm_time = cfg["sgm_time"]
-        self.eval_points = 30
+        self.eval_points = int(cfg_get("safety_eval_points", 30))
         self.device = self._L.device
         self.time_integral = True
 
         # SDF
-        self.voxel_size = 0.2
+        self.voxel_size = float(cfg_get("safety_voxel_size", 0.2))
         self.min_bounds = None  # shape: (N, 3)
         self.max_bounds = None  # shape: (N, 3)
         self.sdf_shapes = None  # shape: (N, 3)

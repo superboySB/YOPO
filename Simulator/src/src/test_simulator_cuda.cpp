@@ -12,6 +12,7 @@
 #include <std_msgs/Int32.h>
 #include <pcl_ros/point_cloud.h>
 #include <cv_bridge/cv_bridge.h>
+#include <cmath>
 #include <iostream>
 #include <vector>
 #include <yaml-cpp/yaml.h>
@@ -20,6 +21,20 @@
 #include "maps.hpp"
 
 using namespace raycast;
+
+namespace {
+
+template <typename T>
+T yamlValueOrDefault(const YAML::Node &config, const std::string &key, const T &default_value)
+{
+    if (config[key])
+    {
+        return config[key].as<T>();
+    }
+    return default_value;
+}
+
+} // namespace
 
 class SensorSimulator {
 public:
@@ -49,6 +64,9 @@ public:
 
         render_lidar = config["render_lidar"].as<bool>();
         render_depth = config["render_depth"].as<bool>();
+        uav_half_width_ = 0.5f * yamlValueOrDefault<float>(config, "uav_collision_box_width", 0.34f);
+        uav_half_depth_ = 0.5f * yamlValueOrDefault<float>(config, "uav_collision_box_depth", 0.34f);
+        uav_half_height_ = 0.5f * yamlValueOrDefault<float>(config, "uav_collision_box_height", 0.13f);
         float depth_fps = config["depth_fps"].as<float>();
         float lidar_fps = config["lidar_fps"].as<float>();
         depth_pub_duration = ros::Duration(1 / depth_fps);
@@ -63,6 +81,8 @@ public:
         bool use_random_map = config["random_map"].as<bool>();
         float resolution = config["resolution"].as<float>();
         int occupy_threshold = config["occupy_threshold"].as<int>();
+        bool mirror_xy = yamlValueOrDefault<bool>(config, "map_mirror_xy", true);
+        bool occupy_below_ground = yamlValueOrDefault<bool>(config, "occupy_below_ground", true);
         pcl_pub = nh.advertise<sensor_msgs::PointCloud2>("mock_map", 1);
         int seed = config["seed"].as<int>();
         int sizeX = config["x_length"].as<int>();
@@ -101,7 +121,7 @@ public:
 
         std::cout<<"Pointloud size:"<<cloud->points.size()<<std::endl;
         printf("2.Mapping... \n");
-        grid_map = new GridMap(cloud, resolution, occupy_threshold);
+        grid_map = new GridMap(cloud, resolution, occupy_threshold, mirror_xy, occupy_below_ground);
         
         ros::Time next_depth_pub_time = ros::Time::now();
         ros::Time next_lidar_pub_time = ros::Time::now();
@@ -127,6 +147,8 @@ public:
 
     void publishCollisionCounterTotal();
 
+    bool vehicleInCollision() const;
+
 private:
     bool render_depth{false};
     bool render_lidar{false};
@@ -151,6 +173,9 @@ private:
     double depth_time{0.0}, lidar_time{0.0};
     int depth_count{0}, lidar_count{0};
     int collision_counter_total_{0};
+    float uav_half_width_{0.17f};
+    float uav_half_depth_{0.17f};
+    float uav_half_height_{0.065f};
     // mocka::Maps map;
 };
 
@@ -192,6 +217,28 @@ void SensorSimulator::publishCollisionCounterTotal() {
     collision_counter_total_pub_.publish(total_msg);
 }
 
+bool SensorSimulator::vehicleInCollision() const {
+    const float sample_step = 0.05f;
+    const int nx = std::max(1, static_cast<int>(std::ceil(2.0f * uav_half_depth_ / sample_step)));
+    const int ny = std::max(1, static_cast<int>(std::ceil(2.0f * uav_half_width_ / sample_step)));
+    const int nz = std::max(1, static_cast<int>(std::ceil(2.0f * uav_half_height_ / sample_step)));
+
+    for (int ix = 0; ix <= nx; ++ix) {
+        const float x = -uav_half_depth_ + 2.0f * uav_half_depth_ * static_cast<float>(ix) / static_cast<float>(nx);
+        for (int iy = 0; iy <= ny; ++iy) {
+            const float y = -uav_half_width_ + 2.0f * uav_half_width_ * static_cast<float>(iy) / static_cast<float>(ny);
+            for (int iz = 0; iz <= nz; ++iz) {
+                const float z = -uav_half_height_ + 2.0f * uav_half_height_ * static_cast<float>(iz) / static_cast<float>(nz);
+                const Eigen::Vector3f world = quat * Eigen::Vector3f(x, y, z) + pos;
+                if (grid_map->mapQueryHost(Vector3f(world.x(), world.y(), world.z())) == 1) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
 void SensorSimulator::renderLidarCallback(const ros::Time stamp) {
     if (!render_lidar)
         return;
@@ -226,10 +273,14 @@ void SensorSimulator::odomCallback(const nav_msgs::Odometry::ConstPtr& msg) {
     pos.y() = msg->pose.pose.position.y;
     pos.z() = msg->pose.pose.position.z;
 
-    const int occupied = grid_map->mapQueryHost(Vector3f(pos.x(), pos.y(), pos.z()));
-    if (occupied == 1) {
+    const bool airborne = pos.z() > 0.25f;
+    const bool occupied = airborne && vehicleInCollision();
+    if (occupied) {
         collision_counter_total_ += 1;
-        ROS_WARN_THROTTLE(1.0, "UAV is inside occupied voxel. total=%d", collision_counter_total_);
+        ROS_WARN_THROTTLE(1.0,
+                          "UAV collision box intersects occupied voxel. total=%d pos=(%.3f, %.3f, %.3f) box=(%.3f, %.3f, %.3f)",
+                          collision_counter_total_, pos.x(), pos.y(), pos.z(),
+                          2.0f * uav_half_width_, 2.0f * uav_half_depth_, 2.0f * uav_half_height_);
     }
     publishCollisionCounterTotal();
 

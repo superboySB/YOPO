@@ -8,7 +8,7 @@ namespace raycast
             occupied[0] = grid_map.mapQuery(pos);
     }
 
-    GridMap::GridMap(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, float resolution, int occupy_threshold = 1){
+    GridMap::GridMap(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, float resolution, int occupy_threshold, bool mirror_xy, bool occupy_below_ground){
         const float epsilon = 0.001f;   // 避免数值误差导致 (1)建图空行 (2)边缘点被忽略
         Eigen::Vector4f min_pt, max_pt;
         pcl::getMinMax3D(*cloud, min_pt, max_pt);
@@ -33,6 +33,8 @@ namespace raycast
         grid_size_z_  = grid_size.z, 
         grid_size_yz_ = grid_size.y * grid_size.z;
         occupy_threshold_ = occupy_threshold;
+        mirror_xy_ = mirror_xy;
+        occupy_below_ground_ = occupy_below_ground;
         raycast_step_ = resolution;
 
         std::vector<int> h_map(grid_total_size, 0);
@@ -110,12 +112,21 @@ namespace raycast
     // -1: z越界; 0: 空闲; 1: 占据
     __device__  int GridMap::mapQuery(const Vector3f &pos){
         Vector3i vox = Pos2Vox(pos);
-        vox.x = symmetricIndex(vox.x, grid_size_x_);
-        vox.y = symmetricIndex(vox.y, grid_size_y_);
+        if (mirror_xy_)
+        {
+            vox.x = symmetricIndex(vox.x, grid_size_x_);
+            vox.y = symmetricIndex(vox.y, grid_size_y_);
+        }
+        else if (vox.x < 0 || vox.x >= grid_size_x_ || vox.y < 0 || vox.y >= grid_size_y_)
+        {
+            return 0;
+        }
 
         if (vox.z >= grid_size_z_)
             return 0;
-        if (vox.z <= 0)
+        if (vox.z < 0)
+            return occupy_below_ground_ ? 1 : 0;
+        if (vox.z == 0 && occupy_below_ground_)
             return 1;
 
         int idx = Vox2Idx(vox);

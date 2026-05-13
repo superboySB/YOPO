@@ -2,6 +2,51 @@
 
 using namespace mocka;
 
+namespace {
+
+template <typename T>
+T yamlValueOrDefault(const YAML::Node &config, const std::string &key, const T &default_value)
+{
+  if (config[key])
+  {
+    return config[key].as<T>();
+  }
+  return default_value;
+}
+
+Eigen::Matrix3f rpyDegToRot(const double roll_deg,
+                            const double pitch_deg,
+                            const double yaw_deg)
+{
+  const float roll = static_cast<float>(roll_deg * M_PI / 180.0);
+  const float pitch = static_cast<float>(pitch_deg * M_PI / 180.0);
+  const float yaw = static_cast<float>(yaw_deg * M_PI / 180.0);
+  return (Eigen::AngleAxisf(yaw, Eigen::Vector3f::UnitZ()) *
+          Eigen::AngleAxisf(pitch, Eigen::Vector3f::UnitY()) *
+          Eigen::AngleAxisf(roll, Eigen::Vector3f::UnitX()))
+      .toRotationMatrix();
+}
+
+std::vector<float> symmetricSamples(const float half_extent, const float max_step)
+{
+  if (half_extent <= 0.0f)
+  {
+    return {0.0f};
+  }
+
+  const int segments = std::max(1, static_cast<int>(std::ceil(2.0f * half_extent / max_step)));
+  std::vector<float> values;
+  values.reserve(static_cast<size_t>(segments + 1));
+  for (int i = 0; i <= segments; ++i)
+  {
+    const float alpha = static_cast<float>(i) / static_cast<float>(segments);
+    values.push_back(-half_extent + 2.0f * half_extent * alpha);
+  }
+  return values;
+}
+
+} // namespace
+
 void
 Maps::randomMapGenerate()
 {
@@ -750,9 +795,28 @@ Maps::setParam(const YAML::Node& config)
   width = config["road_width"].as<double>();
   addWallX = config["add_wall_x"].as<int>();
   addWallY = config["add_wall_y"].as<int>();
-  // tree
-  tree_file = config["tree_file"].as<std::string>();
-  tree_dist = config["tree_dist"].as<double>();
+  // narrow gate / gate-wall scene
+  gate_enabled = yamlValueOrDefault<bool>(config, "gate_enabled", false);
+  gate_roll_deg = yamlValueOrDefault<double>(config, "gate_roll_deg", gate_roll_deg);
+  gate_roll_deg = yamlValueOrDefault<double>(config, "gate_slit_roll_deg", gate_roll_deg);
+  gate_pitch_deg = yamlValueOrDefault<double>(config, "gate_pitch_deg", gate_pitch_deg);
+  gate_yaw_deg = yamlValueOrDefault<double>(config, "gate_yaw_deg", gate_yaw_deg);
+  gate_x = yamlValueOrDefault<double>(config, "gate_x", gate_x);
+  gate_y = yamlValueOrDefault<double>(config, "gate_y", gate_y);
+  gate_z = yamlValueOrDefault<double>(config, "gate_z", gate_z);
+  gate_count = yamlValueOrDefault<int>(config, "gate_count", gate_count);
+  gate_spacing = yamlValueOrDefault<double>(config, "gate_spacing", gate_spacing);
+  gate_outer_width = yamlValueOrDefault<double>(config, "gate_outer_width", gate_outer_width);
+  gate_outer_length = yamlValueOrDefault<double>(config, "gate_outer_length", gate_outer_length);
+  gate_inner_width = yamlValueOrDefault<double>(config, "gate_inner_width", gate_inner_width);
+  gate_inner_length = yamlValueOrDefault<double>(config, "gate_inner_length", gate_inner_length);
+  gate_depth = yamlValueOrDefault<double>(config, "gate_depth", gate_depth);
+  gate_depth_margin = yamlValueOrDefault<double>(config, "gate_depth_margin", gate_depth_margin);
+  gate_point_resolution = yamlValueOrDefault<double>(config, "gate_point_resolution", gate_point_resolution);
+  gate_wall_width = yamlValueOrDefault<double>(config, "gate_wall_width", gate_wall_width);
+  gate_wall_length = yamlValueOrDefault<double>(config, "gate_wall_length", gate_wall_length);
+  gate_wall_fill_boundary = yamlValueOrDefault<bool>(config, "gate_wall_fill_boundary", gate_wall_fill_boundary);
+  add_ground_points = yamlValueOrDefault<bool>(config, "add_ground_points", add_ground_points);
   // room
   room_number = config["room_number"].as<int>();
   max_windows = config["max_windows"].as<int>();
@@ -788,15 +852,15 @@ Maps::generate(int type)
       std::srand(info.seed);
       Maze3DGen();
       break;
-    case 5:
-      forest();
-      break;
     case 6:
       room();
       break;
     case 7:
       wall();
       break;
+    case 8:
+      gateWallScene();
+      return;
   }
 }
 
@@ -977,92 +1041,140 @@ Maps::Maze3DGen()
   info.cloud->points.resize(info.cloud->width * info.cloud->height);
 }
 
-/* --------------------- My: Forest --------------------- */
-void Maps::forest()
+void Maps::gateWallScene()
 {
-  double _resolution = 1 / info.scale;
-  double map_width = info.sizeX / info.scale;
-  double map_height = info.sizeY / info.scale;
+  info.cloud->clear();
+  addMapBoundaryAnchors();
 
-  pcl::PointCloud<pcl::PointXYZ>::Ptr tree_cloud(new pcl::PointCloud<pcl::PointXYZ>());
-  if (pcl::io::loadPLYFile(tree_file, *tree_cloud) == -1)
+  if (!gate_enabled)
   {
-    ROS_ERROR("Error: Cannot read the tree PLY file. Please check the config.yaml.");
-    return;
+    ROS_WARN("maze_type=8 selected but gate_enabled=false; generated only map boundary anchors.");
+  }
+  else
+  {
+    addGateWall();
   }
 
-  // 生成树的泊松分布位置
-  std::vector<Eigen::Vector2f> positions;
-  generatePoissonPoints(map_width, map_height, tree_dist, positions);
-
-  // 生成森林点云
-  pcl::PointCloud<pcl::PointXYZ>::Ptr forest_cloud(new pcl::PointCloud<pcl::PointXYZ>());
-  std::default_random_engine eng(info.seed);
-  std::uniform_real_distribution<float> scale_dist(0.5f, 1.0f);
-  std::uniform_real_distribution<float> random_angle(0.0f, 1.0f);
-
-  for (const auto &pos : positions)
+  if (add_ground_points)
   {
-    float scale_factor = scale_dist(eng);
-
-    float roll = random_angle(eng) * 10.0f * M_PI / 180.0f;  // 0-10度的 roll 角
-    float pitch = random_angle(eng) * 10.0f * M_PI / 180.0f; // 0-10度的 pitch 角
-    float yaw = random_angle(eng) * 360.0f * M_PI / 180.0f;  // 0-360度的 yaw 角
-
-    Eigen::Matrix3f rotation;
-    rotation = Eigen::AngleAxisf(yaw, Eigen::Vector3f::UnitZ()) * Eigen::AngleAxisf(pitch, Eigen::Vector3f::UnitY()) * Eigen::AngleAxisf(roll, Eigen::Vector3f::UnitX());
-    pcl::PointCloud<pcl::PointXYZ>::Ptr transformed_tree(new pcl::PointCloud<pcl::PointXYZ>(*tree_cloud));
-    scaleAndTranslateCloud(transformed_tree, scale_factor, pos, rotation);
-    *info.cloud += *transformed_tree;
+    const float resolution = static_cast<float>(1.0 / info.scale);
+    pcl::PointCloud<pcl::PointXYZ>::Ptr ground_cloud = generateGround(info.cloud, resolution);
+    *info.cloud += *ground_cloud;
   }
-
-  // 生成地面点云
-  pcl::PointCloud<pcl::PointXYZ>::Ptr ground_cloud = generateGround(info.cloud, _resolution);
-  *info.cloud += *ground_cloud;
 
   info.cloud->width = info.cloud->points.size();
   info.cloud->height = 1;
   info.cloud->is_dense = true;
 }
 
-void Maps::generatePoissonPoints(float map_width, float map_height, float dist, std::vector<Eigen::Vector2f> &positions)
+void Maps::addMapBoundaryAnchors()
 {
-  float x_offset = map_width / 2.0f;
-  float y_offset = map_height / 2.0f;
-  
-  int rows = static_cast<int>(map_width / dist);
-  int cols = static_cast<int>(map_height / dist);
+  const float xh = static_cast<float>(info.sizeX / (2.0 * info.scale));
+  const float yh = static_cast<float>(info.sizeY / (2.0 * info.scale));
+  const float zh = static_cast<float>(info.sizeZ / info.scale);
+  const float eps = static_cast<float>(1.0 / info.scale);
 
-  std::default_random_engine eng(info.seed);
-  std::uniform_real_distribution<float> offset_dist(0.0f, dist);
-
-  for (int i = 0; i < rows; ++i)
+  for (const float x : {-xh + eps, xh - eps})
   {
-    for (int j = 0; j < cols; ++j)
+    for (const float y : {-yh + eps, yh - eps})
     {
-      float x = i * dist + offset_dist(eng) - x_offset;
-      float y = j * dist + offset_dist(eng) - y_offset;
-      positions.emplace_back(x, y);
+      info.cloud->points.emplace_back(x, y, eps);
+      info.cloud->points.emplace_back(x, y, zh - eps);
     }
   }
 }
 
-void Maps::scaleAndTranslateCloud(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, float scale_factor, Eigen::Vector2f position, Eigen::Matrix3f &rotation)
+void Maps::addGateWall()
 {
-  Eigen::Affine3f transform = Eigen::Affine3f::Identity();
-  transform.translation() << position.x(), position.y(), 0.0f;
-  transform.linear() = rotation * Eigen::Matrix3f::Identity() * scale_factor;
-  pcl::transformPointCloud(*cloud, *cloud, transform);
+  if (gate_inner_width <= 0.0 || gate_inner_length <= 0.0 || gate_depth <= 0.0)
+  {
+    ROS_WARN("Gate-wall dimensions must be positive; skip gate wall.");
+    return;
+  }
+
+  gate_inner_width = std::max(0.0, gate_inner_width);
+  gate_inner_length = std::max(0.0, gate_inner_length);
+
+  const float step = static_cast<float>(std::max(0.005, gate_point_resolution));
+  const float half_depth = static_cast<float>(0.5 * gate_depth + gate_depth_margin);
+  const float half_inner_y = static_cast<float>(0.5 * gate_inner_width);
+  const float half_inner_z = static_cast<float>(0.5 * gate_inner_length);
+  const Eigen::Matrix3f rot = rpyDegToRot(gate_roll_deg, gate_pitch_deg, gate_yaw_deg);
+  const std::vector<Eigen::Vector3f> centers = gateCenters();
+
+  const float xh = static_cast<float>(info.sizeX / (2.0 * info.scale));
+  const float yh = static_cast<float>(info.sizeY / (2.0 * info.scale));
+  const float zh = static_cast<float>(info.sizeZ / info.scale);
+  float half_wall_y = static_cast<float>(0.5 * std::max(gate_outer_width, gate_inner_width));
+  float half_wall_z = static_cast<float>(0.5 * std::max(gate_outer_length, gate_inner_length));
+  if (gate_wall_fill_boundary)
+  {
+    // Build a thin wall that spans the whole local scene cross-section, leaving only the slit open.
+    const float scene_radius = std::sqrt(yh * yh + zh * zh) + step;
+    half_wall_y = std::max(half_wall_y, std::max(scene_radius, static_cast<float>(0.5 * gate_wall_width)));
+    half_wall_z = std::max(half_wall_z, std::max(scene_radius, static_cast<float>(0.5 * gate_wall_length)));
+  }
+
+  const std::vector<float> xs = symmetricSamples(half_depth, step);
+  const std::vector<float> ys = symmetricSamples(half_wall_y, step);
+  const std::vector<float> zs = symmetricSamples(half_wall_z, step);
+
+  for (const auto &center : centers)
+  {
+    for (const float x : xs)
+    {
+      for (const float y : ys)
+      {
+        for (const float z : zs)
+        {
+          if (std::abs(y) <= half_inner_y && std::abs(z) <= half_inner_z)
+          {
+            continue;
+          }
+          const Eigen::Vector3f world = rot * Eigen::Vector3f(x, y, z) + center;
+          if (world.x() < -xh || world.x() > xh ||
+              world.y() < -yh || world.y() > yh ||
+              world.z() < 0.0f || world.z() > zh)
+          {
+            continue;
+          }
+          info.cloud->points.emplace_back(world.x(), world.y(), world.z());
+        }
+      }
+    }
+  }
+
+  info.cloud->width = info.cloud->points.size();
+  info.cloud->height = 1;
+  info.cloud->is_dense = true;
 }
 
-pcl::PointCloud<pcl::PointXYZ>::Ptr Maps::generateGround(const pcl::PointCloud<pcl::PointXYZ>::Ptr &forest_cloud, float grid_size, float hight)
+std::vector<Eigen::Vector3f> Maps::gateCenters() const
 {
-  pcl::PointXYZ min_point, max_point;
-  pcl::getMinMax3D(*forest_cloud, min_point, max_point);
-  float x_min = min_point.x;
-  float x_max = max_point.x;
-  float y_min = min_point.y;
-  float y_max = max_point.y;
+  const Eigen::Matrix3f rot = rpyDegToRot(gate_roll_deg, gate_pitch_deg, gate_yaw_deg);
+  const Eigen::Vector3f first_center(static_cast<float>(gate_x),
+                                     static_cast<float>(gate_y),
+                                     static_cast<float>(gate_z));
+  const Eigen::Vector3f spacing_vec = rot * Eigen::Vector3f(static_cast<float>(std::max(0.0, gate_spacing)), 0.0f, 0.0f);
+  const int count = std::max(1, gate_count);
+  std::vector<Eigen::Vector3f> centers;
+  centers.reserve(static_cast<size_t>(count));
+  for (int i = 0; i < count; ++i)
+  {
+    centers.push_back(first_center + static_cast<float>(i) * spacing_vec);
+  }
+  return centers;
+}
+
+pcl::PointCloud<pcl::PointXYZ>::Ptr Maps::generateGround(const pcl::PointCloud<pcl::PointXYZ>::Ptr &source_cloud, float grid_size, float hight)
+{
+  (void)source_cloud;
+  const float x_half = static_cast<float>(info.sizeX / (2.0 * info.scale));
+  const float y_half = static_cast<float>(info.sizeY / (2.0 * info.scale));
+  const float x_min = -x_half;
+  const float x_max = x_half;
+  const float y_min = -y_half;
+  const float y_max = y_half;
 
   pcl::PointCloud<pcl::PointXYZ>::Ptr ground_cloud(new pcl::PointCloud<pcl::PointXYZ>());
   for (float x = x_min; x <= x_max; x += grid_size)

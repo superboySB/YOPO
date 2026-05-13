@@ -1,7 +1,8 @@
 import rospy
 import std_msgs.msg
 from nav_msgs.msg import Odometry
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import Point, PoseStamped
+from visualization_msgs.msg import Marker
 from threading import Lock
 from sensor_msgs.msg import PointCloud2, PointField, Image
 from sensor_msgs import point_cloud2
@@ -19,6 +20,7 @@ from control_msg import PositionCommand
 from policy.yopo_network import YopoNetwork
 from policy.poly_solver import *
 from policy.state_transform import *
+from policy.gate_utils import GateNumpy, gate_marker_edges_np, gate_total_cost_for_polys_np
 
 try:
     from torch2trt import TRTModule
@@ -40,17 +42,35 @@ class YopoNet:
         self.use_trt = self.config['use_tensorrt']
         self.verbose = self.config['verbose']
         self.visualize = self.config['visualize']
+        self.gate = GateNumpy()
+        self.gate_enabled = bool(self.config.get('gate_enabled', self.gate.enabled))
+        self.goal_z = float(self.config.get('goal_z', self.gate.center[2] if self.gate_enabled else 2.0))
+        self.arrive_radius = float(self.config.get('arrive_radius', 2.0 if self.gate_enabled else 5.0))
+        self.stop_after_pass = bool(self.config.get('stop_after_pass', True))
+        self.goal_timeout_sec = float(self.config.get('goal_timeout_sec', 8.0 if self.gate_enabled else 20.0))
+        self.abort_min_z = float(self.config.get('abort_min_z', self.gate.floor_min_z - 0.10 if self.gate_enabled else 0.20))
+        self.abort_max_z = float(self.config.get('abort_max_z', self.gate.center[2] + 1.0 if self.gate_enabled else 4.0))
+        self.abort_local_x = float(self.config.get('abort_local_x', max(self.gate.goal_max_x + 1.5, self.gate.sample_x_max + 1.0) if self.gate_enabled else 100.0))
+        self.abort_local_y = float(self.config.get('abort_local_y', self.gate.sample_y_range + 1.3 if self.gate_enabled else 100.0))
+        self.abort_local_z = float(self.config.get('abort_local_z', self.gate.sample_z_range + 0.7 if self.gate_enabled else 100.0))
+        self.success_local_x_margin = float(self.config.get('success_local_x_margin', 0.20 if self.gate_enabled else 0.0))
+        self.gate_lock_yaw = bool(self.config.get('gate_lock_yaw', self.gate_enabled))
+        self.gate_lock_yaw_deg = float(self.config.get('gate_lock_yaw_deg', 0.0))
+        self.gate_lock_yaw_rad = np.deg2rad(self.gate_lock_yaw_deg)
+        self.print_gate_geometry()
         self.Rotation_bc = R.from_euler('ZYX', [0, self.config['pitch_angle_deg'], 0], degrees=True).as_matrix()
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
         # variables
         self.odom = Odometry()
         self.odom_init = False
-        self.last_yaw = 0.0
+        self.last_yaw = self.gate_lock_yaw_rad if self.gate_lock_yaw else 0.0
         self.ctrl_dt = 0.02
         self.ctrl_time = None
         self.desire_init = False
         self.arrive = False
+        self.stop_requested = False
+        self.stop_reason = None
         self.desire_pos = None
         self.desire_vel = None
         self.desire_acc = None
@@ -71,6 +91,7 @@ class YopoNet:
         self.time_visualize = 0.0
         self.count = 0
         self.depth_fps = 30  # used only as processing time tolerance for printing logs
+        self.goal_start_time = rospy.Time.now()
 
         # Load Network
         if self.use_trt:
@@ -89,20 +110,71 @@ class YopoNet:
         self.best_traj_pub = rospy.Publisher("/yopo_net/best_traj_visual", PointCloud2, queue_size=1)
         self.all_trajs_pub = rospy.Publisher("/yopo_net/trajs_visual", PointCloud2, queue_size=1)
         self.ctrl_pub = rospy.Publisher(self.config["ctrl_topic"], PositionCommand, queue_size=1)
+        self.gate_marker_pub = rospy.Publisher(self.config.get("gate_marker_topic", "/yopo_net/gate_marker"), Marker, queue_size=1, latch=True)
+        self.vehicle_marker_pub = rospy.Publisher(self.config.get("vehicle_marker_topic", "/yopo_net/vehicle_marker"), Marker, queue_size=1)
+        self.vehicle_odom_marker_pub = rospy.Publisher(self.config.get("vehicle_odom_marker_topic", "/yopo_net/uav_collision_box"), Marker, queue_size=1)
         # ros subscriber
         self.odom_sub = rospy.Subscriber(self.config['odom_topic'], Odometry, self.callback_odometry, queue_size=1, tcp_nodelay=True)
         self.depth_sub = rospy.Subscriber(self.config['depth_topic'], Image, self.callback_depth, queue_size=1, tcp_nodelay=True)
         self.goal_sub = rospy.Subscriber("/move_base_simple/goal", PoseStamped, self.callback_set_goal, queue_size=1)
         # ros timer
         rospy.sleep(1.0)  # wait connection...
+        self.publish_gate_marker()
         self.timer_ctrl = rospy.Timer(rospy.Duration(self.ctrl_dt), self.control_pub)
         print("YOPO Net Node Ready!")
         rospy.spin()
 
     def callback_set_goal(self, data):
-        self.goal = np.asarray([data.pose.position.x, data.pose.position.y, 2])
+        self.goal = np.asarray([data.pose.position.x, data.pose.position.y, self.goal_z])
         self.arrive = False
-        print(f"New Goal: ({data.pose.position.x:.1f}, {data.pose.position.y:.1f})")
+        self.stop_requested = False
+        self.stop_reason = None
+        self.goal_start_time = rospy.Time.now()
+        print(f"New Goal: ({data.pose.position.x:.1f}, {data.pose.position.y:.1f}, {self.goal_z:.1f})")
+
+    def request_stop(self, reason, arrived=False):
+        if self.stop_requested:
+            return
+        self.stop_requested = True
+        self.stop_reason = reason
+        self.arrive = arrived
+        print(f"Stop: {reason}")
+
+    def gate_local_state(self, position):
+        idx = self.gate.active_gate_index(position, self.goal)
+        center = self.gate.center_at(idx)
+        pos_local = self.gate.to_local(position, center)[0]
+        goal_local = self.gate.to_local(self.goal, center)[0]
+        return idx, center, pos_local, goal_local
+
+    def gate_pass_completed(self, position):
+        if not self.gate_enabled:
+            return False
+        _, _, pos_local, goal_local = self.gate_local_state(position)
+        goal_sign = 1.0 if goal_local[0] >= 0.0 else -1.0
+        reached_goal_side = goal_sign * (pos_local[0] - goal_local[0]) >= self.success_local_x_margin
+        inside_exit_tube = (abs(pos_local[1]) <= 0.5 * self.gate.inner_width + 0.35 and
+                            abs(pos_local[2]) <= 0.5 * self.gate.inner_length + 0.35)
+        return reached_goal_side and inside_exit_tube
+
+    def abort_reason_for_position(self, position):
+        if position[2] < self.abort_min_z:
+            return f"z={position[2]:.2f} below min_z={self.abort_min_z:.2f}"
+        if position[2] > self.abort_max_z:
+            return f"z={position[2]:.2f} above max_z={self.abort_max_z:.2f}"
+        if self.goal_timeout_sec > 0.0:
+            elapsed = (rospy.Time.now() - self.goal_start_time).to_sec()
+            if elapsed > self.goal_timeout_sec:
+                return f"goal timeout {elapsed:.1f}s > {self.goal_timeout_sec:.1f}s"
+        if self.gate_enabled:
+            _, _, pos_local, _ = self.gate_local_state(position)
+            if abs(pos_local[0]) > self.abort_local_x:
+                return f"left gate corridor in x: {pos_local[0]:.2f}"
+            if abs(pos_local[1]) > self.abort_local_y:
+                return f"left gate corridor in y: {pos_local[1]:.2f}"
+            if abs(pos_local[2]) > self.abort_local_z:
+                return f"left gate corridor in z: {pos_local[2]:.2f}"
+        return None
 
     # the first frame
     def callback_odometry(self, data):
@@ -113,13 +185,26 @@ class YopoNet:
             self.desire_acc = np.array((0.0, 0.0, 0.0))
             ypr = R.from_quat([self.odom.pose.pose.orientation.x, self.odom.pose.pose.orientation.y,
                                self.odom.pose.pose.orientation.z, self.odom.pose.pose.orientation.w]).as_euler('ZYX', degrees=False)
-            self.last_yaw = ypr[0]
+            self.last_yaw = self.gate_lock_yaw_rad if self.gate_lock_yaw else ypr[0]
         self.odom_init = True
 
         pos = np.array((self.odom.pose.pose.position.x, self.odom.pose.pose.position.y, self.odom.pose.pose.position.z))
-        if np.linalg.norm(pos - self.goal) < 5 and not self.arrive:
+        self.publish_odom_vehicle_marker(self.odom)
+        reached = self.gate.goal_reached(pos, self.goal, self.arrive_radius) if self.gate_enabled else np.linalg.norm(pos - self.goal) < self.arrive_radius
+        if reached and not self.arrive:
             print("Arrive!")
             self.arrive = True
+            self.stop_requested = True
+            self.stop_reason = "arrived"
+            return
+        if self.stop_requested:
+            return
+        if self.gate_enabled and self.stop_after_pass and self.gate_pass_completed(pos):
+            self.request_stop("gate pass completed; hover in place", arrived=True)
+            return
+        abort_reason = self.abort_reason_for_position(pos)
+        if abort_reason is not None:
+            self.request_stop(abort_reason, arrived=False)
 
     def process_odom(self):
         # Rwb -> Rwc -> Rcw
@@ -128,14 +213,19 @@ class YopoNet:
         self.Rotation_wc = np.dot(Rotation_wb, self.Rotation_bc)
         Rotation_cw = self.Rotation_wc.T
 
+        start_pos = self.desire_pos if self.plan_from_reference else np.array([
+            self.odom.pose.pose.position.x,
+            self.odom.pose.pose.position.y,
+            self.odom.pose.pose.position.z,
+        ])
+
         # vel and acc
         vel_w = self.desire_vel if self.plan_from_reference else np.array([self.odom.twist.twist.linear.x, self.odom.twist.twist.linear.y, self.odom.twist.twist.linear.z])
         vel_c = np.dot(Rotation_cw, vel_w)
         acc_w = self.desire_acc
         acc_c = np.dot(Rotation_cw, acc_w)
 
-        # goal_dir
-        goal_w = self.goal - self.desire_pos
+        goal_w = self.goal - start_pos
         goal_c = np.dot(Rotation_cw, goal_w)
 
         obs = np.concatenate((vel_c, acc_c, goal_c), axis=0).astype(np.float32)
@@ -144,7 +234,8 @@ class YopoNet:
 
     @torch.inference_mode()
     def callback_depth(self, data):
-        if not self.odom_init: return
+        if not self.odom_init or self.stop_requested:
+            return
 
         # 1. Depth Image Process (Be careful with the depth units in your application)
         time0 = time.time()
@@ -183,15 +274,20 @@ class YopoNet:
 
         # 3. Post-Processing
         # Replacing PyTorch operation on CUDA with NumPy operation on CPU (speed increased by 10x)
-        endstate, score = self.process_output(endstate_pred, score_pred, return_all_preds=self.visualize)
+        need_all_preds = self.visualize or self.gate_enabled
+        endstate, score = self.process_output(endstate_pred, score_pred, return_all_preds=need_all_preds)
         # Vectorization: transform the prediction(P V A in body frame) to the world frame with the attitude (without the position)
         endstate_c = endstate.reshape(-1, 3, 3).transpose(0, 2, 1)  # [N, 9] -> [N, 3, 3] -> [px vx ax, py vy ay, pz vz az]
         endstate_w = np.matmul(self.Rotation_wc, endstate_c)
 
-        action_id = np.argmin(score) if self.visualize else 0
+        start_pos = self.desire_pos if self.plan_from_reference else np.array((self.odom.pose.pose.position.x, self.odom.pose.pose.position.y, self.odom.pose.pose.position.z))
+        start_vel = self.desire_vel if self.plan_from_reference else np.array((self.odom.twist.twist.linear.x, self.odom.twist.twist.linear.y, self.odom.twist.twist.linear.z))
+        score_for_select = np.atleast_1d(score).astype(np.float32).copy()
+        if self.gate_enabled and need_all_preds and self.gate.is_gate_task(start_pos, self.goal):
+            score_for_select += self.compute_gate_scores(endstate_w, start_pos, start_vel, self.desire_acc, self.goal)
+
+        action_id = np.argmin(score_for_select) if need_all_preds else 0
         with self.lock:  # Python3.8: threads are scheduled using time slices, add the lock to ensure safety
-            start_pos = self.desire_pos if self.plan_from_reference else np.array((self.odom.pose.pose.position.x, self.odom.pose.pose.position.y, self.odom.pose.pose.position.z))
-            start_vel = self.desire_vel if self.plan_from_reference else np.array((self.odom.twist.twist.linear.x, self.odom.twist.twist.linear.y, self.odom.twist.twist.linear.z))
             self.optimal_poly_x = Poly5Solver(start_pos[0], start_vel[0], self.desire_acc[0], endstate_w[action_id, 0, 0] + start_pos[0],
                                               endstate_w[action_id, 0, 1], endstate_w[action_id, 0, 2], self.traj_time)
             self.optimal_poly_y = Poly5Solver(start_pos[1], start_vel[1], self.desire_acc[1], endstate_w[action_id, 1, 0] + start_pos[1],
@@ -200,7 +296,7 @@ class YopoNet:
                                               endstate_w[action_id, 2, 1], endstate_w[action_id, 2, 2], self.traj_time)
             self.ctrl_time = 0.0
         time4 = time.time()
-        self.visualize_trajectory(score_pred, endstate_w)
+        self.visualize_trajectory(score_for_select if need_all_preds else score_pred, endstate_w)
         time5 = time.time()
 
         self.print_time(time0, time1, time2, time3, time4, time5)
@@ -208,7 +304,7 @@ class YopoNet:
     def control_pub(self, _timer):
         if self.ctrl_time is None or self.ctrl_time > self.traj_time:
             return
-        if self.arrive and self.last_control_msg is not None:
+        if self.stop_requested and self.last_control_msg is not None:
             self.desire_init = False   # ready for next rollout
             self.last_control_msg.trajectory_flag = self.last_control_msg.TRAJECTORY_STATUS_EMPTY
             self.ctrl_pub.publish(self.last_control_msg)
@@ -231,14 +327,50 @@ class YopoNet:
             self.desire_pos = np.array([control_msg.position.x, control_msg.position.y, control_msg.position.z])
             self.desire_vel = np.array([control_msg.velocity.x, control_msg.velocity.y, control_msg.velocity.z])
             self.desire_acc = np.array([control_msg.acceleration.x, control_msg.acceleration.y, control_msg.acceleration.z])
-            goal_dir = self.goal - self.desire_pos
-            yaw, yaw_dot = calculate_yaw(self.desire_vel, goal_dir, self.last_yaw, self.ctrl_dt)
-            self.last_yaw = yaw
+            if self.gate_enabled and self.gate_lock_yaw:
+                yaw = self.gate_lock_yaw_rad
+                yaw_dot = 0.0
+            else:
+                goal_dir = self.goal - self.desire_pos
+                yaw, yaw_dot = calculate_yaw(self.desire_vel, goal_dir, self.last_yaw, self.ctrl_dt)
+                self.last_yaw = yaw
             control_msg.yaw = yaw
             control_msg.yaw_dot = yaw_dot
             self.desire_init = True
             self.last_control_msg = control_msg
             self.ctrl_pub.publish(control_msg)
+            self.publish_vehicle_marker(self.desire_pos, self.desire_acc, yaw)
+
+    def compute_gate_scores(self, endstate_w, start_pos, start_vel, start_acc, planning_goal):
+        active_center = self.gate.center_at(self.gate.active_gate_index(start_pos, planning_goal))
+        gate_scores = np.zeros(endstate_w.shape[0], dtype=np.float32)
+        for i in range(endstate_w.shape[0]):
+            poly_x = Poly5Solver(start_pos[0], start_vel[0], start_acc[0],
+                                 endstate_w[i, 0, 0] + start_pos[0], endstate_w[i, 0, 1], endstate_w[i, 0, 2], self.traj_time)
+            poly_y = Poly5Solver(start_pos[1], start_vel[1], start_acc[1],
+                                 endstate_w[i, 1, 0] + start_pos[1], endstate_w[i, 1, 1], endstate_w[i, 1, 2], self.traj_time)
+            poly_z = Poly5Solver(start_pos[2], start_vel[2], start_acc[2],
+                                 endstate_w[i, 2, 0] + start_pos[2], endstate_w[i, 2, 1], endstate_w[i, 2, 2], self.traj_time)
+            gate_scores[i] = self.gate.test_weight * gate_total_cost_for_polys_np(
+                poly_x, poly_y, poly_z, self.traj_time, start_pos, planning_goal, self.gate, center=active_center)
+        return gate_scores
+
+    def print_gate_geometry(self):
+        if not self.gate_enabled:
+            return
+        body_w = float(self.config.get("uav_collision_box_width", self.gate.body_radii[1] * 2.0))
+        body_d = float(self.config.get("uav_collision_box_depth", self.gate.body_radii[0] * 2.0))
+        body_h = float(self.config.get("uav_collision_box_height", self.gate.body_radii[2] * 2.0))
+        wide_clearance = self.gate.inner_width - max(body_w, body_d) - 2.0 * self.gate.safe_margin
+        rolled_clearance = self.gate.inner_length - body_h - 2.0 * self.gate.safe_margin
+        flat_clearance = self.gate.inner_length - max(body_w, body_d) - 2.0 * self.gate.safe_margin
+        print("Gate geometry:")
+        print(f"  opening: {self.gate.inner_width:.2f}m x {self.gate.inner_length:.2f}m, "
+              f"slit_roll={cfg['gate_slit_roll_deg']:.1f} deg")
+        print(f"  uav box:  {body_w:.2f}m x {body_d:.2f}m x {body_h:.2f}m, "
+              f"safe_margin={self.gate.safe_margin:.2f}m")
+        print(f"  clearance wide axis={wide_clearance:+.2f}m, "
+              f"narrow rolled={rolled_clearance:+.2f}m, narrow flat={flat_clearance:+.2f}m")
 
     def process_output(self, endstate_pred, score_pred, return_all_preds=False):
         endstate_pred = endstate_pred.reshape(9, self.lattice_primitive.traj_num).T
@@ -318,6 +450,82 @@ class YopoNet:
             point_cloud_msg = point_cloud2.create_cloud(header, fields, points_array)
             self.all_trajs_pub.publish(point_cloud_msg)
 
+    def publish_gate_marker(self):
+        if not self.gate_enabled:
+            return
+        marker = Marker()
+        marker.header.stamp = rospy.Time.now()
+        marker.header.frame_id = 'world'
+        marker.ns = 'yopo_gate'
+        marker.id = 0
+        marker.type = Marker.LINE_LIST
+        marker.action = Marker.ADD
+        marker.pose.orientation.w = 1.0
+        marker.scale.x = 0.025
+        marker.color.r = 0.90
+        marker.color.g = 0.12
+        marker.color.b = 0.08
+        marker.color.a = 1.0
+        for a, b in gate_marker_edges_np(self.gate):
+            marker.points.append(Point(float(a[0]), float(a[1]), float(a[2])))
+            marker.points.append(Point(float(b[0]), float(b[1]), float(b[2])))
+        self.gate_marker_pub.publish(marker)
+
+    def publish_vehicle_marker(self, pos, acc, yaw):
+        if not self.gate_enabled:
+            return
+        force_dir = acc + np.array([0.0, 0.0, 9.81])
+        force_dir = force_dir / (np.linalg.norm(force_dir) + 1.0e-6)
+        b1d = np.array([np.cos(yaw), np.sin(yaw), 0.0])
+        b2 = np.cross(force_dir, b1d)
+        if np.linalg.norm(b2) < 1.0e-5:
+            b2 = np.array([0.0, 1.0, 0.0])
+        b2 = b2 / (np.linalg.norm(b2) + 1.0e-6)
+        b1 = np.cross(b2, force_dir)
+        b1 = b1 / (np.linalg.norm(b1) + 1.0e-6)
+        rot = np.column_stack((b1, b2, force_dir))
+        quat = R.from_matrix(rot).as_quat()
+
+        marker = Marker()
+        marker.header.stamp = rospy.Time.now()
+        marker.header.frame_id = 'world'
+        marker.ns = 'yopo_vehicle'
+        marker.id = 0
+        marker.type = Marker.CUBE
+        marker.action = Marker.ADD
+        marker.pose.position = Point(float(pos[0]), float(pos[1]), float(pos[2]))
+        marker.pose.orientation.x = quat[0]
+        marker.pose.orientation.y = quat[1]
+        marker.pose.orientation.z = quat[2]
+        marker.pose.orientation.w = quat[3]
+        marker.scale.x = float(self.config.get("uav_collision_box_depth", self.gate.body_radii[0] * 2.0))
+        marker.scale.y = float(self.config.get("uav_collision_box_width", self.gate.body_radii[1] * 2.0))
+        marker.scale.z = float(self.config.get("uav_collision_box_height", self.gate.body_radii[2] * 2.0))
+        marker.color.r = 0.05
+        marker.color.g = 0.05
+        marker.color.b = 0.05
+        marker.color.a = 0.95
+        self.vehicle_marker_pub.publish(marker)
+
+    def publish_odom_vehicle_marker(self, odom_msg):
+        marker = Marker()
+        marker.header.stamp = rospy.Time.now()
+        marker.header.frame_id = 'world'
+        marker.ns = 'yopo_vehicle_collision'
+        marker.id = 0
+        marker.type = Marker.CUBE
+        marker.action = Marker.ADD
+        marker.pose.position = odom_msg.pose.pose.position
+        marker.pose.orientation = odom_msg.pose.pose.orientation
+        marker.scale.x = float(self.config.get("uav_collision_box_depth", self.gate.body_radii[0] * 2.0))
+        marker.scale.y = float(self.config.get("uav_collision_box_width", self.gate.body_radii[1] * 2.0))
+        marker.scale.z = float(self.config.get("uav_collision_box_height", self.gate.body_radii[2] * 2.0))
+        marker.color.r = 0.08
+        marker.color.g = 0.32
+        marker.color.b = 1.00
+        marker.color.a = 0.35
+        self.vehicle_odom_marker_pub.publish(marker)
+
     def print_time(self, time0, time1, time2, time3, time4, time5):
         """
         Performance reference: PyTorch model should take < 5 ms; TensorRT model should take < 1 ms
@@ -373,8 +581,28 @@ if __name__ == "__main__":
     weight = "yopo_trt.pth" if args.use_tensorrt else base_dir + "/saved/YOPO_{}/epoch{}.pth".format(args.trial, args.epoch)
     print("load weight from:", weight)
 
+    default_goal = cfg["gate_test_goal"] if cfg["gate_enabled"] else [50, 0, 2]
     settings = {'use_tensorrt': args.use_tensorrt,
-                'goal': [50, 0, 2],      # 目标点位置
+                'goal': default_goal,      # 目标点位置
+                'goal_z': cfg["gate_goal_z"] if cfg["gate_enabled"] else 2,
+                'gate_enabled': cfg["gate_enabled"],
+                'arrive_radius': cfg["gate_arrive_radius"] if cfg["gate_enabled"] else 5.0,
+                'stop_after_pass': cfg["gate_stop_after_pass"] if cfg["gate_enabled"] else False,
+                'goal_timeout_sec': cfg["gate_goal_timeout_sec"] if cfg["gate_enabled"] else 20.0,
+                'abort_min_z': cfg["gate_abort_min_z"] if cfg["gate_enabled"] else 0.2,
+                'abort_max_z': cfg["gate_abort_max_z"] if cfg["gate_enabled"] else 4.0,
+                'abort_local_x': cfg["gate_abort_local_x"] if cfg["gate_enabled"] else 100.0,
+                'abort_local_y': cfg["gate_abort_local_y"] if cfg["gate_enabled"] else 100.0,
+                'abort_local_z': cfg["gate_abort_local_z"] if cfg["gate_enabled"] else 100.0,
+                'success_local_x_margin': cfg["gate_success_local_x_margin"] if cfg["gate_enabled"] else 0.0,
+                'gate_lock_yaw': cfg["gate_lock_yaw"] if cfg["gate_enabled"] else False,
+                'gate_lock_yaw_deg': cfg["gate_lock_yaw_deg"] if cfg["gate_enabled"] else 0.0,
+                'gate_marker_topic': '/yopo_net/gate_marker',
+                'vehicle_marker_topic': '/yopo_net/vehicle_marker',
+                'vehicle_odom_marker_topic': '/yopo_net/uav_collision_box',
+                'uav_collision_box_width': cfg["uav_collision_box_width"],
+                'uav_collision_box_depth': cfg["uav_collision_box_depth"],
+                'uav_collision_box_height': cfg["uav_collision_box_height"],
                 'pitch_angle_deg': -0,   # 相机俯仰角(仰为负)
                 'odom_topic': '/sim/odom',                   # 里程计话题
                 'depth_topic': '/depth_image',               # 深度图话题

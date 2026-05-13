@@ -16,19 +16,23 @@ class StateTransform:
             :return [batch; px py pz vx vy vz ax ay az; primitive_v; primitive_h] in body frame
         """
         B, V, H = endstate_pred.shape[0], endstate_pred.shape[2], endstate_pred.shape[3]
+        device = endstate_pred.device
+        dtype = endstate_pred.dtype
 
         # [B, 9, 3, 5] -> [B, 3, 5, 9] -> [B, 15, 9]
         endstate_pred = endstate_pred.permute(0, 2, 3, 1).reshape(B, V * H, 9)
 
         # 获取 lattice angle 和 rotation (.flip: 由于lattice和grid的顺序相反)
         yaw, pitch = self.lattice_primitive.getAngleLattice()  # [15]
-        yaw = yaw.flip(0)[None, :].expand(B, -1)  # [B, 15]
-        pitch = pitch.flip(0)[None, :].expand(B, -1)  # [B, 15]
-        Rbp = self.lattice_primitive.getRotation().flip(0)  # [15, 3, 3]
+        yaw = yaw.flip(0).to(device=device, dtype=dtype)[None, :].expand(B, -1)  # [B, 15]
+        pitch = pitch.flip(0).to(device=device, dtype=dtype)[None, :].expand(B, -1)  # [B, 15]
+        Rbp = self.lattice_primitive.getRotation().flip(0).to(device=device, dtype=dtype)  # [15, 3, 3]
         Rbp = Rbp[None, :, :, :].expand(B, -1, -1, -1)  # [B, 15, 3, 3]
 
-        delta_yaw = endstate_pred[:, :, 0] * self.lattice_primitive.yaw_diff  # [B, 15]
-        delta_pitch = endstate_pred[:, :, 1] * self.lattice_primitive.pitch_diff
+        yaw_diff = torch.as_tensor(self.lattice_primitive.yaw_diff, device=device, dtype=dtype)
+        pitch_diff = torch.as_tensor(self.lattice_primitive.pitch_diff, device=device, dtype=dtype)
+        delta_yaw = endstate_pred[:, :, 0] * yaw_diff  # [B, 15]
+        delta_pitch = endstate_pred[:, :, 1] * pitch_diff
         radio = (endstate_pred[:, :, 2] + 1.0) * self.lattice_primitive.radio_range
 
         cos_pitch = torch.cos(pitch + delta_pitch)
@@ -56,8 +60,8 @@ class StateTransform:
             Numpy version of pred_to_endstate() on CPU (used in test, x10 times faster than torch on CUDA)
             :return [B; px py pz vx vy vz ax ay az] in body frame
         """
-        delta_yaw = endstate_pred[:, 0] * self.lattice_primitive.yaw_diff
-        delta_pitch = endstate_pred[:, 1] * self.lattice_primitive.pitch_diff
+        delta_yaw = endstate_pred[:, 0] * float(self.lattice_primitive.yaw_diff)
+        delta_pitch = endstate_pred[:, 1] * float(self.lattice_primitive.pitch_diff)
         radio = (endstate_pred[:, 2] + 1.0) * self.lattice_primitive.radio_range
 
         yaw, pitch = self.lattice_primitive.getAngleLattice(lattice_id)
@@ -84,9 +88,11 @@ class StateTransform:
             :return [batch; vx, vy, yz, ax, ay, az, gx, gy, gz; primitive_v; primitive_h] in primitive frame
         """
         B, N = obs.shape[0], self.lattice_primitive.traj_num
+        device = obs.device
+        dtype = obs.dtype
 
         # 获取所有 Rbp 并倒序排列 (由于lattice和grid的顺序相反)
-        Rbp_all = self.lattice_primitive.getRotation().flip(0)  # shape: [N, 3, 3]
+        Rbp_all = self.lattice_primitive.getRotation().flip(0).to(device=device, dtype=dtype)  # shape: [N, 3, 3]
 
         obs = obs.view(B, 3, 3)  # [B, 3, 3]
 

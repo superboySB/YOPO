@@ -6,6 +6,8 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include <yaml-cpp/yaml.h>
+#include <algorithm>
+#include <cstdlib>
 #include <iostream>
 #include <filesystem>
 #include <fstream>
@@ -15,6 +17,36 @@
 
 using namespace raycast;
 namespace fs = std::filesystem;
+
+template <typename T>
+T yamlValueOrDefault(const YAML::Node &config, const std::string &key, const T &default_value)
+{
+    if (config[key])
+    {
+        return config[key].as<T>();
+    }
+    return default_value;
+}
+
+int intEnvOrDefault(const char *name, const int default_value)
+{
+    const char *value = std::getenv(name);
+    if (value == nullptr || value[0] == '\0')
+    {
+        return default_value;
+    }
+    return std::max(1, std::atoi(value));
+}
+
+std::string stringEnvOrDefault(const char *name, const std::string &default_value)
+{
+    const char *value = std::getenv(name);
+    if (value == nullptr || value[0] == '\0')
+    {
+        return default_value;
+    }
+    return std::string(value);
+}
 
 void prepareSavePath(const std::string &path, bool print=false)
 {
@@ -101,6 +133,8 @@ int main(int argc, char **argv)
     // 2. 地图参数
     float resolution = config["resolution"].as<float>();
     int occupy_threshold = config["occupy_threshold"].as<int>();
+    bool mirror_xy = yamlValueOrDefault<bool>(config, "map_mirror_xy", true);
+    bool occupy_below_ground = yamlValueOrDefault<bool>(config, "occupy_below_ground", true);
     int seed = config["seed"].as<int>();
     int sizeX = config["x_length"].as<int>();
     int sizeY = config["y_length"].as<int>();
@@ -111,9 +145,9 @@ int main(int argc, char **argv)
     sizeZ *= scale;
 
     // 3. 数据集参数
-    std::string save_path = config["save_path"].as<std::string>();
-    int env_num = config["env_num"].as<int>();
-    int image_num = config["image_num"].as<int>();
+    std::string save_path = stringEnvOrDefault("YOPO_DATASET_SAVE_PATH", config["save_path"].as<std::string>());
+    int env_num = intEnvOrDefault("YOPO_DATASET_ENV_NUM", config["env_num"].as<int>());
+    int image_num = intEnvOrDefault("YOPO_DATASET_IMAGE_NUM", config["image_num"].as<int>());
     float roll_range = config["roll_range"].as<float>();
     float pitch_range = config["pitch_range"].as<float>();
     float x_range = config["x_range"].as<float>();
@@ -122,6 +156,33 @@ int main(int argc, char **argv)
     float z_max = config["z_range"][1].as<float>();
     float safe_dist = config["safe_dist"].as<float>();
     float ply_res = config["ply_res"].as<float>();
+
+    bool gate_enabled = yamlValueOrDefault<bool>(config, "gate_enabled", false);
+    float gate_pose_sample_ratio = gate_enabled ? yamlValueOrDefault<float>(config, "gate_pose_sample_ratio", 0.0f) : 0.0f;
+    gate_pose_sample_ratio = std::max(0.0f, std::min(1.0f, gate_pose_sample_ratio));
+    float gate_sample_x_min = yamlValueOrDefault<float>(config, "gate_sample_x_min", 0.9f);
+    float gate_sample_x_max = yamlValueOrDefault<float>(config, "gate_sample_x_max", 3.0f);
+    float gate_sample_y_range = yamlValueOrDefault<float>(config, "gate_sample_y_range", 0.9f);
+    float gate_sample_z_range = yamlValueOrDefault<float>(config, "gate_sample_z_range", 0.45f);
+    float gate_sample_center_ratio = yamlValueOrDefault<float>(config, "gate_sample_center_ratio", 0.7f);
+    gate_sample_center_ratio = std::max(0.0f, std::min(1.0f, gate_sample_center_ratio));
+    float gate_sample_y_std = yamlValueOrDefault<float>(config, "gate_sample_y_std", 0.22f);
+    float gate_sample_z_std = yamlValueOrDefault<float>(config, "gate_sample_z_std", 0.14f);
+    float gate_pose_yaw_noise_deg = yamlValueOrDefault<float>(config, "gate_pose_yaw_noise_deg", 15.0f);
+    Eigen::Vector3f gate_center(yamlValueOrDefault<float>(config, "gate_x", 0.0f),
+                                yamlValueOrDefault<float>(config, "gate_y", 0.0f),
+                                yamlValueOrDefault<float>(config, "gate_z", 1.2f));
+    float gate_roll_deg = yamlValueOrDefault<float>(config, "gate_roll_deg", 0.0f);
+    gate_roll_deg = yamlValueOrDefault<float>(config, "gate_slit_roll_deg", gate_roll_deg);
+    const float gate_pitch_deg = yamlValueOrDefault<float>(config, "gate_pitch_deg", 0.0f);
+    const float gate_yaw_deg = yamlValueOrDefault<float>(config, "gate_yaw_deg", 0.0f);
+    const bool gate_random_slit_roll = gate_enabled && yamlValueOrDefault<bool>(config, "gate_random_slit_roll", false);
+    float gate_slit_roll_min_deg = yamlValueOrDefault<float>(config, "gate_slit_roll_min_deg", 0.0f);
+    float gate_slit_roll_max_deg = yamlValueOrDefault<float>(config, "gate_slit_roll_max_deg", 90.0f);
+    if (gate_slit_roll_min_deg > gate_slit_roll_max_deg)
+        std::swap(gate_slit_roll_min_deg, gate_slit_roll_max_deg);
+    int gate_count = std::max(1, yamlValueOrDefault<int>(config, "gate_count", 1));
+    float gate_spacing = std::max(0.0f, yamlValueOrDefault<float>(config, "gate_spacing", 3.0f));
 
     // 中心对齐，计算偏移量
     int dataset_num = env_num * image_num;
@@ -147,9 +208,15 @@ int main(int argc, char **argv)
     std::default_random_engine generator(std::random_device{}());
     std::normal_distribution<float> normal_distribution(0.0f, 1.0f); // 均值0，标准差1
     std::uniform_real_distribution<float> uniform_uniform(0.0f, 1.0f);
+    std::uniform_int_distribution<int> gate_index_distribution(0, gate_count - 1);
     prepareSavePath(save_path, true);
     for (int map_i = 0; map_i < env_num; ++map_i)
     {
+        const float active_gate_roll_deg = gate_random_slit_roll
+                                               ? gate_slit_roll_min_deg + uniform_uniform(generator) * (gate_slit_roll_max_deg - gate_slit_roll_min_deg)
+                                               : gate_roll_deg;
+        const Eigen::Matrix3f active_gate_rot = RPY2Quat(active_gate_roll_deg, gate_pitch_deg, gate_yaw_deg).toRotationMatrix();
+
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>());
         mocka::Maps::BasicInfo info;
         info.sizeX = sizeX;
@@ -161,11 +228,12 @@ int main(int argc, char **argv)
 
         mocka::Maps map;
         map.setParam(config);
+        map.setGateRollDeg(active_gate_roll_deg);
         map.setInfo(info);
         map.generate(config["maze_type"].as<int>());
 
         // 构建 GridMap
-        GridMap grid_map(cloud, resolution, occupy_threshold);
+        GridMap grid_map(cloud, resolution, occupy_threshold, mirror_xy, occupy_below_ground);
 
         // 保存地图 (先滤波)
         pcl::PointCloud<pcl::PointXYZ>::Ptr filtered_cloud(new pcl::PointCloud<pcl::PointXYZ>());
@@ -181,6 +249,13 @@ int main(int argc, char **argv)
 
         savePointCloudAsPLY(filtered_cloud, save_path + "pointcloud-" + std::to_string(map_i) + ".ply");
 
+        std::ofstream gate_file(save_path + "gate-" + std::to_string(map_i) + ".csv");
+        gate_file << "roll,pitch,yaw,x,y,z\n";
+        gate_file << std::fixed << std::setprecision(6)
+                  << active_gate_roll_deg << "," << gate_pitch_deg << "," << gate_yaw_deg << ","
+                  << gate_center.x() << "," << gate_center.y() << "," << gate_center.z() << "\n";
+        gate_file.close();
+
         pcl::KdTreeFLANN<pcl::PointXYZ> kdtree;
         kdtree.setInputCloud(filtered_cloud);
 
@@ -191,20 +266,75 @@ int main(int argc, char **argv)
         {
             Eigen::Vector3f pos;
             float dist;
+            bool sample_gate_pose = gate_enabled && uniform_uniform(generator) < gate_pose_sample_ratio;
+            int sample_attempts = 0;
             do{
-                pos.x() = x_min + uniform_uniform(generator) * x_range;
-                pos.y() = y_min + uniform_uniform(generator) * y_range;
-                pos.z() = z_min + uniform_uniform(generator) * (z_max - z_min);
+                ++sample_attempts;
+                if (sample_gate_pose && sample_attempts > 100)
+                {
+                    sample_gate_pose = false;
+                }
+                if (sample_gate_pose)
+                {
+                    const int gate_idx = gate_index_distribution(generator);
+                    const Eigen::Vector3f active_gate_center =
+                        gate_center + active_gate_rot * Eigen::Vector3f(gate_idx * gate_spacing, 0.0f, 0.0f);
+                    const float side = uniform_uniform(generator) < 0.5f ? -1.0f : 1.0f;
+                    const float local_x = side * (gate_sample_x_min + uniform_uniform(generator) * (gate_sample_x_max - gate_sample_x_min));
+                    float local_y;
+                    float local_z;
+                    if (uniform_uniform(generator) < gate_sample_center_ratio)
+                    {
+                        local_y = std::max(-gate_sample_y_range,
+                                           std::min(gate_sample_y_range, normal_distribution(generator) * gate_sample_y_std));
+                        local_z = std::max(-gate_sample_z_range,
+                                           std::min(gate_sample_z_range, normal_distribution(generator) * gate_sample_z_std));
+                    }
+                    else
+                    {
+                        local_y = (2.0f * uniform_uniform(generator) - 1.0f) * gate_sample_y_range;
+                        local_z = (2.0f * uniform_uniform(generator) - 1.0f) * gate_sample_z_range;
+                    }
+                    pos = active_gate_center + active_gate_rot * Eigen::Vector3f(local_x, local_y, local_z);
+                }
+                else
+                {
+                    pos.x() = x_min + uniform_uniform(generator) * x_range;
+                    pos.y() = y_min + uniform_uniform(generator) * y_range;
+                    pos.z() = z_min + uniform_uniform(generator) * (z_max - z_min);
+                }
                 pcl::PointXYZ searchPoint(pos.x(), pos.y(), pos.z());
                 std::vector<int> pointIdxNKNSearch(1);
                 std::vector<float> pointNKNSquaredDistance(1);
                 int found_num = kdtree.nearestKSearch(searchPoint, 1, pointIdxNKNSearch, pointNKNSquaredDistance);
-                dist = sqrt(pointNKNSquaredDistance[0]);
-            } while (dist < safe_dist);
+                if (found_num <= 0)
+                {
+                    dist = 0.0f;
+                }
+                else
+                {
+                    dist = sqrt(pointNKNSquaredDistance[0]);
+                }
+            } while (dist < safe_dist || pos.z() < z_min || pos.z() > z_max);
 
             float roll = normal_distribution(generator) * roll_range / 3.0f;   // 3 * sigmoid = range
             float pitch = normal_distribution(generator) * pitch_range / 3.0f; // 3 * sigmoid = range
             float yaw = uniform_uniform(generator) * 360.0f;
+            if (sample_gate_pose)
+            {
+                Eigen::Vector3f local_to_first = active_gate_rot.transpose() * (pos - gate_center);
+                int gate_idx = static_cast<int>(std::round(local_to_first.x() / std::max(1.0e-3f, gate_spacing)));
+                gate_idx = std::max(0, std::min(gate_count - 1, gate_idx));
+                const Eigen::Vector3f active_gate_center =
+                    gate_center + active_gate_rot * Eigen::Vector3f(gate_idx * gate_spacing, 0.0f, 0.0f);
+                Eigen::Vector3f look_dir = active_gate_center - pos;
+                const float horiz_norm = std::max(1.0e-3f, std::sqrt(look_dir.x() * look_dir.x() + look_dir.y() * look_dir.y()));
+                yaw = std::atan2(look_dir.y(), look_dir.x()) * 180.0f / M_PI +
+                      normal_distribution(generator) * gate_pose_yaw_noise_deg / 3.0f;
+                pitch = -std::atan2(look_dir.z(), horiz_norm) * 180.0f / M_PI +
+                        normal_distribution(generator) * pitch_range / 6.0f;
+                roll = normal_distribution(generator) * roll_range / 6.0f;
+            }
 
             Eigen::Quaternionf quat = RPY2Quat(roll, pitch, yaw);
             Eigen::Quaternionf quat_wc = quat * quat_bc;

@@ -31,6 +31,7 @@ public:
         nh_ = node;
 
         so3_controller_.setMass(mass_);
+        so3_controller_.setMaxTiltDeg(max_tilt_deg_);
         disturbance_observer_ = HGDO(control_dt_);
 
         nh_.param("is_simulation", is_simulation_, false);
@@ -40,7 +41,10 @@ public:
         nh_.param("kx_z", kx_z, 6.2);
         nh_.param("kv_xy", kv_xy, 3.4);
         nh_.param("kv_z", kv_z, 4.0);
+        nh_.param("max_tilt_deg", max_tilt_deg_, 85.0);
+        so3_controller_.setMaxTiltDeg(max_tilt_deg_);
         nh_.param("record_log", record_log_, false);
+        nh_.param("takeoff_altitude", takeoff_altitude_, 2.0);
         nh_.param("logger_file_name", logger_file_name, std::string("/home/lu/"));
         printf("kx: (%f, %f, %f), kv: (%f, %f, %f) \n", kx_xy, kx_xy, kx_z, kv_xy, kv_xy, kv_z);
 
@@ -73,6 +77,7 @@ private:
     double mass_ = 0.98;
     double control_dt_ = 0.02;
     double hover_thrust_ = 0.4;
+    double max_tilt_deg_ = 85.0;
     double kx_xy, kx_z, kv_xy, kv_z;
     
     double cur_yaw_ = 0;
@@ -98,6 +103,7 @@ private:
     bool takeoff_cmd_init_ = false;
     bool use_disturbance_observer_ = false;
     bool record_log_ = false;
+    double takeoff_altitude_ = 2.0;
     
     SO3Control so3_controller_;
     HGDO disturbance_observer_;
@@ -143,7 +149,7 @@ private:
         ros::ServiceClient client = nh_.serviceClient<quadrotor_msgs::SetTakeoffLand>("takeoff_land");
         quadrotor_msgs::SetTakeoffLand srv;
         srv.request.takeoff = true;
-        srv.request.takeoff_altitude = 2.0;
+        srv.request.takeoff_altitude = takeoff_altitude_;
     
         if (client.call(srv)) {
             ROS_INFO("Takeoff called successfully");

@@ -7,10 +7,11 @@ vel_max_train: 6.0
 acc_max_train: 6.0
 
 # IMPORTANT: weight of costs for unit speed (can be visualized in tensorboard)
-wg: 0.15   # guidance     (approaching the goal)
+wg: 1.50   # gate objective (terminal target behind gate + crossing progress)
 ws: 10.0   # smoothness   (smaller jerk)
 wa: 1.0    # acceleration (smaller acceleration)
 wc: 1.0    # collision    (distance to obstacle)
+wgate: 12.0 # SE3 gate    (body-shape-aware slit traversal)
 
 # dataset: set image_size = primitive_num × downsampling_factor (×32 for ResNet-18) in each axis
 dataset_path: "../dataset"
@@ -30,6 +31,8 @@ radio_num: 1        # only support 1 currently
 # safety penalties
 d0: 1.2
 r: 0.6
+safety_voxel_size: 0.05
+safety_eval_points: 40
 
 # distribution for unit state sampling (can be visualized by 'python ./policy/yopo_dataset.py')
 vx_mean_unit: 0.4
@@ -44,9 +47,85 @@ az_mean_unit: 0.0
 ax_std_unit: 0.5
 ay_std_unit: 0.5
 az_std_unit: 0.3
+gate_vx_mean_unit: 0.70
+gate_vy_mean_unit: 0.0
+gate_vz_mean_unit: 0.0
+gate_vx_std_unit: 0.45
+gate_vy_std_unit: 0.18
+gate_vz_std_unit: 0.12
+gate_ax_mean_unit: 0.0
+gate_ay_mean_unit: 0.0
+gate_az_mean_unit: 0.0
+gate_ax_std_unit: 0.35
+gate_ay_std_unit: 0.20
+gate_az_std_unit: 0.16
+gate_min_forward_speed_unit: 0.45
+gate_max_forward_speed_unit: 1.00
 goal_pitch_std: 10.0  # clip goal_length to: 2 * radio_range; 10% probability [0, 2 * radio_range]
 goal_yaw_std: 20.0
 
 # extend the map to avoid trajectory exceeding bounds (especially in z-axis) and treating the sky outside the map as obstacle
 map_expand_min: [0, 0, 0.2]
 map_expand_max: [0, 0, 6.0]
+
+# gate-through task. This is now the only training/testing task.
+gate_enabled: true
+gate_only_mode: true
+gate_training_ratio: 1.00
+gate_pose: [85.0, 0.0, 0.0, 0.0, 0.0, 1.20]  # roll, pitch, yaw, x, y, z; local +x is gate normal
+gate_slit_roll_deg: 85.0  # same semantics as /workspace/gcopter_zuanfeng gate_slit_roll_deg; overrides gate_pose[0]
+gate_count: 1
+gate_spacing: 3.0
+gate_outer_width: 0.88
+gate_outer_length: 0.38
+gate_inner_width: 0.70
+gate_inner_length: 0.30
+gate_depth: 0.05
+gate_depth_margin: 0.01
+gate_tunnel_half_depth: 0.60
+gate_safe_margin: 0.05
+gate_objective_terminal_weight: 1.00
+gate_objective_progress_weight: 3.20
+gate_objective_center_weight: 2.60
+gate_objective_velocity_weight: 0.50
+gate_objective_lateral_velocity_weight: 0.00
+gate_objective_min_exit_speed_ratio: 0.45
+gate_loss_eval_points: 30
+gate_loss_plane_sigma: 0.30
+gate_loss_plane_weight: 1.00
+gate_loss_opening_weight: 1.00
+gate_loss_crossing_weight: 1.80
+gate_loss_roll_align_weight: 0.00
+gate_loss_entry_weight: 0.50
+gate_loss_tunnel_weight: 3.20
+gate_loss_exit_weight: 0.50
+gate_loss_floor_weight: 2.50
+gate_test_weight: 60.00
+gate_test_goal: [3.2, 0.0, 1.20]
+gate_arrive_radius: 0.60
+gate_arrive_x_margin: 0.35
+gate_goal_min_x: 1.20
+gate_goal_max_x: 2.60
+gate_goal_y_std: 0.10
+gate_goal_z_std: 0.03
+gate_sample_x_min: 0.90
+gate_sample_x_max: 2.80
+gate_sample_y_range: 0.90
+gate_sample_z_range: 0.45
+gate_goal_z: 1.20
+gate_floor_min_z: 0.95
+gate_floor_sigma: 0.20
+gate_stop_after_pass: true
+gate_goal_timeout_sec: 8.0
+gate_abort_min_z: 0.85
+gate_abort_max_z: 2.20
+gate_abort_local_x: 4.50
+gate_abort_local_y: 2.20
+gate_abort_local_z: 1.10
+gate_success_local_x_margin: 0.20
+gate_lock_yaw: true
+gate_lock_yaw_deg: 0.0
+
+uav_collision_box_width: 0.34
+uav_collision_box_depth: 0.34
+uav_collision_box_height: 0.13

@@ -1,13 +1,15 @@
 <launch>
-    <arg name="init_x" value="0.0"/>
-    <arg name="init_y" value="0.0"/>
-    <arg name="init_z" value="2.0"/> 
+    <arg name="init_x" default="0.0"/>
+    <arg name="init_y" default="0.0"/>
+    <arg name="init_z" default="2.0"/>
+    <arg name="uav_mesh_scale" default="0.6"/>
 
     <node pkg="so3_quadrotor_simulator" type="quadrotor_simulator_so3" name="quadrotor_simulator_so3" output="screen">
         <param name="rate/odom" value="100.0"/>
         <param name="simulator/init_state_x" value="$(arg init_x)"/>
         <param name="simulator/init_state_y" value="$(arg init_y)"/>
         <param name="simulator/init_state_z" value="$(arg init_z)"/>
+        <param name="visualization/uav_mesh_scale" value="$(arg uav_mesh_scale)"/>
         <remap from="~odom" to="/sim/odom"/>
         <remap from="~imu" to="/sim/imu"/>
         <remap from="~cmd" to="so3_cmd"/>
@@ -19,6 +21,8 @@
         <param name="is_simulation" value="true"/>
         <param name="use_disturbance_observer" value="true"/>
         <param name="hover_thrust" value="0.375"/>
+        <param name="takeoff_altitude" value="$(arg init_z)"/>
+        <param name="max_tilt_deg" value="85.0"/>
         <remap from="~odom" to="/sim/odom"/>
         <remap from="~imu" to="/sim/imu"/>
         <remap from="~position_cmd" to="/so3_control/pos_cmd"/>

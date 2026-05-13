@@ -2,7 +2,6 @@
 #define MAPS_HPP
 #include <yaml-cpp/yaml.h>
 #include <pcl/point_cloud.h>
-#include <pcl/io/ply_io.h>
 #include <pcl/common/transforms.h>
 #include <pcl/point_types.h>
 #include <pcl/common/common.h>
@@ -31,6 +30,7 @@ public:
   BasicInfo getInfo() const;
   void setInfo(const BasicInfo &value);
   void setParam(const YAML::Node& config);
+  void setGateRollDeg(double roll_deg) { gate_roll_deg = roll_deg; }
   Maps() {}
   void generate(int type);
 
@@ -48,9 +48,27 @@ private:
   double width;
   int    addWallX;
   int    addWallY;
-  // tree
-  std::string tree_file;
-  double tree_dist;
+  // narrow gate / gate-wall scene
+  bool gate_enabled = false;
+  double gate_roll_deg = 0.0;
+  double gate_pitch_deg = 0.0;
+  double gate_yaw_deg = 0.0;
+  double gate_x = 0.0;
+  double gate_y = 0.0;
+  double gate_z = 1.2;
+  int gate_count = 1;
+  double gate_spacing = 3.0;
+  double gate_outer_width = 0.88;
+  double gate_outer_length = 0.38;
+  double gate_inner_width = 0.70;
+  double gate_inner_length = 0.30;
+  double gate_depth = 0.05;
+  double gate_depth_margin = 0.01;
+  double gate_point_resolution = 0.05;
+  double gate_wall_width = 0.88;
+  double gate_wall_length = 0.38;
+  bool gate_wall_fill_boundary = false;
+  bool add_ground_points = true;
   // room
   int room_number;
   int max_windows;
@@ -74,10 +92,11 @@ private:
   void recursizeDivisionMaze(Eigen::MatrixXi &maze);
   void optimizeMap();
 
-  void forest();
-  void generatePoissonPoints(float map_width, float map_height, float dist, std::vector<Eigen::Vector2f> &positions);
-  void scaleAndTranslateCloud(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, float scale_factor, Eigen::Vector2f position, Eigen::Matrix3f &rotation);
-  pcl::PointCloud<pcl::PointXYZ>::Ptr generateGround(const pcl::PointCloud<pcl::PointXYZ>::Ptr &forest_cloud, float grid_size, float hight = 0.0);
+  void gateWallScene();
+  void addMapBoundaryAnchors();
+  void addGateWall();
+  std::vector<Eigen::Vector3f> gateCenters() const;
+  pcl::PointCloud<pcl::PointXYZ>::Ptr generateGround(const pcl::PointCloud<pcl::PointXYZ>::Ptr &source_cloud, float grid_size, float hight = 0.0);
 
   void room();
   void transformPointCloud(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud, pcl::PointCloud<pcl::PointXYZ>::Ptr transformed_cloud,

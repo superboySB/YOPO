@@ -187,6 +187,30 @@ Visualization Manager:
         mesh: true
       Queue Size: 100
       Value: true
+    - Class: rviz/Marker
+      Enabled: true
+      Marker Topic: /yopo_net/uav_collision_box
+      Name: UAV Collision Box
+      Namespaces:
+        yopo_vehicle_collision: true
+      Queue Size: 100
+      Value: true
+    - Class: rviz/Marker
+      Enabled: true
+      Marker Topic: /yopo_net/vehicle_marker
+      Name: YOPO Desired Box
+      Namespaces:
+        yopo_vehicle: true
+      Queue Size: 100
+      Value: true
+    - Class: rviz/Marker
+      Enabled: true
+      Marker Topic: /yopo_net/gate_marker
+      Name: Gate Frame
+      Namespaces:
+        yopo_gate: true
+      Queue Size: 100
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 255; 255; 255

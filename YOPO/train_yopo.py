@@ -21,6 +21,8 @@ def parser():
     parser.add_argument("--pretrained", type=int, default=0, help="use pre-trained model?")
     parser.add_argument("--trial", type=int, default=1, help="trial of pre-trained model")
     parser.add_argument("--epoch", type=int, default=50, help="epoch of pre-trained model")
+    parser.add_argument("--train_epoch", type=int, default=50, help="number of epochs to train")
+    parser.add_argument("--save_interval", type=int, default=5, help="save checkpoint every N epochs; <=0 disables interval saves")
     return parser
 
 
@@ -42,6 +44,7 @@ if __name__ == "__main__":
         save_on_exit=True,
     )
 
-    trainer.train(epoch=50)
+    save_interval = args.save_interval if args.save_interval > 0 else None
+    trainer.train(epoch=args.train_epoch, save_interval=save_interval)
 
     print("Run YOPO Finish!")

@@ -4,7 +4,7 @@ import torch.nn as nn
 from config.config import cfg
 from loss.safety_loss import SafetyLoss
 from loss.smoothness_loss import SmoothnessLoss
-from loss.guidance_loss import GuidanceLoss
+from loss.gate_loss import GateObjectiveLoss, GateSE3Loss
 
 
 class YOPOLoss(nn.Module):
@@ -25,11 +25,13 @@ class YOPOLoss(nn.Module):
         self.denormalize_weight()
         self.smoothness_loss = SmoothnessLoss(self._RJ, self._RA)
         self.safety_loss = SafetyLoss(self._L)
-        self.goal_loss = GuidanceLoss()
+        self.goal_loss = GateObjectiveLoss()
+        self.gate_loss = GateSE3Loss(self._L)
         print("------ Actual Loss ------")
         print(f"| {'smooth':<12} = {self.smoothness_weight:6.4f} |")
         print(f"| {'safety':<12} = {self.safety_weight:6.4f} |")
-        print(f"| {'goal':<12} = {self.goal_weight:6.4f} |")
+        print(f"| {'gate_target':<12} = {self.goal_weight:6.4f} |")
+        print(f"| {'gate_se3':<12} = {self.gate_weight:6.4f} |")
         print("-------------------------")
 
     def qp_generation(self):
@@ -79,16 +81,17 @@ class YOPOLoss(nn.Module):
                          If the speed is scaled by n, the cost is scaled by n⁵ (because jerk * n⁶ and time * 1/n).
         safety cost:     time integral of the distance from trajectory to obstacles.
                          If the speed is scaled by n, the cost is scaled by 1/n (because time * 1/n).
-        goal cost:       projection of the trajectory onto goal direction.
-                         Independent of speed.
+        gate-target cost: terminal target behind the slit, crossing progress,
+                          and exit velocity through the gate normal.
         """
         vel_scale = cfg["vel_max_train"] / 1.0
         self.smoothness_weight = cfg["ws"] / vel_scale ** 5
         self.accele_weight = cfg["wa"] / vel_scale ** 3
         self.safety_weight = cfg["wc"]
         self.goal_weight = cfg["wg"]
+        self.gate_weight = cfg["wgate"]
 
-    def forward(self, state, prediction, goal, map_id):
+    def forward(self, state, prediction, goal, map_id, gate_mask=None, gate_pose=None):
         """
         Args:
             prediction: (batch_size, 3, 3) → [px, py, pz; vx, vy, vz; ax, ay, az] in world frame
@@ -106,6 +109,11 @@ class YOPOLoss(nn.Module):
 
         smoothness_cost, acceleration_cost = self.smoothness_loss(Df, Dp)
         safety_cost = self.safety_loss(Df, Dp, map_id)
-        goal_cost = self.goal_loss(Df, Dp, goal)
+        goal_cost = self.goal_loss(Df, Dp, goal, gate_mask, gate_pose)
+        gate_cost = self.gate_loss(Df, Dp, gate_mask, gate_pose)
 
-        return self.smoothness_weight * smoothness_cost, self.safety_weight * safety_cost, self.goal_weight * goal_cost, self.accele_weight * acceleration_cost
+        return (self.smoothness_weight * smoothness_cost,
+                self.safety_weight * safety_cost,
+                self.goal_weight * goal_cost,
+                self.accele_weight * acceleration_cost,
+                self.gate_weight * gate_cost)

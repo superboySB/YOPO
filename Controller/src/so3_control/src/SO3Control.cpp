@@ -6,6 +6,7 @@
 SO3Control::SO3Control()
   : mass_(0.5)
   , g_(9.81)
+  , max_tilt_deg_(85.0)
 {
   acc_.setZero();
 }
@@ -20,6 +21,12 @@ void
 SO3Control::setGravity(const double g)
 {
   g_ = g;
+}
+
+void
+SO3Control::setMaxTiltDeg(const double tilt_deg)
+{
+  max_tilt_deg_ = tilt_deg;
 }
 
 void
@@ -72,8 +79,9 @@ SO3Control::calculateControl(const Eigen::Vector3d& des_pos,
   if ( flag_use_vel ) force_.noalias() += kv.asDiagonal() * (des_vel - vel_);
   if ( flag_use_acc ) force_.noalias() += mass_ * ka.asDiagonal() * (des_acc - acc_) + mass_ * (des_acc);
 
-  // Limit control angle to 45 degree
-  double          theta = M_PI / 4;
+  // Keep the tilt limit configurable so aggressive slit traversal is not
+  // clipped by the original hard-coded 45 degree bound.
+  double          theta = std::max(1.0, std::min(89.0, max_tilt_deg_)) * M_PI / 180.0;
   double          c     = cos(theta);
   Eigen::Vector3d f;
   f.noalias() = force_ - mass_ * g_ * Eigen::Vector3d(0, 0, 1);
@@ -86,7 +94,7 @@ SO3Control::calculateControl(const Eigen::Vector3d& des_pos,
     double s         = (-B + sqrt(B * B - 4 * A * C)) / (2 * A);
     force_.noalias() = s * f + mass_ * g_ * Eigen::Vector3d(0, 0, 1);
   }
-  // Limit control angle to 45 degree
+  // Configurable tilt limit
 
   Eigen::Vector3d b1c, b2c, b3c;
   Eigen::Vector3d b1d(cos(des_yaw), sin(des_yaw), 0);

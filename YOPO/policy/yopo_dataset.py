@@ -8,6 +8,7 @@ from scipy.spatial.transform import Rotation as R
 from sklearn.model_selection import train_test_split
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from config.config import cfg
+from policy.gate_utils import GateNumpy, gate_enabled, cfg_get
 
 
 class YOPODataset(Dataset):
@@ -25,9 +26,39 @@ class YOPODataset(Dataset):
         self.v_std = np.array([cfg["vx_std_unit"], cfg["vy_std_unit"], cfg["vz_std_unit"]])
         self.a_mean = np.array([cfg["ax_mean_unit"], cfg["ay_mean_unit"], cfg["az_mean_unit"]])
         self.a_std = np.array([cfg["ax_std_unit"], cfg["ay_std_unit"], cfg["az_std_unit"]])
+        self.gate_v_mean = np.array([
+            cfg_get("gate_vx_mean_unit", cfg["vx_mean_unit"]),
+            cfg_get("gate_vy_mean_unit", cfg["vy_mean_unit"]),
+            cfg_get("gate_vz_mean_unit", cfg["vz_mean_unit"]),
+        ], dtype=np.float32)
+        self.gate_v_std = np.array([
+            cfg_get("gate_vx_std_unit", cfg["vx_std_unit"]),
+            cfg_get("gate_vy_std_unit", cfg["vy_std_unit"]),
+            cfg_get("gate_vz_std_unit", cfg["vz_std_unit"]),
+        ], dtype=np.float32)
+        self.gate_a_mean = np.array([
+            cfg_get("gate_ax_mean_unit", cfg["ax_mean_unit"]),
+            cfg_get("gate_ay_mean_unit", cfg["ay_mean_unit"]),
+            cfg_get("gate_az_mean_unit", cfg["az_mean_unit"]),
+        ], dtype=np.float32)
+        self.gate_a_std = np.array([
+            cfg_get("gate_ax_std_unit", cfg["ax_std_unit"]),
+            cfg_get("gate_ay_std_unit", cfg["ay_std_unit"]),
+            cfg_get("gate_az_std_unit", cfg["az_std_unit"]),
+        ], dtype=np.float32)
+        self.gate_min_forward_speed_unit = float(cfg_get("gate_min_forward_speed_unit", 0.35))
+        self.gate_max_forward_speed_unit = float(cfg_get("gate_max_forward_speed_unit", 1.00))
         self.goal_length = cfg['goal_length']
         self.goal_pitch_std = cfg["goal_pitch_std"]
         self.goal_yaw_std = cfg["goal_yaw_std"]
+        self.gate = GateNumpy()
+        self.default_gate_pose = self.gate.pose.astype(np.float32)
+        self.gates_by_map = []
+        self.gate_poses_by_map = []
+        self.gate_only_mode = bool(cfg["gate_only_mode"]) if gate_enabled() else False
+        self.gate_training_ratio = float(cfg["gate_training_ratio"]) if gate_enabled() else 0.0
+        if self.gate_only_mode:
+            self.gate_training_ratio = 1.0
         if mode == 'train': self.print_data()
 
         # dataset
@@ -54,6 +85,9 @@ class YOPODataset(Dataset):
             states = np.loadtxt(data_dir + f"/pose-{data_idx}.csv", delimiter=',', skiprows=1).astype(np.float32)
             positions = states[:, 0:3]
             quaternions = states[:, 3:7]
+            gate_pose = self._load_gate_pose(data_dir, data_idx)
+            self.gate_poses_by_map.append(gate_pose)
+            self.gates_by_map.append(GateNumpy(gate_pose))
 
             file_names_train, file_names_val, positions_train, positions_val, quaternions_train, quaternions_val = train_test_split(
                 image_file_names, positions, quaternions, test_size=val_ratio, random_state=0)
@@ -93,32 +127,69 @@ class YOPODataset(Dataset):
         euler_angles = R_WB.as_euler('ZYX', degrees=False)  # [yaw(z) pitch(y) roll(x)]
         R_Bw = R.from_euler('ZYX', [0, euler_angles[1], euler_angles[2]], degrees=False).inv()
 
-        # 2. get random vel, acc in the direction of the quadrotor
-        vel_w, acc_w = self._get_random_state()
+        # 2. generate the gate-through target. In gate-only mode every sample
+        # points to the opposite side of the slit; random free-flight goals are unused.
+        map_idx = self.map_idx[item]
+        gate = self.gates_by_map[map_idx] if map_idx < len(self.gates_by_map) else self.gate
+        gate_pose = self.gate_poses_by_map[map_idx] if map_idx < len(self.gate_poses_by_map) else self.default_gate_pose
+
+        gate_mask = np.float32(0.0)
+        gate_task = bool(gate.enabled and (self.gate_only_mode or
+                                           (np.random.rand() < self.gate_training_ratio and
+                                            gate.can_sample_gate_goal(self.positions[item]))))
+
+        # 3. get random vel, acc in the direction of the quadrotor.
+        # For gate-task samples we tighten lateral dynamics so the network
+        # spends more capacity on slit traversal instead of unlikely side-slip states.
+        vel_w, acc_w = self._get_random_state(gate_task=gate_task)
         vel_b, acc_b = R_Bw.apply(vel_w), R_Bw.apply(acc_w)
 
-        # 3. generate random goal in front of the quadrotor
-        goal_w = self._get_random_goal()
-        goal_b = R_Bw.apply(goal_w)
+        # 4. task target
+        if gate_task:
+            goal_target_w = gate.sample_goal(self.positions[item], np.random)
+            goal_w = goal_target_w - self.positions[item]
+            gate_mask = np.float32(1.0)
+        else:
+            goal_w = self._get_random_goal()
+        goal_b = R_WB.inv().apply(goal_w)
 
         random_obs = np.hstack((vel_b, acc_b, goal_b)).astype(np.float32)
         rot_wb = R_WB.as_matrix().astype(np.float32)  # transform to rot_matrix in numpy is faster than using quat in pytorch
         # vel & acc & goal are in body frame, NWU, and no-normalization
-        return image, self.positions[item], rot_wb, random_obs, self.map_idx[item]
+        return image, self.positions[item], rot_wb, random_obs, map_idx, gate_mask, gate_pose.astype(np.float32)
 
-    def _get_random_state(self):
+    def _load_gate_pose(self, data_dir, data_idx):
+        gate_file = os.path.join(data_dir, f"gate-{data_idx}.csv")
+        if not os.path.exists(gate_file):
+            return self.default_gate_pose.copy()
+
+        pose = np.loadtxt(gate_file, delimiter=',', skiprows=1, dtype=np.float32)
+        pose = np.asarray(pose, dtype=np.float32).reshape(-1)
+        if pose.shape[0] != 6:
+            raise ValueError(f"Invalid gate pose file {gate_file}: expected 6 values, got {pose.shape[0]}")
+        return pose.copy()
+
+    def _get_random_state(self, gate_task=False):
+        v_mean = self.gate_v_mean if gate_task else self.v_mean
+        v_std = self.gate_v_std if gate_task else self.v_std
+        a_mean = self.gate_a_mean if gate_task else self.a_mean
+        a_std = self.gate_a_std if gate_task else self.a_std
         while True:
-            vel = self.vel_max * (self.v_mean + self.v_std * np.random.randn(3))
-            right_skewed_vx = -1
-            while right_skewed_vx < 0:
-                right_skewed_vx = self.vel_max * np.random.lognormal(mean=self.vx_lognorm_mean, sigma=self.vx_logmorm_sigma, size=None)
-                right_skewed_vx = -right_skewed_vx + 1.2 * self.vel_max  # * 1.2 to ensure v_max can be sampled
-            vel[0] = right_skewed_vx
+            vel = self.vel_max * (v_mean + v_std * np.random.randn(3))
+            if gate_task:
+                forward_speed = np.random.uniform(self.gate_min_forward_speed_unit, self.gate_max_forward_speed_unit) * self.vel_max
+                vel[0] = np.maximum(vel[0], forward_speed)
+            else:
+                right_skewed_vx = -1
+                while right_skewed_vx < 0:
+                    right_skewed_vx = self.vel_max * np.random.lognormal(mean=self.vx_lognorm_mean, sigma=self.vx_logmorm_sigma, size=None)
+                    right_skewed_vx = -right_skewed_vx + 1.2 * self.vel_max  # * 1.2 to ensure v_max can be sampled
+                vel[0] = right_skewed_vx
             if np.linalg.norm(vel) < 1.2 * self.vel_max:  # avoid outliers
                 break
 
         while True:
-            acc = self.acc_max * (self.a_mean + self.a_std * np.random.randn(3))
+            acc = self.acc_max * (a_mean + a_std * np.random.randn(3))
             if np.linalg.norm(acc) < 1.2 * self.acc_max:  # avoid outliers
                 break
         return vel, acc
@@ -158,6 +229,11 @@ class YOPODataset(Dataset):
         print("-----------------------------------------------------")
         print(f"| Goal Pitch 90% (deg)        | {-self.goal_pitch_std * 2:^9.1f}~{self.goal_pitch_std * 2:^9.1f} |")
         print(f"| Goal Yaw   90% (deg)        | {-self.goal_yaw_std * 2:^9.1f}~{self.goal_yaw_std * 2:^9.1f} |")
+        if self.gate.enabled:
+            print(f"| Gate-only mode              | {str(self.gate_only_mode):^21} |")
+            print(f"| Gate task sample ratio      | {self.gate_training_ratio:^21.2f} |")
+            print(f"| Default gate roll (deg)     | {self.default_gate_pose[0]:^21.1f} |")
+            print(f"| Gate forward speed unit     | {self.gate_min_forward_speed_unit:^9.2f}~{self.gate_max_forward_speed_unit:^9.2f} |")
         print("-----------------------------------------------------")
 
     def plot_sample_distribution(self):

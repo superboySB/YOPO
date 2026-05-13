@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-TRIAL=1
-EPOCH=50
+TRIAL=""
+EPOCH=""
+START_X="-2.2"
+START_Y="0.0"
+START_Z="1.2"
 SESSION="yopo-sim"
 DETACH=0
 STOP_ONLY=0
@@ -13,8 +16,11 @@ Usage (inside container):
   tools/launch_sim.sh [--trial N] [--epoch N] [--session NAME] [--detach] [--stop]
 
 Options:
-  --trial N        YOPO checkpoint trial id (default: 1)
-  --epoch N        YOPO checkpoint epoch id (default: 50)
+  --trial N        YOPO checkpoint trial id (default: latest YOPO_N)
+  --epoch N        YOPO checkpoint epoch id (default: latest epoch in trial)
+  --start-x X      Simulator start x (default: -2.2, gcopter gate entry side)
+  --start-y Y      Simulator start y (default: 0.0)
+  --start-z Z      Simulator start z (default: 1.2, gate height)
   --session NAME   tmux session name (default: yopo-sim)
   --detach         Create session only, do not auto-attach
   --stop           Stop existing simulation session and related processes
@@ -44,6 +50,18 @@ parse_args() {
         SESSION="${2:-}"
         shift 2
         ;;
+      --start-x)
+        START_X="${2:-}"
+        shift 2
+        ;;
+      --start-y)
+        START_Y="${2:-}"
+        shift 2
+        ;;
+      --start-z)
+        START_Z="${2:-}"
+        shift 2
+        ;;
       --detach)
         DETACH=1
         shift
@@ -63,6 +81,30 @@ parse_args() {
         ;;
     esac
   done
+}
+
+resolve_checkpoint_args() {
+  local saved_dir="/workspace/YOPO/YOPO/saved"
+  if [[ -z "${TRIAL}" ]]; then
+    local latest_trial_dir
+    latest_trial_dir="$(find "${saved_dir}" -maxdepth 1 -type d -name 'YOPO_[0-9]*' -printf '%f\n' 2>/dev/null | sort -V | tail -n 1 || true)"
+    if [[ -z "${latest_trial_dir}" ]]; then
+      echo "Error: no YOPO checkpoints found under ${saved_dir}." >&2
+      exit 1
+    fi
+    TRIAL="${latest_trial_dir#YOPO_}"
+  fi
+
+  if [[ -z "${EPOCH}" ]]; then
+    local latest_epoch_file
+    latest_epoch_file="$(find "${saved_dir}/YOPO_${TRIAL}" -maxdepth 1 -type f -name 'epoch*.pth' -printf '%f\n' 2>/dev/null | sort -V | tail -n 1 || true)"
+    if [[ -z "${latest_epoch_file}" ]]; then
+      echo "Error: no epoch*.pth found under ${saved_dir}/YOPO_${TRIAL}." >&2
+      exit 1
+    fi
+    EPOCH="${latest_epoch_file#epoch}"
+    EPOCH="${EPOCH%.pth}"
+  fi
 }
 
 stop_all() {
@@ -96,6 +138,8 @@ main() {
     exit 0
   fi
 
+  resolve_checkpoint_args
+
   if tmux has-session -t "${SESSION}" 2>/dev/null; then
     echo "Error: tmux session '${SESSION}' already exists." >&2
     echo "Use: tools/launch_sim.sh --session ${SESSION} --stop" >&2
@@ -103,7 +147,7 @@ main() {
   fi
 
   local env_setup='source /opt/ros/noetic/setup.bash'
-  local cmd_controller="${env_setup}; cd /workspace/YOPO/Controller; source devel/setup.bash; roslaunch so3_quadrotor_simulator simulator_attitude_control.launch"
+  local cmd_controller="${env_setup}; cd /workspace/YOPO/Controller; source devel/setup.bash; roslaunch so3_quadrotor_simulator simulator_attitude_control.launch init_x:=${START_X} init_y:=${START_Y} init_z:=${START_Z}"
   local cmd_simulator="${env_setup}; cd /workspace/YOPO/Simulator; source devel/setup.bash; rosrun sensor_simulator sensor_simulator_cuda"
   local cmd_planner="${env_setup}; cd /workspace/YOPO/YOPO; python3 test_yopo_ros.py --trial=${TRIAL} --epoch=${EPOCH}"
   local cmd_rviz="${env_setup}; cd /workspace/YOPO/YOPO; rviz -d yopo.rviz"
@@ -118,7 +162,7 @@ main() {
   tmux bind-key -T root C-c if-shell -F "#{==:#{session_name},${SESSION}}" "kill-session -t ${SESSION}" "send-keys C-c"
   tmux set-hook -t "${SESSION}" session-closed "unbind-key -T root C-c"
 
-  echo "[launch_sim] started tmux session='${SESSION}', trial=${TRIAL}, epoch=${EPOCH}"
+  echo "[launch_sim] started tmux session='${SESSION}', trial=${TRIAL}, epoch=${EPOCH}, start=(${START_X}, ${START_Y}, ${START_Z})"
   echo "[launch_sim] Ctrl+C in this tmux session will stop all 4 windows."
   echo "[launch_sim] manual stop: tools/launch_sim.sh --session ${SESSION} --stop"
 

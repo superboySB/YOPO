@@ -85,18 +85,24 @@ class LatticePrimitive(LatticeParam):
 
     def getStateLattice(self, id=None):
         if id is not None:
+            if torch.is_tensor(id):
+                id = id.to(self.lattice_pos_node.device)
             return self.lattice_pos_node[id, :]
         else:
             return self.lattice_pos_node
 
     def getAngleLattice(self, id=None):
         if id is not None:
+            if torch.is_tensor(id):
+                id = id.to(self.lattice_angle_node.device)
             return self.lattice_angle_node[id, 0], self.lattice_angle_node[id, 1]  # yaw, pitch
         else:
             return self.lattice_angle_node[:, 0], self.lattice_angle_node[:, 1]  # yaw, pitch
 
     def getRotation(self, id=None):
         if id is not None:
+            if torch.is_tensor(id):
+                id = id.to(self.lattice_Rbp_node.device)
             return self.lattice_Rbp_node[id]
         else:
             return self.lattice_Rbp_node

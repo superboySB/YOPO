@@ -155,8 +155,9 @@ Eigen::Vector3d NetworkControl::get_Q_from_ACC(const Eigen::Vector3d &ref_acc, d
     Eigen::Vector3d force_ = mass_ * ONE_G * Eigen::Vector3d(0, 0, 1);
     force_.noalias() += mass_ * ref_acc;
 
-    // Limit control angle to theta degree
-    double theta = M_PI / 4;
+    // Limit control angle. Gate traversal needs high roll authority, so this is
+    // a launch parameter instead of the original hard-coded 45 degrees.
+    double theta = std::max(1.0, std::min(89.0, max_tilt_deg_)) * M_PI / 180.0;
     double c = cos(theta);
     Eigen::Vector3d f;
     f.noalias() = force_ - mass_ * ONE_G * Eigen::Vector3d(0, 0, 1);

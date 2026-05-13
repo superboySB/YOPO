@@ -55,7 +55,7 @@ namespace raycast
     class GridMap
     {
         public:
-            GridMap(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, float resolution, int occupy_threshold);
+            GridMap(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, float resolution, int occupy_threshold, bool mirror_xy = true, bool occupy_below_ground = true);
             ~GridMap() {};
             void freeGridMap();
             __host__ __device__ Vector3i Pos2Vox(const Vector3f &pos);
@@ -75,6 +75,8 @@ namespace raycast
             float origin_x_, origin_y_, origin_z_;                       // origin coordinates
             int grid_size_x_, grid_size_y_, grid_size_z_, grid_size_yz_; // grid sizes
             int occupy_threshold_;                                        // occupancy threshold
+            bool mirror_xy_{true};
+            bool occupy_below_ground_{true};
     };
 
     __global__ void cameraRaycastKernel(float *depth_values, GridMap grid_map, CameraParams camera_param, cudaMat::SE3<float> T_wc);
