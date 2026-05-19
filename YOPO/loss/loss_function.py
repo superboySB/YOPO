@@ -5,6 +5,8 @@ from config.config import cfg
 from loss.safety_loss import SafetyLoss
 from loss.smoothness_loss import SmoothnessLoss
 from loss.guidance_loss import GuidanceLoss
+from loss.body_rate_loss import BodyRateLoss
+from loss.trajectory_guard_loss import TrajectoryGuardLoss
 
 
 class YOPOLoss(nn.Module):
@@ -25,10 +27,14 @@ class YOPOLoss(nn.Module):
         self.denormalize_weight()
         self.smoothness_loss = SmoothnessLoss(self._RJ, self._RA)
         self.safety_loss = SafetyLoss(self._L)
+        self.body_rate_loss = BodyRateLoss(self._L)
+        self.guard_loss = TrajectoryGuardLoss()
         self.goal_loss = GuidanceLoss()
         print("------ Actual Loss ------")
         print(f"| {'smooth':<12} = {self.smoothness_weight:6.4f} |")
         print(f"| {'safety':<12} = {self.safety_weight:6.4f} |")
+        print(f"| {'body_rate':<12} = {self.body_rate_weight:6.4f} |")
+        print(f"| {'guard':<12} = {self.guard_weight:6.4f} |")
         print(f"| {'goal':<12} = {self.goal_weight:6.4f} |")
         print("-------------------------")
 
@@ -79,6 +85,8 @@ class YOPOLoss(nn.Module):
                          If the speed is scaled by n, the cost is scaled by n⁵ (because jerk * n⁶ and time * 1/n).
         safety cost:     time integral of the distance from trajectory to obstacles.
                          If the speed is scaled by n, the cost is scaled by 1/n (because time * 1/n).
+        body-rate cost:  time average of SE(3) flatness angular-rate bound violation.
+                         If the speed is scaled by n, angular-rate roughly scales by n.
         goal cost:       projection of the trajectory onto goal direction.
                          Independent of speed.
         """
@@ -86,6 +94,8 @@ class YOPOLoss(nn.Module):
         self.smoothness_weight = cfg["ws"] / vel_scale ** 5
         self.accele_weight = cfg["wa"] / vel_scale ** 3
         self.safety_weight = cfg["wc"]
+        self.body_rate_weight = cfg["wbdr"]
+        self.guard_weight = cfg["wguard"]
         self.goal_weight = cfg["wg"]
 
     def forward(self, state, prediction, goal, map_id):
@@ -106,6 +116,13 @@ class YOPOLoss(nn.Module):
 
         smoothness_cost, acceleration_cost = self.smoothness_loss(Df, Dp)
         safety_cost = self.safety_loss(Df, Dp, map_id)
+        body_rate_cost = self.body_rate_loss(Df, Dp)
+        guard_cost = self.guard_loss(Df, Dp, goal)
         goal_cost = self.goal_loss(Df, Dp, goal)
 
-        return self.smoothness_weight * smoothness_cost, self.safety_weight * safety_cost, self.goal_weight * goal_cost, self.accele_weight * acceleration_cost
+        return (self.smoothness_weight * smoothness_cost,
+                self.safety_weight * safety_cost,
+                self.goal_weight * goal_cost,
+                self.accele_weight * acceleration_cost,
+                self.body_rate_weight * body_rate_cost,
+                self.guard_weight * guard_cost)

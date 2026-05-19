@@ -86,7 +86,7 @@ For detailed introduction about the controller, please refer to [Controller_Intr
 ```
 cd Controller
 source devel/setup.bash
-roslaunch so3_quadrotor_simulator simulator_attitude_control.launch
+roslaunch se3_quadrotor_simulator simulator_attitude_control.launch
 ```
 **2. Start the Environment and Sensors Simulator**
 
@@ -198,7 +198,7 @@ python test_yopo_ros.py --use_tensorrt=1
 
 + Configure your depth camera to match the training configuration (the pre-trained weights use a 16:9 resolution and a 90° FOV; for RealSense, you can set the resolution in ROS-driver file to 480×270).
 
-+ You may want to use the position controller like traditional planners in real flight to make it compatible with your controller. You should change `plan_from_reference: False` to `True` at the end of `test_yopo_ros.py`. You can test the changes in simulation using the position controller: `roslaunch so3_quadrotor_simulator simulator_position_control.launch
++ You may want to use the position controller like traditional planners in real flight to make it compatible with your controller. You should change `plan_from_reference: False` to `True` at the end of `test_yopo_ros.py`. You can test the changes in simulation using the position controller: `roslaunch se3_quadrotor_simulator simulator_position_control.launch
 `
 
 **5. Generalization**

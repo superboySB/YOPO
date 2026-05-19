@@ -9,14 +9,14 @@ catkin_make
 Work with traditional planner
 ```
 source devel/setup.bash
-roslaunch so3_quadrotor_simulator simulator_position_control.launch
+roslaunch se3_quadrotor_simulator simulator_position_control.launch
 ```
 
 ### MODE 2. Attitude Controller with Disturbance Observer
 Work with our learning-based planner (without position controller)
 ```
 source devel/setup.bash
-roslaunch so3_quadrotor_simulator simulator_attitude_control.launch
+roslaunch se3_quadrotor_simulator simulator_attitude_control.launch
 ```
 
 ### Others

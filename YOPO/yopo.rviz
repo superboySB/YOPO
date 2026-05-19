@@ -181,7 +181,7 @@ Visualization Manager:
       Name: Trajectory
     - Class: rviz/Marker
       Enabled: true
-      Marker Topic: /quadrotor_simulator_so3/uav
+      Marker Topic: /quadrotor_simulator_se3/uav
       Name: Drone
       Namespaces:
         mesh: true

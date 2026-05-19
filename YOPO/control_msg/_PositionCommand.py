@@ -10,13 +10,14 @@ import geometry_msgs.msg
 import std_msgs.msg
 
 class PositionCommand(genpy.Message):
-  _md5sum = "4712f0609ca29a79af79a35ca3e3967a"
+  _md5sum = "2809eb0c779bbce5b8d66b95a05bd27b"
   _type = "quadrotor_msgs/PositionCommand"
   _has_header = True  # flag to mark the presence of a Header object
   _full_text = """Header header
 geometry_msgs/Point position
 geometry_msgs/Vector3 velocity
 geometry_msgs/Vector3 acceleration
+geometry_msgs/Vector3 jerk
 float64 yaw
 float64 yaw_dot
 float64[3] kx
@@ -79,8 +80,8 @@ float64 z"""
   TRAJECTORY_STATUS_ILLEGAL_FINAL = 6
   TRAJECTORY_STATUS_IMPOSSIBLE = 7
 
-  __slots__ = ['header','position','velocity','acceleration','yaw','yaw_dot','kx','kv','trajectory_id','trajectory_flag']
-  _slot_types = ['std_msgs/Header','geometry_msgs/Point','geometry_msgs/Vector3','geometry_msgs/Vector3','float64','float64','float64[3]','float64[3]','uint32','uint8']
+  __slots__ = ['header','position','velocity','acceleration','jerk','yaw','yaw_dot','kx','kv','trajectory_id','trajectory_flag']
+  _slot_types = ['std_msgs/Header','geometry_msgs/Point','geometry_msgs/Vector3','geometry_msgs/Vector3','geometry_msgs/Vector3','float64','float64','float64[3]','float64[3]','uint32','uint8']
 
   def __init__(self, *args, **kwds):
     """
@@ -90,7 +91,7 @@ float64 z"""
     changes.  You cannot mix in-order arguments and keyword arguments.
 
     The available fields are:
-       header,position,velocity,acceleration,yaw,yaw_dot,kx,kv,trajectory_id,trajectory_flag
+       header,position,velocity,acceleration,jerk,yaw,yaw_dot,kx,kv,trajectory_id,trajectory_flag
 
     :param args: complete set of field values, in .msg order
     :param kwds: use keyword arguments corresponding to message field names
@@ -107,6 +108,8 @@ float64 z"""
         self.velocity = geometry_msgs.msg.Vector3()
       if self.acceleration is None:
         self.acceleration = geometry_msgs.msg.Vector3()
+      if self.jerk is None:
+        self.jerk = geometry_msgs.msg.Vector3()
       if self.yaw is None:
         self.yaw = 0.
       if self.yaw_dot is None:
@@ -124,6 +127,7 @@ float64 z"""
       self.position = geometry_msgs.msg.Point()
       self.velocity = geometry_msgs.msg.Vector3()
       self.acceleration = geometry_msgs.msg.Vector3()
+      self.jerk = geometry_msgs.msg.Vector3()
       self.yaw = 0.
       self.yaw_dot = 0.
       self.kx = [0.] * 3
@@ -152,7 +156,7 @@ float64 z"""
         length = len(_x)
       buff.write(struct.Struct('<I%ss'%length).pack(length, _x))
       _x = self
-      buff.write(_get_struct_11d().pack(_x.position.x, _x.position.y, _x.position.z, _x.velocity.x, _x.velocity.y, _x.velocity.z, _x.acceleration.x, _x.acceleration.y, _x.acceleration.z, _x.yaw, _x.yaw_dot))
+      buff.write(_get_struct_14d().pack(_x.position.x, _x.position.y, _x.position.z, _x.velocity.x, _x.velocity.y, _x.velocity.z, _x.acceleration.x, _x.acceleration.y, _x.acceleration.z, _x.jerk.x, _x.jerk.y, _x.jerk.z, _x.yaw, _x.yaw_dot))
       buff.write(_get_struct_3d().pack(*self.kx))
       buff.write(_get_struct_3d().pack(*self.kv))
       _x = self
@@ -176,6 +180,8 @@ float64 z"""
         self.velocity = geometry_msgs.msg.Vector3()
       if self.acceleration is None:
         self.acceleration = geometry_msgs.msg.Vector3()
+      if self.jerk is None:
+        self.jerk = geometry_msgs.msg.Vector3()
       end = 0
       _x = self
       start = end
@@ -192,8 +198,8 @@ float64 z"""
         self.header.frame_id = str[start:end]
       _x = self
       start = end
-      end += 88
-      (_x.position.x, _x.position.y, _x.position.z, _x.velocity.x, _x.velocity.y, _x.velocity.z, _x.acceleration.x, _x.acceleration.y, _x.acceleration.z, _x.yaw, _x.yaw_dot,) = _get_struct_11d().unpack(str[start:end])
+      end += 112
+      (_x.position.x, _x.position.y, _x.position.z, _x.velocity.x, _x.velocity.y, _x.velocity.z, _x.acceleration.x, _x.acceleration.y, _x.acceleration.z, _x.jerk.x, _x.jerk.y, _x.jerk.z, _x.yaw, _x.yaw_dot,) = _get_struct_14d().unpack(str[start:end])
       start = end
       end += 24
       self.kx = _get_struct_3d().unpack(str[start:end])
@@ -225,7 +231,7 @@ float64 z"""
         length = len(_x)
       buff.write(struct.Struct('<I%ss'%length).pack(length, _x))
       _x = self
-      buff.write(_get_struct_11d().pack(_x.position.x, _x.position.y, _x.position.z, _x.velocity.x, _x.velocity.y, _x.velocity.z, _x.acceleration.x, _x.acceleration.y, _x.acceleration.z, _x.yaw, _x.yaw_dot))
+      buff.write(_get_struct_14d().pack(_x.position.x, _x.position.y, _x.position.z, _x.velocity.x, _x.velocity.y, _x.velocity.z, _x.acceleration.x, _x.acceleration.y, _x.acceleration.z, _x.jerk.x, _x.jerk.y, _x.jerk.z, _x.yaw, _x.yaw_dot))
       buff.write(self.kx.tostring())
       buff.write(self.kv.tostring())
       _x = self
@@ -250,6 +256,8 @@ float64 z"""
         self.velocity = geometry_msgs.msg.Vector3()
       if self.acceleration is None:
         self.acceleration = geometry_msgs.msg.Vector3()
+      if self.jerk is None:
+        self.jerk = geometry_msgs.msg.Vector3()
       end = 0
       _x = self
       start = end
@@ -266,8 +274,8 @@ float64 z"""
         self.header.frame_id = str[start:end]
       _x = self
       start = end
-      end += 88
-      (_x.position.x, _x.position.y, _x.position.z, _x.velocity.x, _x.velocity.y, _x.velocity.z, _x.acceleration.x, _x.acceleration.y, _x.acceleration.z, _x.yaw, _x.yaw_dot,) = _get_struct_11d().unpack(str[start:end])
+      end += 112
+      (_x.position.x, _x.position.y, _x.position.z, _x.velocity.x, _x.velocity.y, _x.velocity.z, _x.acceleration.x, _x.acceleration.y, _x.acceleration.z, _x.jerk.x, _x.jerk.y, _x.jerk.z, _x.yaw, _x.yaw_dot,) = _get_struct_14d().unpack(str[start:end])
       start = end
       end += 24
       self.kx = numpy.frombuffer(str[start:end], dtype=numpy.float64, count=3)
@@ -286,12 +294,12 @@ _struct_I = genpy.struct_I
 def _get_struct_I():
     global _struct_I
     return _struct_I
-_struct_11d = None
-def _get_struct_11d():
-    global _struct_11d
-    if _struct_11d is None:
-        _struct_11d = struct.Struct("<11d")
-    return _struct_11d
+_struct_14d = None
+def _get_struct_14d():
+    global _struct_14d
+    if _struct_14d is None:
+        _struct_14d = struct.Struct("<14d")
+    return _struct_14d
 _struct_3I = None
 def _get_struct_3I():
     global _struct_3I

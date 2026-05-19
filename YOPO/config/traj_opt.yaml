@@ -11,6 +11,8 @@ wg: 0.15   # guidance     (approaching the goal)
 ws: 10.0   # smoothness   (smaller jerk)
 wa: 1.0    # acceleration (smaller acceleration)
 wc: 1.0    # collision    (distance to obstacle)
+wbdr: 1.0  # body-rate    (SE3 angular-rate bound violation)
+wguard: 1.0  # trajectory guard (forward progress / height band / terminal speed)
 
 # dataset: set image_size = primitive_num × downsampling_factor (×32 for ResNet-18) in each axis
 dataset_path: "../dataset"
@@ -30,6 +32,34 @@ radio_num: 1        # only support 1 currently
 # safety penalties
 d0: 1.2
 r: 0.6
+safety_eval_points: 60
+safety_topk_ratio: 0.2
+safety_topk_weight: 1.0
+safety_collision_weight: 8.0
+safety_margin_weight: 2.0
+use_se3_safety: true
+se3_safe_margin: 0.05
+uav_width_m: 0.34
+uav_depth_m: 0.34
+uav_height_m: 0.13
+grav_acc: 9.81
+vehicle_mass: 0.98
+max_bdr_mag: 6.0
+bdr_smooth_eps: 1.0e-2
+bdr_eval_points: 30
+se3_horiz_drag: 0.70
+se3_vert_drag: 0.80
+se3_parasitic_drag: 0.01
+se3_speed_eps: 1.0e-4
+
+# SE3 execution guard used by training score labels
+guard_min_progress: 0.2
+guard_min_vel_progress: -0.3
+guard_min_height: 1.5
+guard_max_height: 2.6
+guard_max_vertical_speed: 1.0
+guard_max_terminal_speed: 5.0
+guard_lateral_weight: 0.4
 
 # distribution for unit state sampling (can be visualized by 'python ./policy/yopo_dataset.py')
 vx_mean_unit: 0.4

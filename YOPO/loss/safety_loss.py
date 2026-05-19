@@ -17,12 +17,33 @@ class SafetyLoss(nn.Module):
         self.map_expand_max = np.array(cfg['map_expand_max'])
         self.d0 = cfg["d0"]
         self.r = cfg["r"]
+        self.eval_points = int(cfg["safety_eval_points"])
+        self.topk_ratio = float(cfg["safety_topk_ratio"])
+        self.topk_weight = float(cfg["safety_topk_weight"])
+        self.collision_weight = float(cfg["safety_collision_weight"])
+        self.margin_weight = float(cfg["safety_margin_weight"])
+        self.use_se3_safety = bool(cfg["use_se3_safety"])
+        self.grav_acc = float(cfg["grav_acc"])
 
         self._L = L
         self.sgm_time = cfg["sgm_time"]
-        self.eval_points = 30
         self.device = self._L.device
         self.time_integral = True
+
+        margin = float(cfg["se3_safe_margin"])
+        half_depth = 0.5 * float(cfg["uav_depth_m"]) + margin
+        half_width = 0.5 * float(cfg["uav_width_m"]) + margin
+        half_height = 0.5 * float(cfg["uav_height_m"]) + margin
+        body_points = np.array([
+            [0.0, 0.0, 0.0],
+            [half_depth, 0.0, 0.0],
+            [-half_depth, 0.0, 0.0],
+            [0.0, half_width, 0.0],
+            [0.0, -half_width, 0.0],
+            [0.0, 0.0, half_height],
+            [0.0, 0.0, -half_height],
+        ], dtype=np.float32)
+        self.register_buffer("body_points", th.from_numpy(body_points))
 
         # SDF
         self.voxel_size = 0.2
@@ -54,20 +75,38 @@ class SafetyLoss(nn.Module):
 
         # get pos from coeff [B*H*V, N, 3] -> [B, H*V*N, 3]
         pos_coe = self.get_position_from_coeff(coe, t_list)
-        pos_batch = pos_coe.reshape(-1, self.traj_num * pos_coe.shape[1], 3)
+        eval_num = pos_coe.shape[1]
 
-        # get info from sdf_map
-        cost, dist = self.get_distance_cost(pos_batch, map_id)
+        if self.use_se3_safety:
+            vel_coe = self.get_velocity_from_coeff(coe, t_list)
+            acc_coe = self.get_acceleration_from_coeff(coe, t_list)
+            jerk_coe = self.get_jerk_from_coeff(coe, t_list)
+            sample_pos = self.get_se3_body_sample_positions(pos_coe, vel_coe, acc_coe, jerk_coe)
+            pos_batch = sample_pos.reshape(-1, self.traj_num * eval_num * self.body_points.shape[0], 3)
+            cost, dist = self.get_distance_cost(pos_batch, map_id)
+            cost_per_t = cost.reshape(-1, eval_num, self.body_points.shape[0]).amax(dim=-1)
+            dist_per_t = dist.reshape(-1, eval_num, self.body_points.shape[0]).amin(dim=-1)
+        else:
+            pos_batch = pos_coe.reshape(-1, self.traj_num * eval_num, 3)
+            cost, dist = self.get_distance_cost(pos_batch, map_id)
+            cost_per_t = cost.reshape(-1, eval_num)
+            dist_per_t = dist.reshape(-1, eval_num)
 
         if self.time_integral:
-            # Compute average time integral of trajectory cost
-            # Issue: uneven eval points may undercut cost by quickly crossing obstacles
-            cost_colli = cost.reshape(-1, pos_coe.shape[1]).mean(dim=-1)  # [B*H*V, N]
+            mean_cost = cost_per_t.mean(dim=-1)
+            topk_num = max(1, int(eval_num * self.topk_ratio))
+            topk_cost = cost_per_t.topk(topk_num, dim=-1).values.mean(dim=-1)
+            min_dist = dist_per_t.amin(dim=-1)
+            margin_violation = F.relu(self.d0 - min_dist).square()
+            collision_violation = F.relu(-min_dist).square()
+            cost_colli = (mean_cost + self.topk_weight * topk_cost +
+                          self.margin_weight * margin_violation +
+                          self.collision_weight * collision_violation)
         else:
             # Compute average line integral of trajectory cost
             vel_coe = self.get_velocity_from_coeff(coe, t_list)
             vel_coe = vel_coe.norm(dim=-1)
-            line_integral_cost = (cost.reshape(-1, pos_coe.shape[1]) * vel_coe * dt).sum(dim=1)  # [B*H*V, N] -> [B*H*V]
+            line_integral_cost = (cost_per_t * vel_coe * dt).sum(dim=1)  # [B*H*V, N] -> [B*H*V]
             line_length = (vel_coe * dt).sum(dim=1)  # [B*H*V]
             cost_colli = line_integral_cost / line_length  # [B*H*V]
 
@@ -142,6 +181,51 @@ class SafetyLoss(nn.Module):
 
         vel = th.stack([vx, vy, vz], dim=-1)
         return vel
+
+    def get_acceleration_from_coeff(self, coe, t):
+        t_power = th.stack([2 * th.ones_like(t), 6 * t, 12 * t ** 2, 20 * t ** 3], dim=-1).squeeze(-2)
+
+        coe_x = coe[:, 2:6]
+        coe_y = coe[:, 8:12]
+        coe_z = coe[:, 14:18]
+
+        ax = th.sum(t_power * coe_x.unsqueeze(1), dim=-1)
+        ay = th.sum(t_power * coe_y.unsqueeze(1), dim=-1)
+        az = th.sum(t_power * coe_z.unsqueeze(1), dim=-1)
+
+        acc = th.stack([ax, ay, az], dim=-1)
+        return acc
+
+    def get_jerk_from_coeff(self, coe, t):
+        t_power = th.stack([6 * th.ones_like(t), 24 * t, 60 * t ** 2], dim=-1).squeeze(-2)
+
+        coe_x = coe[:, 3:6]
+        coe_y = coe[:, 9:12]
+        coe_z = coe[:, 15:18]
+
+        jx = th.sum(t_power * coe_x.unsqueeze(1), dim=-1)
+        jy = th.sum(t_power * coe_y.unsqueeze(1), dim=-1)
+        jz = th.sum(t_power * coe_z.unsqueeze(1), dim=-1)
+
+        jerk = th.stack([jx, jy, jz], dim=-1)
+        return jerk
+
+    def get_se3_body_sample_positions(self, pos, vel, acc, jerk):
+        del jerk  # The sampled body attitude uses the flatness thrust axis; jerk is kept in the call signature for symmetry with control.
+        gravity = th.tensor([0.0, 0.0, self.grav_acc], device=pos.device, dtype=pos.dtype)
+        zb = F.normalize(acc + gravity.view(1, 1, 3), dim=-1, eps=1.0e-6)
+
+        yaw = th.atan2(vel[..., 1], vel[..., 0])
+        b1d = th.stack([th.cos(yaw), th.sin(yaw), th.zeros_like(yaw)], dim=-1)
+        b2 = th.cross(zb, b1d, dim=-1)
+        b2_fallback = th.stack([-th.sin(yaw), th.cos(yaw), th.zeros_like(yaw)], dim=-1)
+        b2_norm = b2.norm(dim=-1, keepdim=True)
+        b2 = th.where(b2_norm > 1.0e-6, b2 / b2_norm.clamp_min(1.0e-6), b2_fallback)
+        b1 = th.cross(b2, zb, dim=-1)
+
+        rot = th.stack([b1, b2, zb], dim=-1)
+        offsets = th.einsum("btij,kj->btki", rot, self.body_points.to(device=pos.device, dtype=pos.dtype))
+        return pos.unsqueeze(2) + offsets
 
     def get_batch_sdf(self, pos, map_id):
         """

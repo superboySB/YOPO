@@ -1,0 +1,41 @@
+<launch>
+    <arg name="init_x" value="0.0"/>
+    <arg name="init_y" value="0.0"/>
+    <arg name="init_z" value="2.0"/> 
+
+    <node pkg="se3_quadrotor_simulator" type="quadrotor_simulator_se3" name="quadrotor_simulator_se3" output="screen">
+        <param name="rate/odom" value="100.0"/>
+        <param name="simulator/init_state_x" value="$(arg init_x)"/>
+        <param name="simulator/init_state_y" value="$(arg init_y)"/>
+        <param name="simulator/init_state_z" value="$(arg init_z)"/>
+        <remap from="~odom" to="/sim/odom"/>
+        <remap from="~imu" to="/sim/imu"/>
+        <remap from="~cmd" to="attitude_cmd"/>
+        <remap from="~force_disturbance" to="force_disturbance"/>    
+        <remap from="~moment_disturbance" to="moment_disturbance"/>        
+    </node>
+
+    <node pkg="se3_control" type="network_control_node" name="network_controller_node" output="screen">
+        <param name="is_simulation" value="true"/>
+        <param name="use_disturbance_observer" value="false"/>
+        <param name="hover_thrust" value="0.375"/>
+        <param name="max_tilt_angle_deg" value="68.754935"/>
+        <param name="min_thrust" value="2.0"/>
+        <param name="max_thrust" value="20.0"/>
+        <param name="se3_horiz_drag" value="0.70"/>
+        <param name="se3_vert_drag" value="0.80"/>
+        <param name="se3_parasitic_drag" value="0.01"/>
+        <param name="se3_speed_eps" value="1.0e-4"/>
+        <param name="max_ref_vel" value="5.0"/>
+        <param name="max_ref_acc" value="4.0"/>
+        <param name="max_ref_jerk" value="12.0"/>
+        <param name="use_reference_feedback" value="false"/>
+        <remap from="~odom" to="/sim/odom"/>
+        <remap from="~imu" to="/sim/imu"/>
+        <remap from="~position_cmd" to="/se3_control/pos_cmd"/>
+        <remap from="~attitude_cmd" to="attitude_cmd"/>
+        <param name="record_log" value = "false"/>  
+        <param name="logger_file_name" value = "$(find se3_control)/logger/"/>   
+    </node>
+
+</launch>

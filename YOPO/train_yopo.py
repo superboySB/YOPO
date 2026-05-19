@@ -42,6 +42,6 @@ if __name__ == "__main__":
         save_on_exit=True,
     )
 
-    trainer.train(epoch=50)
+    trainer.train(epoch=500)
 
     print("Run YOPO Finish!")

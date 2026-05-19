@@ -1,0 +1,7 @@
+<library path="lib/libse3_control_nodelet">
+  <class name="se3_control/SE3ControlNodelet" type="SE3ControlNodelet" base_class_type="nodelet::Nodelet">
+    <description>
+      se3_control
+    </description>
+  </class>
+</library>

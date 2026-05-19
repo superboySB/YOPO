@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-TRIAL=1
+TRIAL=0
 EPOCH=50
 SESSION="yopo-sim"
 DETACH=0
@@ -67,7 +67,7 @@ parse_args() {
 
 stop_all() {
   tmux kill-session -t "${SESSION}" >/dev/null 2>&1 || true
-  pkill -f 'so3_quadrotor_simulator simulator_attitude_control.launch' >/dev/null 2>&1 || true
+  pkill -f 'se3_quadrotor_simulator simulator_attitude_control.launch' >/dev/null 2>&1 || true
   pkill -f 'rosrun sensor_simulator sensor_simulator_cuda' >/dev/null 2>&1 || true
   pkill -f 'python3 test_yopo_ros.py --trial=' >/dev/null 2>&1 || true
   pkill -f 'rviz -d yopo.rviz' >/dev/null 2>&1 || true
@@ -103,7 +103,7 @@ main() {
   fi
 
   local env_setup='source /opt/ros/noetic/setup.bash'
-  local cmd_controller="${env_setup}; cd /workspace/YOPO/Controller; source devel/setup.bash; roslaunch so3_quadrotor_simulator simulator_attitude_control.launch"
+  local cmd_controller="${env_setup}; cd /workspace/YOPO/Controller; source devel/setup.bash; roslaunch se3_quadrotor_simulator simulator_attitude_control.launch"
   local cmd_simulator="${env_setup}; cd /workspace/YOPO/Simulator; source devel/setup.bash; rosrun sensor_simulator sensor_simulator_cuda"
   local cmd_planner="${env_setup}; cd /workspace/YOPO/YOPO; python3 test_yopo_ros.py --trial=${TRIAL} --epoch=${EPOCH}"
   local cmd_rviz="${env_setup}; cd /workspace/YOPO/YOPO; rviz -d yopo.rviz"

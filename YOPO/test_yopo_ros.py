@@ -228,6 +228,9 @@ class YopoNet:
             control_msg.acceleration.x = self.optimal_poly_x.get_acceleration(self.ctrl_time)
             control_msg.acceleration.y = self.optimal_poly_y.get_acceleration(self.ctrl_time)
             control_msg.acceleration.z = self.optimal_poly_z.get_acceleration(self.ctrl_time)
+            control_msg.jerk.x = self.optimal_poly_x.get_jerk(self.ctrl_time)
+            control_msg.jerk.y = self.optimal_poly_y.get_jerk(self.ctrl_time)
+            control_msg.jerk.z = self.optimal_poly_z.get_jerk(self.ctrl_time)
             self.desire_pos = np.array([control_msg.position.x, control_msg.position.y, control_msg.position.z])
             self.desire_vel = np.array([control_msg.velocity.x, control_msg.velocity.y, control_msg.velocity.z])
             self.desire_acc = np.array([control_msg.acceleration.x, control_msg.acceleration.y, control_msg.acceleration.z])
@@ -378,7 +381,7 @@ if __name__ == "__main__":
                 'pitch_angle_deg': -0,   # 相机俯仰角(仰为负)
                 'odom_topic': '/sim/odom',                   # 里程计话题
                 'depth_topic': '/depth_image',               # 深度图话题
-                'ctrl_topic': '/so3_control/pos_cmd',        # 控制器话题
+                'ctrl_topic': '/se3_control/pos_cmd',        # 控制器话题
                 'plan_from_reference': False,   # 从参考状态规划？位置控制器: True, 神经网络直接控制: False
                 'verbose': False,               # 打印耗时？
                 'visualize': True               # 可视化所有轨迹？(实飞改为False节省计算)
