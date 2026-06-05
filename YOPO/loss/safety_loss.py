@@ -17,6 +17,8 @@ class SafetyLoss(nn.Module):
         self.map_expand_max = np.array(cfg['map_expand_max'])
         self.d0 = cfg["d0"]
         self.r = cfg["r"]
+        target_size = np.array(cfg.get("target_ellipsoid_size", [0.0, 0.0, 0.0]), dtype=np.float32)
+        self.dynamic_obstacle_radius = float(np.max(target_size) * 0.5)
 
         self._L = L
         self.sgm_time = cfg["sgm_time"]
@@ -35,7 +37,7 @@ class SafetyLoss(nn.Module):
         self.sdf_maps = self.get_sdf_from_ply(data_dir)
         print("Map built!")
 
-    def forward(self, Df, Dp, map_id):
+    def forward(self, Df, Dp, map_id, dynamic_target_w=None, dynamic_target_visible=None):
         """
         Args:
             Dp: decision parameters: (batch_size, 3, 3) → [px, vx, ax; py, vy, ay; pz, vz, az]
@@ -57,7 +59,7 @@ class SafetyLoss(nn.Module):
         pos_batch = pos_coe.reshape(-1, self.traj_num * pos_coe.shape[1], 3)
 
         # get info from sdf_map
-        cost, dist = self.get_distance_cost(pos_batch, map_id)
+        cost, dist = self.get_distance_cost(pos_batch, map_id, dynamic_target_w, dynamic_target_visible)
 
         if self.time_integral:
             # Compute average time integral of trajectory cost
@@ -73,7 +75,7 @@ class SafetyLoss(nn.Module):
 
         return cost_colli
 
-    def get_distance_cost(self, pos, map_id):
+    def get_distance_cost(self, pos, map_id, dynamic_target_w=None, dynamic_target_visible=None):
         """
         pos:     (B, N, 3) - 点在世界坐标系下的位置
         map_id:  (B) - 每个 batch 使用哪张 sdf_map
@@ -96,11 +98,27 @@ class SafetyLoss(nn.Module):
         grid_point = th.clamp(grid_point, min=-0.99, max=0.99)  # (B, N)
 
         static_dist_query = F.grid_sample(sdf_maps, grid_point, mode='bilinear', padding_mode='zeros', align_corners=True)  # (B, 1, 1, 1, N)
-        dist_query = static_dist_query.view(B, N)
+        static_dist_query = static_dist_query.view(B, N)
+        dynamic_dist_query = self.get_dynamic_distance(pos, dynamic_target_w, dynamic_target_visible)
+        dist_query = th.minimum(static_dist_query, dynamic_dist_query)
 
         # Cost function
         cost = self.cost_function(dist_query)  # (B, N)
         return cost, dist_query
+
+    def get_dynamic_distance(self, pos, dynamic_target_w, dynamic_target_visible):
+        B, N, _ = pos.shape
+        if dynamic_target_w is None or dynamic_target_visible is None or self.dynamic_obstacle_radius <= 0.0:
+            return th.full((B, N), float("inf"), device=pos.device, dtype=pos.dtype)
+
+        visible = dynamic_target_visible > 0.5
+        if visible.ndim != 2 or dynamic_target_w.ndim != 3:
+            raise RuntimeError("dynamic targets must be shaped as (B, K, 3) and visible as (B, K). Regenerate the dataset.")
+
+        distance = th.linalg.norm(pos[:, :, None, :] - dynamic_target_w[:, None, :, :], dim=-1)
+        surface_distance = distance - self.dynamic_obstacle_radius
+        surface_distance = surface_distance.masked_fill(~visible[:, None, :], float("inf"))
+        return surface_distance.amin(dim=2)
 
     def cost_function(self, d):
         return th.exp(-(d - self.d0) / self.r)

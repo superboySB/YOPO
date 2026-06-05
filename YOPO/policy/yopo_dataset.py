@@ -26,6 +26,9 @@ class YOPODataset(Dataset):
         self.v_std = np.array([cfg["vx_std_unit"], cfg["vy_std_unit"], cfg["vz_std_unit"]])
         self.a_mean = np.array([cfg["ax_mean_unit"], cfg["ay_mean_unit"], cfg["az_mean_unit"]])
         self.a_std = np.array([cfg["ax_std_unit"], cfg["ay_std_unit"], cfg["az_std_unit"]])
+        self.goal_length = cfg["goal_length"]
+        self.goal_pitch_std = cfg["goal_pitch_std"]
+        self.goal_yaw_std = cfg["goal_yaw_std"]
         if mode == 'train':
             self.print_data()
 
@@ -34,18 +37,8 @@ class YOPODataset(Dataset):
         self.depth_list, self.mask_list, self.map_idx = [], [], []
         self.positions = np.empty((0, 3), dtype=np.float32)
         self.quaternions = np.empty((0, 4), dtype=np.float32)
-        self.targets = np.empty((0, 10), dtype=np.float32)
-        self.target_radius = float(cfg["target_radius"])
-        self.target_mask_min_px = int(cfg["target_mask_min_px"])
-        self.target_mask_max_px = int(cfg["target_mask_max_px"])
-        self.target_mask_augment = bool(cfg["target_mask_augment"])
-        self.target_mask_jitter_px = float(cfg["target_mask_jitter_px"])
-        self.target_mask_scale_jitter = float(cfg["target_mask_scale_jitter"])
-        self.target_mask_dropout_prob = float(cfg["target_mask_dropout_prob"])
-        self.target_mask_false_positive_prob = float(cfg["target_mask_false_positive_prob"])
-        self.target_mask_false_positive_max = int(cfg["target_mask_false_positive_max"])
-        self.target_mask_false_positive_min_px = int(cfg["target_mask_false_positive_min_px"])
-        self.target_mask_false_positive_max_px = int(cfg["target_mask_false_positive_max_px"])
+        self.target_dynamic_max_count = int(cfg.get("target_dynamic_max_count", 3))
+        self.targets = np.empty((0, self.target_dynamic_max_count, 4), dtype=np.float32)
 
         datafolders = [f.path for f in os.scandir(data_dir) if f.is_dir()]
         datafolders.sort(key=lambda x: int(os.path.basename(x)))
@@ -89,14 +82,21 @@ class YOPODataset(Dataset):
                 raise FileNotFoundError(
                     f"{target_path} is required for YOPOv2-Tracker training. Regenerate the dataset with dataset_generator."
                 )
-            targets = np.loadtxt(target_path, delimiter=',', skiprows=1).astype(np.float32)
-            if targets.ndim == 1:
-                targets = targets[None, :]
-            if targets.shape[0] != positions.shape[0]:
+            target_rows = np.loadtxt(target_path, delimiter=',', skiprows=1).astype(np.float32)
+            if target_rows.ndim == 1:
+                target_rows = target_rows[None, :]
+            expected_target_cols = 1 + self.target_dynamic_max_count * 7
+            if target_rows.shape[1] != expected_target_cols:
                 raise RuntimeError(
-                    f"{target_path} has {targets.shape[0]} rows but {positions.shape[0]} poses. "
+                    f"{target_path} has {target_rows.shape[1]} columns; expected {expected_target_cols}. "
                     "Regenerate the dataset."
                 )
+            if target_rows.shape[0] != positions.shape[0]:
+                raise RuntimeError(
+                    f"{target_path} has {target_rows.shape[0]} rows but {positions.shape[0]} poses. "
+                    "Regenerate the dataset."
+                )
+            targets = self._parse_targets(target_rows)
 
             split = train_test_split(
                 depth_file_names, mask_file_names, positions, quaternions, targets,
@@ -125,7 +125,7 @@ class YOPODataset(Dataset):
         print(f"{'Depth+Mask':<12} | Count: {len(self.depth_list):<3} | Shape: 2,{self.height},{self.width}")
         print(f"{'Positions':<12} | Count: {self.positions.shape[0]:<3} | Shape: {self.positions.shape[1]}")
         print(f"{'Quaternions':<12} | Count: {self.quaternions.shape[0]:<3} | Shape: {self.quaternions.shape[1]}")
-        print(f"{'Targets':<12} | Count: {self.targets.shape[0]:<3} | Shape: {self.targets.shape[1]}")
+        print(f"{'Targets':<12} | Count: {self.targets.shape[0]:<3} | Shape: {self.targets.shape[1:]}")
         print("==================================================")
 
     def __len__(self):
@@ -140,17 +140,14 @@ class YOPODataset(Dataset):
         rot_wc = R_WC.as_matrix().astype(np.float32)
 
         vel_c, acc_c = self._get_random_state()
-        obs = np.hstack((vel_c, acc_c)).astype(np.float32)
+        goal_c = self._get_random_goal()
+        obs = np.hstack((vel_c, acc_c, goal_c)).astype(np.float32)
 
         target_row = self.targets[item]
-        target_w = target_row[0:3].astype(np.float32)
-        target_vel_w = target_row[3:6].astype(np.float32)
-        target_visible = np.float32(target_row[6])
-        target_uv = target_row[7:9].astype(np.float32)
-        target_c = R_WC.inv().apply(target_w - self.positions[item]).astype(np.float32)
-        target_depth = np.float32(target_row[9])
+        target_w = target_row[:, 0:3].astype(np.float32)
+        target_visible = target_row[:, 3].astype(np.float32)
 
-        mask = self._load_or_build_mask(self.mask_list[item], target_visible, target_uv, target_depth)
+        mask = self._load_mask(self.mask_list[item])
         image = np.concatenate((depth[None, :, :], mask[None, :, :]), axis=0).astype(np.float32)
 
         return (
@@ -159,68 +156,31 @@ class YOPODataset(Dataset):
             rot_wc,
             obs,
             target_w,
-            target_vel_w,
-            target_c,
             target_visible,
-            target_uv,
             self.map_idx[item],
         )
 
-    def _load_or_build_mask(self, mask_path, target_visible, target_uv, target_depth):
-        if os.path.exists(mask_path):
-            mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
-            mask = cv2.resize(mask, (self.width, self.height), interpolation=cv2.INTER_NEAREST)
-            mask = mask.astype(np.float32) / 255.0
-        else:
-            mask = self._build_bbox_mask(target_visible, target_uv, target_depth)
-        if self.mode == 'train' and self.target_mask_augment:
-            mask = self._augment_mask(mask, target_visible, target_uv, target_depth)
+    def _parse_targets(self, target_rows):
+        targets = np.zeros(
+            (target_rows.shape[0], self.target_dynamic_max_count, 4),
+            dtype=np.float32,
+        )
+        counts = np.clip(target_rows[:, 0].astype(np.int32), 0, self.target_dynamic_max_count)
+        for target_i in range(self.target_dynamic_max_count):
+            base = 1 + target_i * 7
+            targets[:, target_i, 0:3] = target_rows[:, base:base + 3]
+            targets[:, target_i, 3] = (target_i < counts).astype(np.float32)
+        return targets
+
+    def _load_mask(self, mask_path):
+        if not os.path.exists(mask_path):
+            raise FileNotFoundError(f"{mask_path} is required. Regenerate the dataset.")
+        mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+        if mask is None:
+            raise RuntimeError(f"Failed to read target mask {mask_path}.")
+        mask = cv2.resize(mask, (self.width, self.height), interpolation=cv2.INTER_NEAREST)
+        mask = mask.astype(np.float32) / 255.0
         return mask.astype(np.float32)
-
-    def _build_bbox_mask(self, target_visible, target_uv, target_depth, center_jitter=None, scale=1.0):
-        mask = np.zeros((self.height, self.width), dtype=np.float32)
-        if target_visible < 0.5 or target_depth <= 0.1:
-            return mask
-
-        u = float(np.clip(target_uv[0], 0, self.width - 1))
-        v = float(np.clip(target_uv[1], 0, self.height - 1))
-        if center_jitter is not None:
-            u += float(center_jitter[0])
-            v += float(center_jitter[1])
-        u = float(np.clip(u, 0, self.width - 1))
-        v = float(np.clip(v, 0, self.height - 1))
-        radius_px = int(np.ceil(cfg["camera_fx"] * self.target_radius / float(target_depth)))
-        half = int(np.clip(radius_px * scale, self.target_mask_min_px, self.target_mask_max_px))
-        u0 = max(0, int(round(u)) - half)
-        u1 = min(self.width - 1, int(round(u)) + half)
-        v0 = max(0, int(round(v)) - half)
-        v1 = min(self.height - 1, int(round(v)) + half)
-        mask[v0:v1 + 1, u0:u1 + 1] = 1.0
-        return mask
-
-    def _augment_mask(self, clean_mask, target_visible, target_uv, target_depth):
-        if target_visible >= 0.5 and np.random.rand() >= self.target_mask_dropout_prob:
-            jitter = np.random.uniform(-self.target_mask_jitter_px, self.target_mask_jitter_px, size=2)
-            scale = 1.0 + np.random.uniform(-self.target_mask_scale_jitter, self.target_mask_scale_jitter)
-            mask = self._build_bbox_mask(target_visible, target_uv, target_depth, jitter, max(scale, 0.2))
-        else:
-            mask = np.zeros_like(clean_mask)
-
-        if self.target_mask_false_positive_max > 0 and np.random.rand() < self.target_mask_false_positive_prob:
-            false_positive_num = np.random.randint(1, self.target_mask_false_positive_max + 1)
-            for _ in range(false_positive_num):
-                half = np.random.randint(
-                    self.target_mask_false_positive_min_px,
-                    self.target_mask_false_positive_max_px + 1,
-                )
-                u = np.random.randint(0, self.width)
-                v = np.random.randint(0, self.height)
-                u0 = max(0, u - half)
-                u1 = min(self.width - 1, u + half)
-                v0 = max(0, v - half)
-                v1 = min(self.height - 1, v + half)
-                mask[v0:v1 + 1, u0:u1 + 1] = 1.0
-        return mask
 
     def _get_random_state(self):
         while True:
@@ -243,6 +203,20 @@ class YOPODataset(Dataset):
                 break
         return vel.astype(np.float32), acc.astype(np.float32)
 
+    def _get_random_goal(self):
+        goal_pitch_angle = np.radians(np.random.normal(0.0, self.goal_pitch_std))
+        goal_yaw_angle = np.radians(np.random.normal(0.0, self.goal_yaw_std))
+        goal_dir = np.array([
+            np.cos(goal_yaw_angle) * np.cos(goal_pitch_angle),
+            np.sin(goal_yaw_angle) * np.cos(goal_pitch_angle),
+            np.sin(goal_pitch_angle),
+        ], dtype=np.float32)
+
+        random_near = np.random.rand()
+        if random_near < 0.1:
+            goal_dir = random_near * 10.0 * goal_dir
+        return (self.goal_length * goal_dir).astype(np.float32)
+
     def print_data(self):
         import scipy.stats as stats
         p5 = self.vel_max * np.exp(stats.norm.ppf(0.05, loc=self.vx_lognorm_mean, scale=self.vx_logmorm_sigma))
@@ -262,21 +236,36 @@ class YOPODataset(Dataset):
             print(f"|  {i:^4} | {v_lower[i]:^9.1f}~{v_upper[i]:^9.1f} |"
                   f" {a_lower[i]:^9.1f}~{a_upper[i]:^9.1f} |")
         print("-----------------------------------------------------")
+        print(f"| Goal Pitch 90% (deg)        | {-self.goal_pitch_std * 2:^9.1f}~{self.goal_pitch_std * 2:^9.1f} |")
+        print(f"| Goal Yaw   90% (deg)        | {-self.goal_yaw_std * 2:^9.1f}~{self.goal_yaw_std * 2:^9.1f} |")
+        print("-----------------------------------------------------")
 
     def plot_sample_distribution(self):
         import matplotlib.pyplot as plt
+        goals = np.array([self._get_random_goal() for _ in range(10000)])
         states = np.array([self._get_random_state() for _ in range(10000)])
         vels = np.stack([s[0] for s in states])
         accs = np.stack([s[1] for s in states])
-        fig, axs = plt.subplots(2, 3, figsize=(15, 7))
+        fig, axs = plt.subplots(3, 3, figsize=(15, 10))
+        yaw = np.degrees(np.arctan2(goals[:, 1], goals[:, 0]))
+        pitch = np.degrees(np.arctan2(goals[:, 2], np.linalg.norm(goals[:, 0:2], axis=1)))
+        axs[0, 0].hist(yaw, bins=100)
+        axs[0, 0].set_title("Goal Yaw")
+        axs[0, 0].grid(True)
+        axs[0, 1].hist(pitch, bins=100)
+        axs[0, 1].set_title("Goal Pitch")
+        axs[0, 1].grid(True)
+        axs[0, 2].scatter(yaw, pitch, s=2, alpha=0.3)
+        axs[0, 2].set_title("Goal Direction")
+        axs[0, 2].grid(True)
         for i, name in enumerate(['Vx', 'Vy', 'Vz']):
-            axs[0, i].hist(vels[:, i], bins=100)
-            axs[0, i].set_title(f"Velocity {name}")
-            axs[0, i].grid(True)
-        for i, name in enumerate(['Ax', 'Ay', 'Az']):
-            axs[1, i].hist(accs[:, i], bins=100)
-            axs[1, i].set_title(f"Acceleration {name}")
+            axs[1, i].hist(vels[:, i], bins=100)
+            axs[1, i].set_title(f"Velocity {name}")
             axs[1, i].grid(True)
+        for i, name in enumerate(['Ax', 'Ay', 'Az']):
+            axs[2, i].hist(accs[:, i], bins=100)
+            axs[2, i].set_title(f"Acceleration {name}")
+            axs[2, i].grid(True)
         plt.tight_layout()
         plt.show()
 

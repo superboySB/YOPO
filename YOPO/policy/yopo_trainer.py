@@ -44,10 +44,10 @@ class YopoTrainer:
         self.traj_num = cfg['traj_num']
         self.image_width = cfg["image_width"]
         self.image_height = cfg["image_height"]
-        self.objectness_weight = cfg["objectness_weight"]
-        self.target_position_weight = cfg["target_position_weight"]
-        self.objectness_positive_weight = cfg["objectness_positive_weight"]
-        self.objectness_negative_weight = cfg["objectness_negative_weight"]
+        self.target_dynamic_max_count = int(cfg.get("target_dynamic_max_count", 3))
+        self.target_separation_weight = float(cfg.get("target_separation_weight", 0.0))
+        self.target_clearance_distance = float(cfg.get("target_clearance_distance", 1.0))
+        self.target_separation_eval_points = int(cfg.get("target_separation_eval_points", 30))
 
         # network
         print("Loading network...")
@@ -95,17 +95,25 @@ class YopoTrainer:
     def train_one_epoch(self, epoch: int, total_progress):
         one_epoch_progress = self.progress_log.add_task(f"Epoch: {epoch}", total=len(self.train_dataloader))
         inspect_interval = max(1, len(self.train_dataloader) // 16)
-        traj_losses, score_losses, obj_losses, target_losses, smooth_losses, safety_losses, goal_losses, acc_losses, start_time = [], [], [], [], [], [], [], [], time.time()
+        traj_losses, score_losses = [], []
+        smooth_losses, safety_losses, goal_losses, acc_losses, target_sep_losses = [], [], [], [], []
+        start_time = time.time()
         for step, batch in enumerate(self.train_dataloader):  # obs: camera/body frame
             self.optimizer.zero_grad()
 
-            trajectory_loss, score_loss, objectness_loss, target_loss, smooth_cost, safety_cost, goal_cost, acc_cost = self.forward_and_compute_loss(*batch)
+            (
+                trajectory_loss,
+                score_loss,
+                smooth_cost,
+                safety_cost,
+                goal_cost,
+                acc_cost,
+                target_sep_cost,
+            ) = self.forward_and_compute_loss(*batch)
 
             loss = (
                 self.loss_weight[0] * trajectory_loss
                 + self.loss_weight[1] * score_loss
-                + self.objectness_weight * objectness_loss
-                + self.target_position_weight * target_loss
             )
 
             # Optimize the policy
@@ -114,29 +122,28 @@ class YopoTrainer:
 
             traj_losses.append(self.loss_weight[0] * trajectory_loss.item())
             score_losses.append(self.loss_weight[1] * score_loss.item())
-            obj_losses.append(self.objectness_weight * objectness_loss.item())
-            target_losses.append(self.target_position_weight * target_loss.item())
             smooth_losses.append(self.loss_weight[0] * smooth_cost.item())
             safety_losses.append(self.loss_weight[0] * safety_cost.item())
             goal_losses.append(self.loss_weight[0] * goal_cost.item())
             acc_losses.append(self.loss_weight[0] * acc_cost.item())
+            target_sep_losses.append(self.loss_weight[0] * target_sep_cost.item())
 
             if step % inspect_interval == inspect_interval - 1:
                 batch_fps = inspect_interval / (time.time() - start_time)
                 self.progress_log.console.log(f"Epoch: {epoch}, Traj Loss: {np.mean(traj_losses):.3g}, "
                                               f"Score Loss: {np.mean(score_losses):.3g}, "
-                                              f"Obj Loss: {np.mean(obj_losses):.3g}, "
-                                              f"Target Loss: {np.mean(target_losses):.3g} "
+                                              f"Target Sep Loss: {np.mean(target_sep_losses):.3g} "
                                               f"Batch FPS: {batch_fps:.3g}")
                 self.tensorboard_log.add_scalar("Train/TrajLoss", np.mean(traj_losses), epoch * len(self.train_dataloader) + step)
                 self.tensorboard_log.add_scalar("Train/ScoreLoss", np.mean(score_losses), epoch * len(self.train_dataloader) + step)
-                self.tensorboard_log.add_scalar("Train/ObjectnessLoss", np.mean(obj_losses), epoch * len(self.train_dataloader) + step)
-                self.tensorboard_log.add_scalar("Train/TargetLoss", np.mean(target_losses), epoch * len(self.train_dataloader) + step)
                 self.tensorboard_log.add_scalar("Detail/SmoothLoss", np.mean(smooth_losses), epoch * len(self.train_dataloader) + step)
                 self.tensorboard_log.add_scalar("Detail/SafetyLoss", np.mean(safety_losses), epoch * len(self.train_dataloader) + step)
                 self.tensorboard_log.add_scalar("Detail/GoalLoss", np.mean(goal_losses), epoch * len(self.train_dataloader) + step)
                 self.tensorboard_log.add_scalar("Detail/AccelLoss", np.mean(acc_losses), epoch * len(self.train_dataloader) + step)
-                traj_losses, score_losses, obj_losses, target_losses, smooth_losses, safety_losses, goal_losses, acc_losses, start_time = [], [], [], [], [], [], [], [], time.time()
+                self.tensorboard_log.add_scalar("Detail/TargetSeparationLoss", np.mean(target_sep_losses), epoch * len(self.train_dataloader) + step)
+                traj_losses, score_losses = [], []
+                smooth_losses, safety_losses, goal_losses, acc_losses, target_sep_losses = [], [], [], [], []
+                start_time = time.time()
 
             self.progress_log.update(one_epoch_progress, advance=1)
             self.progress_log.update(total_progress, advance=1 / len(self.train_dataloader))
@@ -146,40 +153,47 @@ class YopoTrainer:
     @torch.inference_mode()
     def eval_one_epoch(self, epoch: int):
         one_epoch_progress = self.progress_log.add_task(f"Eval: {epoch}", total=len(self.val_dataloader))
-        traj_losses, score_losses, obj_losses, target_losses = [], [], [], []
+        traj_losses, score_losses, target_sep_losses = [], [], []
         for step, batch in enumerate(self.val_dataloader):  # obs: camera/body frame
-            trajectory_loss, score_loss, objectness_loss, target_loss, _, _, _, _ = self.forward_and_compute_loss(*batch)
+            (
+                trajectory_loss,
+                score_loss,
+                _smooth_cost,
+                _safety_cost,
+                _goal_cost,
+                _acc_cost,
+                target_sep_cost,
+            ) = self.forward_and_compute_loss(*batch)
 
             traj_losses.append(self.loss_weight[0] * trajectory_loss.item())
             score_losses.append(self.loss_weight[1] * score_loss.item())
-            obj_losses.append(self.objectness_weight * objectness_loss.item())
-            target_losses.append(self.target_position_weight * target_loss.item())
+            target_sep_losses.append(self.loss_weight[0] * target_sep_cost.item())
             self.progress_log.update(one_epoch_progress, advance=1)
 
         self.progress_log.console.log(
             f"Eval: {epoch}, Traj Loss: {np.mean(traj_losses):.3g}, "
-            f"Score Loss: {np.mean(score_losses):.3g}, Obj Loss: {np.mean(obj_losses):.3g}, "
-            f"Target Loss: {np.mean(target_losses):.3g} "
+            f"Score Loss: {np.mean(score_losses):.3g}, "
+            f"Target Sep Loss: {np.mean(target_sep_losses):.3g} "
         )
         self.tensorboard_log.add_scalar("Eval/TrajLoss", np.mean(traj_losses), epoch)
         self.tensorboard_log.add_scalar("Eval/ScoreLoss", np.mean(score_losses), epoch)
-        self.tensorboard_log.add_scalar("Eval/ObjectnessLoss", np.mean(obj_losses), epoch)
-        self.tensorboard_log.add_scalar("Eval/TargetLoss", np.mean(target_losses), epoch)
+        self.tensorboard_log.add_scalar("Eval/TargetSeparationLoss", np.mean(target_sep_losses), epoch)
         self.progress_log.remove_task(one_epoch_progress)
 
-    def forward_and_compute_loss(self, image, pos, rot, obs_b, target_w, target_vel_w, target_b, target_visible, target_uv, map_id):
-        image, pos, rot, obs_b, target_w, target_b, target_visible, target_uv, map_id = [
-            x.to(self.device) for x in [image, pos, rot, obs_b, target_w, target_b, target_visible, target_uv, map_id]
+    def forward_and_compute_loss(self, image, pos, rot, obs_b, target_w, target_visible, map_id):
+        image, pos, rot, obs_b, target_w, target_visible, map_id = [
+            x.to(self.device) for x in [image, pos, rot, obs_b, target_w, target_visible, map_id]
         ]
         batch_size = image.shape[0]
 
         # 1. pre-process
-        start_vel_w = rotate_body2world(rot, obs_b[:, 0:3])
-        start_acc_w = rotate_body2world(rot, obs_b[:, 3:6])
+        goal_w, start_vel_w, start_acc_w = state_body2world(
+            pos, rot, obs_b[:, 6:9], obs_b[:, 0:3], obs_b[:, 3:6]
+        )
         start_state_w = torch.stack([pos, start_vel_w, start_acc_w], dim=1)
 
         # 2. forward propagation
-        endstate, score, objectness, target_pred = self.policy.inference(image, obs_b)
+        endstate, score = self.policy.inference(image, obs_b)
 
         # 3. post-process [B, V, H, 9] -> [B*V*H, 9]
         endstate_flat = endstate.permute(0, 2, 3, 1).reshape(batch_size * self.traj_num, 9)
@@ -188,8 +202,7 @@ class YopoTrainer:
         pos_expanded = pos.repeat_interleave(self.traj_num, dim=0)  # [B*V*H, 3]
         rot_expanded = rot.repeat_interleave(self.traj_num, dim=0)  # [B*V*H, 3, 3]
         start_state_w = start_state_w.repeat_interleave(self.traj_num, dim=0)  # [B*V*H, 3, 3]
-        goal_w = target_w.repeat_interleave(self.traj_num, dim=0)  # [B*V*H, 3]
-
+        goal_w = goal_w.repeat_interleave(self.traj_num, dim=0)  # [B*V*H, 3]
         # [B*V*H, 3] [B*V*H, 3] [B*V*H, 3]
         end_pos_w, end_vel_w, end_acc_w = state_body2world(
             pos_expanded, rot_expanded,
@@ -201,57 +214,54 @@ class YopoTrainer:
         end_state_w = torch.stack([end_pos_w, end_vel_w, end_acc_w], dim=1)
 
         smooth_cost, safety_cost, goal_cost, acc_cost = self.yopo_loss(
-            start_state_w, end_state_w, goal_w, map_id
+            start_state_w, end_state_w, goal_w, map_id, target_w, target_visible
         )
-        trajectory_loss = (smooth_cost + safety_cost + goal_cost + acc_cost).mean()
+        target_w_expanded = target_w.repeat_interleave(self.traj_num, dim=0)
+        target_visible_expanded = target_visible.repeat_interleave(self.traj_num, dim=0)
+        target_sep_cost = self.compute_target_separation_cost(
+            start_state_w, end_state_w, target_w_expanded, target_visible_expanded
+        )
+        trajectory_loss = (smooth_cost + safety_cost + goal_cost + acc_cost + target_sep_cost).mean()
 
-        score_label = (smooth_cost + safety_cost + goal_cost + acc_cost).clone().detach()
+        score_label = (smooth_cost + safety_cost + goal_cost + acc_cost + target_sep_cost).clone().detach()
         score_loss = F.smooth_l1_loss(score_flat, score_label)
 
-        objectness_label, objectness_weight = self.build_objectness_labels(target_visible, target_uv)
-        objectness_loss_map = F.binary_cross_entropy_with_logits(objectness, objectness_label, reduction='none')
-        objectness_loss = (objectness_loss_map * objectness_weight).sum() / objectness_weight.sum().clamp(min=1.0)
-
-        target_loss = self.compute_target_loss(target_pred, target_b, objectness_label)
-        return trajectory_loss, score_loss, objectness_loss, target_loss, smooth_cost.mean(), safety_cost.mean(), goal_cost.mean(), acc_cost.mean()
-
-    def build_objectness_labels(self, target_visible, target_uv):
-        B = target_visible.shape[0]
-        V = cfg["vertical_num"]
-        H = cfg["horizon_num"]
-        labels = torch.zeros((B, V, H), dtype=torch.float32, device=self.device)
-        weights = torch.full(
-            (B, V, H),
-            float(self.objectness_negative_weight),
-            dtype=torch.float32,
-            device=self.device,
+        return (
+            trajectory_loss,
+            score_loss,
+            smooth_cost.mean(),
+            safety_cost.mean(),
+            goal_cost.mean(),
+            acc_cost.mean(),
+            target_sep_cost.mean(),
         )
-        ignore_radius = int(cfg["ignore_grid_radius"])
 
-        for b in range(B):
-            if target_visible[b] < 0.5:
-                continue
-            u = torch.clamp(target_uv[b, 0], 0, self.image_width - 1)
-            v = torch.clamp(target_uv[b, 1], 0, self.image_height - 1)
-            h_idx = int(torch.clamp((u / self.image_width * H).long(), 0, H - 1).item())
-            v_idx = int(torch.clamp((v / self.image_height * V).long(), 0, V - 1).item())
-            labels[b, v_idx, h_idx] = 1.0
-            weights[b, v_idx, h_idx] = float(self.objectness_positive_weight)
-            if ignore_radius > 0:
-                for vv in range(max(0, v_idx - ignore_radius), min(V, v_idx + ignore_radius + 1)):
-                    for hh in range(max(0, h_idx - ignore_radius), min(H, h_idx + ignore_radius + 1)):
-                        if vv == v_idx and hh == h_idx:
-                            continue
-                        weights[b, vv, hh] = 0.0
-        return labels, weights
+    def compute_target_separation_cost(self, start_state_w, end_state_w, target_w, target_visible):
+        if self.target_separation_weight <= 0.0:
+            return end_state_w[:, 0, :].sum(dim=1) * 0.0
 
-    def compute_target_loss(self, target_pred, target_b, objectness_label):
-        positive_mask = objectness_label > 0.5
-        if positive_mask.sum() == 0:
-            return target_pred.sum() * 0.0
-        target_label = target_b[:, :, None, None].expand_as(target_pred)
-        loss_map = F.smooth_l1_loss(target_pred, target_label, reduction='none').sum(dim=1)
-        return loss_map[positive_mask].mean()
+        batch_size = end_state_w.shape[0]
+        Df = start_state_w.permute(0, 2, 1)
+        Dp = end_state_w.permute(0, 2, 1)
+        L = self.yopo_loss._L.unsqueeze(0).expand(batch_size, -1, -1)
+        coeff = self.yopo_loss.safety_loss.get_coefficient_from_derivative(Dp, Df, L)
+
+        dt = self.yopo_loss.sgm_time / float(self.target_separation_eval_points)
+        t_list = torch.linspace(
+            dt,
+            self.yopo_loss.sgm_time,
+            self.target_separation_eval_points,
+            device=end_state_w.device,
+            dtype=end_state_w.dtype,
+        ).view(1, -1, 1).expand(batch_size, -1, -1)
+        traj_pos_w = self.yopo_loss.safety_loss.get_position_from_coeff(coeff, t_list)
+
+        distance = torch.linalg.norm(traj_pos_w[:, :, None, :] - target_w[:, None, :, :], dim=3)
+        clearance_error = torch.relu(self.target_clearance_distance - distance)
+        visible = target_visible > 0.5
+        clearance_error = clearance_error.masked_fill(~visible[:, None, :], 0.0)
+        worst_clearance_error = clearance_error.square().amax(dim=(1, 2))
+        return self.target_separation_weight * worst_clearance_error
 
     def save_model(self):
         if hasattr(self, "epoch_i"):

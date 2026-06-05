@@ -765,6 +765,31 @@ Maps::setParam(const YAML::Node& config)
   _wall_thick = config["wall_thick"].as<double>();
   _wall_num = config["wall_number"].as<int>();
   _wall_ceiling = config["wall_ceiling"].as<int>();
+  if (config["swarm"])
+  {
+    swarm_enabled = config["swarm"]["enabled"].as<bool>();
+    swarm_uav_num = config["swarm"]["uav_num"].as<int>();
+    swarm_namespace_prefix = config["swarm"]["namespace_prefix"].as<std::string>();
+    swarm_ring_radius = config["swarm"]["ring_radius"] ? config["swarm"]["ring_radius"].as<double>() : 0.0;
+    swarm_spawn_clear_radius = config["swarm"]["spawn_clear_radius"] ? config["swarm"]["spawn_clear_radius"].as<double>() : 0.0;
+    swarm_altitude = config["swarm"]["altitude"] ? config["swarm"]["altitude"].as<double>() : 2.0;
+    swarm_forward_distance = config["swarm"]["forward_distance"] ? config["swarm"]["forward_distance"].as<double>() : 50.0;
+    swarm_formation_start_x = config["swarm"]["formation_start_x"] ? config["swarm"]["formation_start_x"].as<double>() : -30.0;
+    swarm_formation_row_spacing = config["swarm"]["formation_row_spacing"] ? config["swarm"]["formation_row_spacing"].as<double>() : 1.7320508;
+    swarm_formation_lateral_spacing = config["swarm"]["formation_lateral_spacing"] ? config["swarm"]["formation_lateral_spacing"].as<double>() : 2.0;
+    swarm_formation_rows.clear();
+    if (config["swarm"]["formation_rows"])
+      swarm_formation_rows = config["swarm"]["formation_rows"].as<std::vector<int>>();
+  }
+  else
+  {
+    swarm_enabled = false;
+    swarm_uav_num = 1;
+    swarm_ring_radius = 0.0;
+    swarm_spawn_clear_radius = 0.0;
+    swarm_namespace_prefix = "uav";
+    swarm_formation_rows.clear();
+  }
 }
 
 
@@ -799,6 +824,81 @@ Maps::generate(int type)
       break;
   }
 
+  clearSwarmSpawnAreas();
+}
+
+std::vector<Eigen::Vector2f>
+Maps::getSwarmClearPositions() const
+{
+  std::vector<Eigen::Vector2f> positions;
+  if (!swarm_enabled || swarm_uav_num <= 0)
+    return positions;
+
+  if (!swarm_formation_rows.empty())
+  {
+    int count = 0;
+    for (size_t row = 0; row < swarm_formation_rows.size() && count < swarm_uav_num; ++row)
+    {
+      const int row_count = std::min(std::max(0, swarm_formation_rows[row]), swarm_uav_num - count);
+      if (row_count <= 0)
+        continue;
+      const float x = static_cast<float>(swarm_formation_start_x + static_cast<double>(row) * swarm_formation_row_spacing);
+      const float y0 = -0.5f * static_cast<float>(row_count - 1) * static_cast<float>(swarm_formation_lateral_spacing);
+      for (int j = 0; j < row_count && count < swarm_uav_num; ++j)
+      {
+        const float y = y0 + static_cast<float>(j) * static_cast<float>(swarm_formation_lateral_spacing);
+        positions.emplace_back(x, y);
+        positions.emplace_back(x + static_cast<float>(swarm_forward_distance), y);
+        ++count;
+      }
+    }
+    return positions;
+  }
+
+  if (swarm_ring_radius <= 0.0)
+    return positions;
+  positions.reserve(2 * swarm_uav_num);
+  for (int i = 0; i < swarm_uav_num; ++i)
+  {
+    const double angle = 2.0 * M_PI * static_cast<double>(i) / static_cast<double>(swarm_uav_num);
+    const float x = static_cast<float>(swarm_ring_radius * std::cos(angle));
+    const float y = static_cast<float>(swarm_ring_radius * std::sin(angle));
+    positions.emplace_back(x, y);
+    positions.emplace_back(-x, -y);
+  }
+  return positions;
+}
+
+void
+Maps::clearSwarmSpawnAreas()
+{
+  if (!swarm_enabled || swarm_spawn_clear_radius <= 0.0 || info.cloud->points.empty())
+    return;
+
+  const std::vector<Eigen::Vector2f> clear_positions = getSwarmClearPositions();
+  if (clear_positions.empty())
+    return;
+
+  const float clear_radius_sq = static_cast<float>(swarm_spawn_clear_radius * swarm_spawn_clear_radius);
+  auto &points = info.cloud->points;
+  points.erase(std::remove_if(points.begin(), points.end(),
+                              [&](const pcl::PointXYZ &point) {
+                                if (point.z <= 0.1f)
+                                  return false;
+                                for (const auto &center : clear_positions)
+                                {
+                                  const float dx = point.x - center.x();
+                                  const float dy = point.y - center.y();
+                                  if (dx * dx + dy * dy <= clear_radius_sq)
+                                    return true;
+                                }
+                                return false;
+                              }),
+               points.end());
+
+  info.cloud->width = info.cloud->points.size();
+  info.cloud->height = 1;
+  info.cloud->is_dense = true;
 }
 
 pcl::PointXYZ
@@ -988,7 +1088,7 @@ void Maps::forest()
   pcl::PointCloud<pcl::PointXYZ>::Ptr tree_cloud(new pcl::PointCloud<pcl::PointXYZ>());
   if (pcl::io::loadPLYFile(tree_file, *tree_cloud) == -1)
   {
-    ROS_ERROR("Error: Cannot read the tree PLY file. Please check the single_config.yaml.");
+    ROS_ERROR("Error: Cannot read the tree PLY file. Please check the simulator config yaml.");
     return;
   }
 

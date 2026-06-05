@@ -8,7 +8,6 @@ class StateTransform:
     def __init__(self):
         self.lattice_primitive = LatticePrimitive.get_instance()
         self.goal_length = cfg['goal_length']
-        self.target_position_scale = cfg["target_position_scale"]
         self.image_width = cfg["image_width"]
         self.image_height = cfg["image_height"]
         self.camera_fx = cfg["camera_fx"]
@@ -59,67 +58,6 @@ class StateTransform:
 
         endstate = endstate.permute(0, 2, 1).reshape(B, 9, V, H)  # [B, 9, 3, 5]
         return endstate
-
-    def pred_to_target(self, target_pred: torch.Tensor) -> torch.Tensor:
-        """
-            Decode YOPOv2-Tracker target predictions.
-            target_pred: [batch; du dv depth; primitive_v; primitive_h].
-            du/dv are cell-local logits and depth is a normalized range logit.
-            return: [batch; x y z; primitive_v; primitive_h] in the camera/body frame.
-        """
-        B, V, H = target_pred.shape[0], target_pred.shape[2], target_pred.shape[3]
-        device = target_pred.device
-        dtype = target_pred.dtype
-        stride_u = float(self.image_width) / float(H)
-        stride_v = float(self.image_height) / float(V)
-
-        h_idx = torch.arange(H, dtype=dtype, device=device).view(1, 1, H)
-        v_idx = torch.arange(V, dtype=dtype, device=device).view(1, V, 1)
-
-        u = (h_idx + torch.sigmoid(target_pred[:, 0])) * stride_u
-        v = (v_idx + torch.sigmoid(target_pred[:, 1])) * stride_v
-        depth = torch.sigmoid(target_pred[:, 2]) * self.target_position_scale
-
-        x = depth
-        y = -(u - self.camera_cx) / self.camera_fx * depth
-        z = -(v - self.camera_cy) / self.camera_fy * depth
-        return torch.stack([x, y, z], dim=1)
-
-    def pred_to_target_cpu(self, target_pred: np.ndarray, grid_id=None) -> np.ndarray:
-        """
-            CPU decoder used by the ROS node.
-            target_pred: [N, 3] raw network predictions in flattened image-grid order.
-            grid_id: optional flattened grid indices matching target_pred rows.
-        """
-        target_pred = np.asarray(target_pred, dtype=np.float32)
-        if target_pred.ndim == 1:
-            target_pred = target_pred[None, :]
-
-        if grid_id is None:
-            grid_id = np.arange(target_pred.shape[0], dtype=np.int64)
-        if isinstance(grid_id, torch.Tensor):
-            grid_id = grid_id.cpu().numpy()
-        grid_id = np.asarray(grid_id, dtype=np.int64).reshape(-1)
-
-        H = self.lattice_primitive.horizon_num
-        V = self.lattice_primitive.vertical_num
-        stride_u = float(self.image_width) / float(H)
-        stride_v = float(self.image_height) / float(V)
-
-        h_idx = grid_id % H
-        v_idx = grid_id // H
-        h_idx = np.clip(h_idx, 0, H - 1)
-        v_idx = np.clip(v_idx, 0, V - 1)
-
-        sigmoid = lambda x: 1.0 / (1.0 + np.exp(-x))
-        u = (h_idx + sigmoid(target_pred[:, 0])) * stride_u
-        v = (v_idx + sigmoid(target_pred[:, 1])) * stride_v
-        depth = sigmoid(target_pred[:, 2]) * self.target_position_scale
-
-        x = depth
-        y = -(u - self.camera_cx) / self.camera_fx * depth
-        z = -(v - self.camera_cy) / self.camera_fy * depth
-        return np.stack((x, y, z), axis=1)
 
     def pred_to_endstate_cpu(self, endstate_pred: np.ndarray, lattice_id: torch.Tensor) -> np.ndarray:
         """

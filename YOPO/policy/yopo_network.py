@@ -33,10 +33,10 @@ class YopoNetwork(nn.Module):
 
     def forward(self, image: torch.Tensor, obs: torch.Tensor) -> torch.Tensor:
         """
-            YOPOv2-Tracker head.
+            YOPO navigation head.
             Output per primitive:
             [0:3] primitive position offset, [3:9] end velocity/acceleration,
-            [9] trajectory cost, [10] objectness logit, [11:14] target uv/depth logits.
+            [9] trajectory cost.
         """
         depth_feature = self.image_backbone(image)
         obs_feature = self.state_backbone(obs)
@@ -44,24 +44,21 @@ class YopoNetwork(nn.Module):
         output = self.yopo_head(input_tensor)
         endstate = torch.tanh(output[:, :9])  # [batch, 9, vertical_num, horizon_num]
         score = torch.nn.functional.softplus(output[:, 9])  # [batch, vertical_num, horizon_num]
-        objectness = output[:, 10]  # logits, [batch, vertical_num, horizon_num]
-        target = output[:, 11:14]  # raw cell-offset/depth logits
-        return endstate, score, objectness, target
+        return endstate, score
 
     def inference(self, image: torch.Tensor, obs: torch.Tensor) -> torch.Tensor:
         """
             For network training:
             (1) normalize the input state and transform to primitive frame
             (2) forward propagation
-            (3) convert the prediction to endstate / target position in body frame.
+            (3) convert the prediction to endstate in body frame.
             obs: current state in the body frame.
         """
         obs = self.state_transform.normalize_obs(obs)
         obs = self.state_transform.prepare_input(obs)
-        endstate_pred, score_pred, objectness_pred, target_pred = self.forward(image, obs)
+        endstate_pred, score_pred = self.forward(image, obs)
         endstate = self.state_transform.pred_to_endstate(endstate_pred)
-        target = self.state_transform.pred_to_target(target_pred)
-        return endstate, score_pred, objectness_pred, target
+        return endstate, score_pred
 
     def print_grad(self, grad):
         print("grad of hook: ", grad)

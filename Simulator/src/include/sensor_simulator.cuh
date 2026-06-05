@@ -32,12 +32,12 @@ namespace raycast
 
     struct CameraParams
     {
-        float fx = 80.0f; // focal length x
-        float fy = 80.0f; // focal length y
+        float fx = 46.1880215f; // 160 px width with 120 deg horizontal FOV
+        float fy = 48.0f; // 96 px height with 90 deg vertical FOV
         float cx = 80.0f; // principal point x (image center)
-        float cy = 45.0f; // principal point y (image center)
+        float cy = 48.0f; // principal point y (image center)
         int image_width = 160;
-        int image_height = 90;
+        int image_height = 96;
         float max_depth_dist{20};
         bool normalize_depth{false};
     };
@@ -50,6 +50,12 @@ namespace raycast
         int horizontal_num = 360;           // 水平360点
         float horizontal_resolution = 1.0;  // 水平分辨率为1度
         float max_lidar_dist{50};
+    };
+
+    struct EllipsoidObstacle
+    {
+        Vector3f center;
+        Vector3f radii;
     };
 
     class GridMap
@@ -80,19 +86,25 @@ namespace raycast
     __global__ void cameraRaycastKernel(float *depth_values,
                                         GridMap grid_map,
                                         CameraParams camera_param,
-                                        cudaMat::SE3<float> T_wc);
+                                        cudaMat::SE3<float> T_wc,
+                                        const EllipsoidObstacle *dynamic_obstacles,
+                                        int dynamic_obstacle_count);
     __global__ void lidarRaycastKernel(Vector3f* point_values,
                                        GridMap grid_map,
                                        LidarParams lidar_param,
-                                       cudaMat::SE3<float> T_wc);
+                                       cudaMat::SE3<float> T_wc,
+                                       const EllipsoidObstacle *dynamic_obstacles,
+                                       int dynamic_obstacle_count);
 
     void renderDepthImage(GridMap *grid_map,
                           CameraParams *camera_param,
                           cudaMat::SE3<float>& T_wc,
-                          cv::Mat &depth_image);
+                          cv::Mat &depth_image,
+                          const std::vector<EllipsoidObstacle> &dynamic_obstacles = {});
     void renderLidarPointcloud(GridMap *grid_map,
                                LidarParams *lidar_param,
                                cudaMat::SE3<float>& T_wc,
-                               pcl::PointCloud<pcl::PointXYZ>& lidar_points);
+                               pcl::PointCloud<pcl::PointXYZ>& lidar_points,
+                               const std::vector<EllipsoidObstacle> &dynamic_obstacles = {});
 }
 #endif // CUDA_UTILS_CUH

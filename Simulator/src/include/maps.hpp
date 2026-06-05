@@ -61,6 +61,19 @@ private:
   double _wall_thick;
   int    _wall_num;
   int    _wall_ceiling;
+  // swarm test spawn clearing
+  bool swarm_enabled{false};
+  int swarm_uav_num{1};
+  double swarm_ring_radius{0.0};
+  double swarm_spawn_clear_radius{0.0};
+  double swarm_altitude{2.0};
+  double swarm_forward_distance{50.0};
+  double swarm_formation_start_x{-30.0};
+  double swarm_formation_row_spacing{0.8660254};
+  double swarm_formation_lateral_spacing{1.0};
+  std::string swarm_namespace_prefix{"uav"};
+  std::vector<int> swarm_formation_rows;
+
   std::uniform_real_distribution<double> dis_window_x, dis_window_z, dis_window_size;
   std::default_random_engine window_eng;
 
@@ -77,6 +90,8 @@ private:
   void generatePoissonPoints(float map_width, float map_height, float dist, std::vector<Eigen::Vector2f> &positions);
   void scaleAndTranslateCloud(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, float scale_factor, Eigen::Vector2f position, Eigen::Matrix3f &rotation);
   pcl::PointCloud<pcl::PointXYZ>::Ptr generateGround(const pcl::PointCloud<pcl::PointXYZ>::Ptr &forest_cloud, float grid_size, float hight = 0.0);
+  void clearSwarmSpawnAreas();
+  std::vector<Eigen::Vector2f> getSwarmClearPositions() const;
 
   void room();
   void transformPointCloud(pcl::PointCloud<pcl::PointXYZ>::Ptr input_cloud, pcl::PointCloud<pcl::PointXYZ>::Ptr transformed_cloud,

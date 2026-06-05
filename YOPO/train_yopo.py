@@ -25,7 +25,7 @@ def parser():
     parser.add_argument("--batch-size", type=int, default=16, help="training batch size")
     parser.add_argument("--learning-rate", type=float, default=1.5e-4, help="optimizer learning rate")
     parser.add_argument("--num-workers", type=int, default=4, help="dataloader workers")
-    parser.add_argument("--save-root", type=str, default="saved/with_tracker", help="checkpoint/tensorboard root under YOPO/")
+    parser.add_argument("--save-root", type=str, default="saved", help="checkpoint/tensorboard root under YOPO/")
     parser.add_argument("--save-interval", type=int, default=10, help="save checkpoint every N epochs; <=0 disables interval saving")
     return parser
 

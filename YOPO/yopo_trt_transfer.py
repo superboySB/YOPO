@@ -21,7 +21,7 @@ def parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--trial", type=int, default=1, help="trial number")
     parser.add_argument("--epoch", type=int, default=50, help="epoch number")
-    parser.add_argument("--weights-root", type=str, default="saved/with_tracker", help="tracker checkpoint root under YOPO/")
+    parser.add_argument("--weights-root", type=str, default="saved", help="checkpoint root under YOPO/")
     parser.add_argument("--dir", type=str, default='yopo_tracker_trt.pth', help="output file name")
     return parser
 
@@ -55,31 +55,27 @@ if __name__ == "__main__":
 
     print("Evaluation...")
     # Warm Up...
-    traj_trt, score_trt, obj_trt, target_trt = model_trt(depth_in, obs_in)
-    traj, score, obj, target = policy(depth_in, obs_in)
+    traj_trt, score_trt = model_trt(depth_in, obs_in)
+    traj, score = policy(depth_in, obs_in)
     torch.cuda.synchronize()
 
     # PyTorch Latency
     torch_start = time.time()
-    traj, score, obj, target = policy(depth_in, obs_in)
+    traj, score = policy(depth_in, obs_in)
     torch.cuda.synchronize()
     torch_end = time.time()
 
     # TensorRT Latency
     trt_start = time.time()
-    traj_trt, score_trt, obj_trt, target_trt = model_trt(depth_in, obs_in)
+    traj_trt, score_trt = model_trt(depth_in, obs_in)
     torch.cuda.synchronize()
     trt_end = time.time()
 
     # Transfer Error
     traj_error = torch.mean(torch.abs(traj - traj_trt))
     score_error = torch.mean(torch.abs(score - score_trt))
-    obj_error = torch.mean(torch.abs(obj - obj_trt))
-    target_error = torch.mean(torch.abs(target - target_trt))
 
     print(f"Torch Latency: {1000 * (torch_end - torch_start):.3f} ms, "
           f"TensorRT Latency: {1000 * (trt_end - trt_start):.3f} ms, "
           f"Transfer Trajectory Error: {traj_error.item():.6f},"
-          f"Transfer Score Error: {score_error.item():.6f},"
-          f"Transfer Objectness Error: {obj_error.item():.6f},"
-          f"Transfer Target Error: {target_error.item():.6f}")
+          f"Transfer Score Error: {score_error.item():.6f}")

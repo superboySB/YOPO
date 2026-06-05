@@ -78,44 +78,30 @@ catkin_make
 
 ## Test the Policy
 
-You can test the policy using pre-trained weights we provide at `YOPO/saved/YOPO_1/epoch50.pth`. 
+You can test the tracker policy using checkpoints under `YOPO/saved/YOPO_<trial>/epoch<epoch>.pth`.
 
-**1. Start the Controller and Dynamics Simulator** 
+**1. Start the Unified Simulation**
 
-For detailed introduction about the controller, please refer to [Controller_Introduction](Controller/src/readme.md)
+The swarm tracker launcher defaults to the single-UAV case. For swarm tests, set `--uav-num` and a matching pipe-separated `--formation`, for example `--uav-num 10 --formation '1|2|3|4'`.
 ```
-cd Controller
-source devel/setup.bash
-roslaunch so3_quadrotor_simulator simulator_attitude_control.launch
-```
-**2. Start the Environment and Sensors Simulator**
-
-For detailed introduction about the simulator, please refer to [Simulator_Introduction](Simulator/src/readme.md). Example of a random forest can be found in [random_forest.png](docs/random_forest.png)
-```
-cd Simulator
-source devel/setup.bash
-rosrun sensor_simulator sensor_simulator_cuda
+cd /workspace/YOPO
+./tools/swarm_tracker_launch.sh --trial 0 --epoch 50 --rviz 1
 ```
 
-You can refer to [single_config.yaml](Simulator/src/config/single_config.yaml) for modifications of the sensor (e.g., camera and LiDAR parameters) and environment (e.g., scenario type and obstacle density).
-
-**3. Start the YOPO Planner** 
-
-You can refer to [single_traj_opt.yaml](YOPO/config/single_traj_opt.yaml) for modification of the flight speed (The given weights are pretrained at 6 m/s and perform smoothly at speeds between 0 - 6 m/s, and more pretrained models are available at [Releases](https://github.com/TJU-Aerial-Robotics/YOPO/releases)).
-
+For a 10-UAV swarm:
 ```
-cd YOPO
-conda activate yopo
-python test_yopo_ros_single.py --trial=1 --epoch=50
+./tools/swarm_tracker_launch.sh --uav-num 10 --trial 0 --epoch 50 --rviz 1
 ```
 
-**4. Visualization**
+You can refer to [swarm_config.yaml](Simulator/src/config/swarm_config.yaml) for modifications of the sensor (e.g., camera and LiDAR parameters) and environment (e.g., scenario type and obstacle density).
 
-Start the RVIZ to visualize the images and trajectory. 
+**2. Stop the Simulation**
+
 ```
-cd YOPO
-rviz -d single_yopo.rviz
+./tools/swarm_tracker_launch.sh --stop
 ```
+
+RViz uses [swarm_tracker.rviz](YOPO/swarm_tracker.rviz), and the launcher generates a per-UAV RViz config from it. Candidate trajectories are published on `/uavN/yopo_tracker/trajs_visual` with network score in the `intensity` channel, so RViz can color different candidates by weight/score.
 
 Left: Random Forest (maze_type=5); Right: 3D Perlin (maze_type=1).
 <p align="center">
@@ -156,7 +142,7 @@ YOPO/
 ├── Controller/
 ├── dataset/
 ```
-You can refer to [single_config.yaml](Simulator/src/config/single_config.yaml) for modifications of the sampling state, sensor, and environment. Besides, we use random `vel/acc/goal` for data augmentation, and the distribution can be found in [state_samples](docs/state_samples.png)
+You can refer to [swarm_config.yaml](Simulator/src/config/swarm_config.yaml) for modifications of the sampling state, sensor, and environment. Besides, we use random `vel/acc/goal` for data augmentation, and the distribution can be found in [state_samples](docs/state_samples.png)
 
 **2. Train the Policy**
 ```
@@ -175,7 +161,7 @@ tensorboard --logdir=./
     <img src="docs/train_log.png" alt="train_log" width="100%"/>
 </p>
 
-Besides, you can refer to [single_traj_opt.yaml](YOPO/config/single_traj_opt.yaml) for modifications of trajectory optimization (e.g. the speed and penalties).
+Besides, you can refer to [tracker_traj_opt.yaml](YOPO/config/tracker_traj_opt.yaml) for modifications of trajectory optimization (e.g. the speed and penalties).
 
 
 ## TensorRT Deployment
@@ -200,15 +186,15 @@ python yopo_trt_transfer.py --trial=1 --epoch=50
 ```
 cd YOPO
 conda activate yopo
-python test_yopo_ros_single.py --use_tensorrt=1
+python test_yopo_ros_swarm_tracker.py --use_tensorrt=1
 ```
 
 **4. Adapt to Your Platform**
-+ You need to change `env: simulation` at the end of `test_yopo_ros_single.py` to `env: 435` (this affects the unit of the depth image), and modify the odometry to your own topic (in the NWU frame).
++ You need to modify the odometry/depth/mask topic arguments of `test_yopo_ros_swarm_tracker.py` for your own platform (in the NWU frame).
 
 + Configure your depth camera to match the training configuration (the pre-trained weights use a 16:9 resolution and a 90° FOV; for RealSense, you can set the resolution in ROS-driver file to 480×270).
 
-+ You may want to use the position controller like traditional planners in real flight to make it compatible with your controller. You should change `plan_from_reference: False` to `True` at the end of `test_yopo_ros_single.py`. You can test the changes in simulation using the position controller: `roslaunch so3_quadrotor_simulator simulator_position_control.launch
++ You may want to use the position controller like traditional planners in real flight to make it compatible with your controller. Pass `--plan_from_reference=1` to `test_yopo_ros_swarm_tracker.py` when running the node directly. You can test the changes in simulation using the position controller: `roslaunch so3_quadrotor_simulator simulator_position_control.launch
 `
 
 **5. Generalization**

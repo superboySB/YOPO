@@ -8,6 +8,60 @@ namespace raycast
             occupied[0] = grid_map.mapQuery(pos);
     }
 
+    __device__ __forceinline__ float dotFloat3(const float3 &a, const float3 &b)
+    {
+        return a.x * b.x + a.y * b.y + a.z * b.z;
+    }
+
+    __device__ __forceinline__ float3 subFloat3(const float3 &a, const float3 &b)
+    {
+        return make_float3(a.x - b.x, a.y - b.y, a.z - b.z);
+    }
+
+    __device__ float findNearestEllipsoidHit(const float3 &ray_origin_w,
+                                             const float3 &ray_dir_w,
+                                             const EllipsoidObstacle *dynamic_obstacles,
+                                             int dynamic_obstacle_count,
+                                             float max_ray_length)
+    {
+        float best_hit = max_ray_length + 1.0f;
+
+        for (int i = 0; i < dynamic_obstacle_count; ++i)
+        {
+            const EllipsoidObstacle obstacle = dynamic_obstacles[i];
+            if (obstacle.radii.x <= 0.0f || obstacle.radii.y <= 0.0f || obstacle.radii.z <= 0.0f)
+                continue;
+
+            const float3 center_w = make_float3(obstacle.center.x, obstacle.center.y, obstacle.center.z);
+            const float3 oc = subFloat3(ray_origin_w, center_w);
+            const float inv_rx_sq = 1.0f / (obstacle.radii.x * obstacle.radii.x);
+            const float inv_ry_sq = 1.0f / (obstacle.radii.y * obstacle.radii.y);
+            const float inv_rz_sq = 1.0f / (obstacle.radii.z * obstacle.radii.z);
+            const float a = ray_dir_w.x * ray_dir_w.x * inv_rx_sq +
+                            ray_dir_w.y * ray_dir_w.y * inv_ry_sq +
+                            ray_dir_w.z * ray_dir_w.z * inv_rz_sq;
+            const float b = 2.0f * (oc.x * ray_dir_w.x * inv_rx_sq +
+                                    oc.y * ray_dir_w.y * inv_ry_sq +
+                                    oc.z * ray_dir_w.z * inv_rz_sq);
+            const float c = oc.x * oc.x * inv_rx_sq +
+                            oc.y * oc.y * inv_ry_sq +
+                            oc.z * oc.z * inv_rz_sq - 1.0f;
+            const float discriminant = b * b - 4.0f * a * c;
+            if (discriminant < 0.0f)
+                continue;
+
+            const float sqrt_discriminant = sqrtf(discriminant);
+            float hit = (-b - sqrt_discriminant) / (2.0f * a);
+            if (hit <= 0.0f)
+                hit = (-b + sqrt_discriminant) / (2.0f * a);
+
+            if (hit > 0.0f && hit <= max_ray_length && hit < best_hit)
+                best_hit = hit;
+        }
+
+        return best_hit <= max_ray_length ? best_hit : -1.0f;
+    }
+
     GridMap::GridMap(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud, float resolution, int occupy_threshold)
     {
         const float epsilon = 0.001f;
@@ -130,7 +184,9 @@ namespace raycast
     __global__ void cameraRaycastKernel(float *depth_values,
                                         GridMap grid_map,
                                         CameraParams camera_param,
-                                        cudaMat::SE3<float> T_wc)
+                                        cudaMat::SE3<float> T_wc,
+                                        const EllipsoidObstacle *dynamic_obstacles,
+                                        int dynamic_obstacle_count)
     {
         int u = threadIdx.x;
         int v = blockIdx.x;
@@ -147,12 +203,19 @@ namespace raycast
         y /= length;
         z /= length;
 
+        const float3 ray_dir_c = make_float3(x, y, z);
+        const float3 ray_dir_w = T_wc.rotate(ray_dir_c);
+        const float3 ray_origin_w = T_wc.getTranslation();
+        const float max_ray_length = camera_param.max_depth_dist / fmaxf(x, 1e-4f);
+        const float dynamic_hit = findNearestEllipsoidHit(ray_origin_w, ray_dir_w, dynamic_obstacles, dynamic_obstacle_count, max_ray_length);
+        const float dynamic_depth = dynamic_hit > 0.0f ? dynamic_hit * x : camera_param.max_depth_dist;
+
         const float dx = 0.5f * grid_map.raycast_step_;
         const float dy = (y / x) * dx;
         const float dz = (z / x) * dx;
 
         int scale = 0;
-        float depth = camera_param.max_depth_dist;
+        float depth = dynamic_depth;
 
         while (1)
         {
@@ -163,7 +226,15 @@ namespace raycast
             const float point_z = scale * dz;
 
             if (point_x >= camera_param.max_depth_dist)
+            {
+                depth = dynamic_depth;
                 break;
+            }
+            if (dynamic_hit > 0.0f && point_x >= dynamic_depth)
+            {
+                depth = dynamic_depth;
+                break;
+            }
 
             const float3 point_c = make_float3(point_x, point_y, point_z);
             const float3 point_w = T_wc * point_c;
@@ -187,26 +258,41 @@ namespace raycast
     void renderDepthImage(GridMap *grid_map,
                           CameraParams *camera_param,
                           cudaMat::SE3<float> &T_wc,
-                          cv::Mat &depth_image)
+                          cv::Mat &depth_image,
+                          const std::vector<EllipsoidObstacle> &dynamic_obstacles)
     {
         float *depth_values;
         size_t num_elements = camera_param->image_width * camera_param->image_height;
         cudaMallocManaged(&depth_values, num_elements * sizeof(float));
 
+        EllipsoidObstacle *dynamic_obstacles_cuda = nullptr;
+        if (!dynamic_obstacles.empty())
+        {
+            cudaMallocManaged(&dynamic_obstacles_cuda, dynamic_obstacles.size() * sizeof(EllipsoidObstacle));
+            cudaMemcpy(dynamic_obstacles_cuda,
+                       dynamic_obstacles.data(),
+                       dynamic_obstacles.size() * sizeof(EllipsoidObstacle),
+                       cudaMemcpyHostToDevice);
+        }
+
         cameraRaycastKernel<<<camera_param->image_height, camera_param->image_width>>>(
-            depth_values, *grid_map, *camera_param, T_wc);
+            depth_values, *grid_map, *camera_param, T_wc, dynamic_obstacles_cuda, dynamic_obstacles.size());
         cudaDeviceSynchronize();
 
         depth_image.create(camera_param->image_height, camera_param->image_width, CV_32FC1);
         cudaMemcpy(depth_image.data, depth_values, num_elements * sizeof(float), cudaMemcpyDeviceToHost);
 
+        if (dynamic_obstacles_cuda != nullptr)
+            cudaFree(dynamic_obstacles_cuda);
         cudaFree(depth_values);
     }
 
     __global__ void lidarRaycastKernel(Vector3f *point_values,
                                        GridMap grid_map,
                                        LidarParams lidar_param,
-                                       cudaMat::SE3<float> T_wc)
+                                       cudaMat::SE3<float> T_wc,
+                                       const EllipsoidObstacle *dynamic_obstacles,
+                                       int dynamic_obstacle_count)
     {
         int h = threadIdx.x;
         int v = blockIdx.x;
@@ -227,6 +313,11 @@ namespace raycast
         const float dy = ray_direction_local.y * grid_map.raycast_step_;
         const float dz = ray_direction_local.z * grid_map.raycast_step_;
 
+        const float3 ray_dir_c = make_float3(ray_direction_local.x, ray_direction_local.y, ray_direction_local.z);
+        const float3 ray_dir_w = T_wc.rotate(ray_dir_c);
+        const float3 ray_origin_w = T_wc.getTranslation();
+        const float dynamic_hit = findNearestEllipsoidHit(ray_origin_w, ray_dir_w, dynamic_obstacles, dynamic_obstacle_count, lidar_param.max_lidar_dist);
+
         int scale = 0;
         Vector3f point_value(0, 0, 0);
 
@@ -241,6 +332,13 @@ namespace raycast
 
             if (ray_length >= lidar_param.max_lidar_dist)
                 break;
+            if (dynamic_hit > 0.0f && ray_length >= dynamic_hit)
+            {
+                point_value = Vector3f(ray_direction_local.x * dynamic_hit,
+                                       ray_direction_local.y * dynamic_hit,
+                                       ray_direction_local.z * dynamic_hit);
+                break;
+            }
 
             const float3 point_c = make_float3(point_x, point_y, point_z);
             const float3 point_w = T_wc * point_c;
@@ -262,14 +360,25 @@ namespace raycast
     void renderLidarPointcloud(GridMap *grid_map,
                                LidarParams *lidar_param,
                                cudaMat::SE3<float> &T_wc,
-                               pcl::PointCloud<pcl::PointXYZ> &lidar_points)
+                               pcl::PointCloud<pcl::PointXYZ> &lidar_points,
+                               const std::vector<EllipsoidObstacle> &dynamic_obstacles)
     {
         Vector3f *point_values;
         size_t num_elements = lidar_param->vertical_lines * lidar_param->horizontal_num;
         cudaMallocManaged(&point_values, num_elements * sizeof(Vector3f));
 
+        EllipsoidObstacle *dynamic_obstacles_cuda = nullptr;
+        if (!dynamic_obstacles.empty())
+        {
+            cudaMallocManaged(&dynamic_obstacles_cuda, dynamic_obstacles.size() * sizeof(EllipsoidObstacle));
+            cudaMemcpy(dynamic_obstacles_cuda,
+                       dynamic_obstacles.data(),
+                       dynamic_obstacles.size() * sizeof(EllipsoidObstacle),
+                       cudaMemcpyHostToDevice);
+        }
+
         lidarRaycastKernel<<<lidar_param->vertical_lines, lidar_param->horizontal_num>>>(
-            point_values, *grid_map, *lidar_param, T_wc);
+            point_values, *grid_map, *lidar_param, T_wc, dynamic_obstacles_cuda, dynamic_obstacles.size());
         cudaDeviceSynchronize();
 
         std::vector<Vector3f> cpu_points(num_elements);
@@ -283,6 +392,8 @@ namespace raycast
                 lidar_points.points.emplace_back(point.x, point.y, point.z);
         }
 
+        if (dynamic_obstacles_cuda != nullptr)
+            cudaFree(dynamic_obstacles_cuda);
         cudaFree(point_values);
     }
 }

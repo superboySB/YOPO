@@ -1,0 +1,61 @@
+# Unified YOPOv2-Tracker config for training and swarm/single-UAV testing.
+
+velocity: 5
+
+vel_max_train: 6.0
+acc_max_train: 6.0
+
+wg: 0.15
+ws: 10.0
+wa: 1.0
+wc: 1.0
+
+dataset_path: "../dataset"
+image_height: 96
+image_width: 160
+camera_fx: 46.1880215
+camera_fy: 48.0
+camera_cx: 80.0
+camera_cy: 48.0
+input_channels: 2
+observation_dim: 9
+output_dim: 10
+
+horizon_num: 5
+vertical_num: 3
+horizon_camera_fov: 120.0
+vertical_camera_fov: 90.0
+horizon_anchor_fov: 30.0
+vertical_anchor_fov: 30.0
+radio_range: 5.0
+radio_num: 1
+
+d0: 1.2
+r: 0.6
+
+vx_mean_unit: 0.4
+vy_mean_unit: 0.0
+vz_mean_unit: 0.0
+vx_std_unit: 2.0
+vy_std_unit: 0.45
+vz_std_unit: 0.3
+ax_mean_unit: 0.0
+ay_mean_unit: 0.0
+az_mean_unit: 0.0
+ax_std_unit: 0.5
+ay_std_unit: 0.5
+az_std_unit: 0.3
+goal_pitch_std: 10.0
+goal_yaw_std: 20.0
+
+map_expand_min: [0, 0, 0.2]
+map_expand_max: [0, 0, 6.0]
+
+target_ellipsoid_size: [0.44, 0.44, 0.24]
+target_dynamic_max_count: 3
+target_mask_timeout: 0.25
+target_mask_min_pixels: 4
+
+target_separation_weight: 12.0
+target_clearance_distance: 2.0
+target_separation_eval_points: 30

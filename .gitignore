@@ -10,10 +10,8 @@ Simulator/logs/
 Simulator/.catkin_tools/
 
 YOPO/saved/*
-!YOPO/saved/no_tracker/
-!YOPO/saved/no_tracker/**
-!YOPO/saved/with_tracker/
-!YOPO/saved/with_tracker/**
+!YOPO/saved/YOPO_0/
+!YOPO/saved/YOPO_0/**
 YOPO/saved_swarm/*
 dataset/
 dataset_swarm/

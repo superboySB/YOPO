@@ -6,7 +6,7 @@ from ruamel.yaml import YAML
 class Config:
     def __init__(self):
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        config_path = os.environ.get("YOPO_CONFIG_PATH", os.path.join(base_dir, "single_traj_opt.yaml"))
+        config_path = os.environ.get("YOPO_CONFIG_PATH", os.path.join(base_dir, "tracker_traj_opt.yaml"))
         if not os.path.isabs(config_path):
             config_path = os.path.join(base_dir, config_path)
         with open(config_path, "r", encoding="utf-8") as config_file:
@@ -22,6 +22,9 @@ class Config:
 
     def __setitem__(self, key, value):
         self._data[key] = value
+
+    def get(self, key, default=None):
+        return self._data.get(key, default)
 
 
 cfg = Config()

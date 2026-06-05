@@ -29,6 +29,20 @@ struct DatasetCliOptions
     int image_num_override{-1};
 };
 
+struct VisibleTarget
+{
+    Eigen::Vector3f target_c;
+    Eigen::Vector3f target_w;
+    float u{-1.0f};
+    float v{-1.0f};
+    float distance{0.0f};
+};
+
+struct TargetEllipsoid
+{
+    Eigen::Vector3f axes{0.22f, 0.22f, 0.12f};
+};
+
 Eigen::Quaternionf RPY2Quat(float roll_deg, float pitch_deg, float yaw_deg);
 
 DatasetCliOptions parseCliOptions(int argc, char **argv)
@@ -113,50 +127,113 @@ bool projectTarget(const Eigen::Vector3f &target_c,
     return u >= 0.0f && u < camera.image_width && v >= 0.0f && v < camera.image_height;
 }
 
-void overlayTargetAndMask(cv::Mat &depth_image,
-                   cv::Mat &target_mask,
+void drawTargetMask(cv::Mat &target_mask,
                    const Eigen::Vector3f &target_c,
                    const CameraParams &camera,
-                   float target_radius,
-                   float occlusion_margin,
-                   float mask_bbox_scale)
+                   const TargetEllipsoid &target_shape)
 {
     float u_center = 0.0f;
     float v_center = 0.0f;
     if (!projectTarget(target_c, camera, u_center, v_center))
         return;
 
-    const int radius_px = std::max(2, std::min(24, static_cast<int>(std::ceil(camera.fx * target_radius / target_c.x()))));
-    const int u0 = std::max(0, static_cast<int>(std::floor(u_center)) - radius_px);
-    const int u1 = std::min(camera.image_width - 1, static_cast<int>(std::ceil(u_center)) + radius_px);
-    const int v0 = std::max(0, static_cast<int>(std::floor(v_center)) - radius_px);
-    const int v1 = std::min(camera.image_height - 1, static_cast<int>(std::ceil(v_center)) + radius_px);
+    const int radius_u = std::max(2, static_cast<int>(std::ceil(camera.fx * target_shape.axes.y() / target_c.x())));
+    const int radius_v = std::max(2, static_cast<int>(std::ceil(camera.fy * target_shape.axes.z() / target_c.x())));
+    cv::ellipse(
+        target_mask,
+        cv::Point(static_cast<int>(std::round(u_center)), static_cast<int>(std::round(v_center))),
+        cv::Size(radius_u, radius_v),
+        0.0,
+        0.0,
+        360.0,
+        cv::Scalar(255),
+        cv::FILLED);
+}
 
-    const int bbox_half = std::max(2, static_cast<int>(std::ceil(radius_px * mask_bbox_scale)));
-    const int bu0 = std::max(0, static_cast<int>(std::floor(u_center)) - bbox_half);
-    const int bu1 = std::min(camera.image_width - 1, static_cast<int>(std::ceil(u_center)) + bbox_half);
-    const int bv0 = std::max(0, static_cast<int>(std::floor(v_center)) - bbox_half);
-    const int bv1 = std::min(camera.image_height - 1, static_cast<int>(std::ceil(v_center)) + bbox_half);
-    cv::rectangle(target_mask, cv::Point(bu0, bv0), cv::Point(bu1, bv1), cv::Scalar(255), cv::FILLED);
+bool targetVisibleInDepth(const cv::Mat &depth_image,
+                          const Eigen::Vector3f &target_c,
+                          const CameraParams &camera,
+                          const TargetEllipsoid &target_shape,
+                          float occlusion_margin,
+                          int min_visible_pixels,
+                          float min_visible_ratio)
+{
+    float u_center = 0.0f;
+    float v_center = 0.0f;
+    if (!projectTarget(target_c, camera, u_center, v_center))
+        return false;
 
-    for (int py = v0; py <= v1; ++py)
+    const int radius_u = std::max(2, static_cast<int>(std::ceil(camera.fx * target_shape.axes.y() / target_c.x())));
+    const int radius_v = std::max(2, static_cast<int>(std::ceil(camera.fy * target_shape.axes.z() / target_c.x())));
+    const int u0 = std::max(0, static_cast<int>(std::floor(u_center)) - radius_u);
+    const int u1 = std::min(camera.image_width - 1, static_cast<int>(std::ceil(u_center)) + radius_u);
+    const int v0 = std::max(0, static_cast<int>(std::floor(v_center)) - radius_v);
+    const int v1 = std::min(camera.image_height - 1, static_cast<int>(std::ceil(v_center)) + radius_v);
+
+    int projected_pixels = 0;
+    int visible_pixels = 0;
+    for (int v = v0; v <= v1; ++v)
     {
-        for (int px = u0; px <= u1; ++px)
+        for (int u = u0; u <= u1; ++u)
         {
-            const float y_at_target_x = -(px - camera.cx) / camera.fx * target_c.x();
-            const float z_at_target_x = -(py - camera.cy) / camera.fy * target_c.x();
-            const float dy = y_at_target_x - target_c.y();
-            const float dz = z_at_target_x - target_c.z();
-            const float lateral_sq = dy * dy + dz * dz;
-            const float radius_sq = target_radius * target_radius;
-            if (lateral_sq > radius_sq)
+            const float y_at_target_x = -(u - camera.cx) / camera.fx * target_c.x();
+            const float z_at_target_x = -(v - camera.cy) / camera.fy * target_c.x();
+            const float y_norm = (y_at_target_x - target_c.y()) / target_shape.axes.y();
+            const float z_norm = (z_at_target_x - target_c.z()) / target_shape.axes.z();
+            const float lateral_norm_sq = y_norm * y_norm + z_norm * z_norm;
+            if (lateral_norm_sq > 1.0f)
                 continue;
 
-            const float surface_depth = target_c.x() - std::sqrt(std::max(0.0f, radius_sq - lateral_sq));
-            float &depth_ref = depth_image.at<float>(py, px);
-            depth_ref = surface_depth;
+            ++projected_pixels;
+            const float surface_depth = target_c.x() - target_shape.axes.x() *
+                std::sqrt(std::max(0.0f, 1.0f - lateral_norm_sq));
+            const float depth = depth_image.at<float>(v, u);
+            if (std::isfinite(depth) && depth >= surface_depth - occlusion_margin)
+                ++visible_pixels;
         }
     }
+
+    if (projected_pixels <= 0 || visible_pixels < min_visible_pixels)
+        return false;
+    return static_cast<float>(visible_pixels) / static_cast<float>(projected_pixels) >= min_visible_ratio;
+}
+
+bool targetInStaticCollision(GridMap &grid_map,
+                             const Eigen::Vector3f &target_w,
+                             const TargetEllipsoid &target_shape)
+{
+    const Eigen::Vector3f offsets[] = {
+        Eigen::Vector3f::Zero(),
+        Eigen::Vector3f(target_shape.axes.x(), 0.0f, 0.0f),
+        Eigen::Vector3f(-target_shape.axes.x(), 0.0f, 0.0f),
+        Eigen::Vector3f(0.0f, target_shape.axes.y(), 0.0f),
+        Eigen::Vector3f(0.0f, -target_shape.axes.y(), 0.0f),
+        Eigen::Vector3f(0.0f, 0.0f, target_shape.axes.z()),
+        Eigen::Vector3f(0.0f, 0.0f, -target_shape.axes.z()),
+    };
+
+    for (const auto &offset_c : offsets)
+    {
+        const Eigen::Vector3f point_w = target_w + offset_c;
+        if (grid_map.mapQueryHost(Vector3f(point_w.x(), point_w.y(), point_w.z())) == 1)
+            return true;
+    }
+    return false;
+}
+
+std::vector<EllipsoidObstacle> makeDynamicObstacles(const std::vector<VisibleTarget> &visible_targets,
+                                                    const TargetEllipsoid &target_shape)
+{
+    std::vector<EllipsoidObstacle> obstacles;
+    obstacles.reserve(visible_targets.size());
+    for (const auto &target : visible_targets)
+    {
+        EllipsoidObstacle obstacle;
+        obstacle.center = Vector3f(target.target_w.x(), target.target_w.y(), target.target_w.z());
+        obstacle.radii = Vector3f(target_shape.axes.x(), target_shape.axes.y(), target_shape.axes.z());
+        obstacles.push_back(obstacle);
+    }
+    return obstacles;
 }
 
 Eigen::Quaternionf RPY2Quat(float roll_deg, float pitch_deg, float yaw_deg)
@@ -187,6 +264,17 @@ void printProgressBar(int current, int total, int bar_width = 50)
     }
     std::cout << "] " << int(progress * 100.0f) << "%";
     std::cout.flush();
+}
+
+int sampleDynamicTargetCount(int min_count,
+                             int max_count,
+                             std::uniform_real_distribution<float> &uniform_distribution,
+                             std::mt19937 &generator)
+{
+    int count = 0;
+    while (count < max_count && uniform_distribution(generator) >= 0.5f)
+        ++count;
+    return std::max(min_count, count);
 }
 
 int main(int argc, char **argv)
@@ -238,13 +326,30 @@ int main(int argc, char **argv)
     float z_max = config["z_range"][1].as<float>();
     float safe_dist = config["safe_dist"].as<float>();
     float ply_res = config["ply_res"].as<float>();
-    float target_radius = config["target"] && config["target"]["radius"] ? config["target"]["radius"].as<float>() : 0.35f;
+    const YAML::Node target_size = config["target"]["ellipsoid_size"];
+    TargetEllipsoid target_shape;
+    target_shape.axes = Eigen::Vector3f(
+        target_size[0].as<float>() * 0.5f,
+        target_size[1].as<float>() * 0.5f,
+        target_size[2].as<float>() * 0.5f);
     float target_min_depth = config["target"] && config["target"]["min_depth"] ? config["target"]["min_depth"].as<float>() : 2.5f;
     float target_max_depth = config["target"] && config["target"]["max_depth"] ? config["target"]["max_depth"].as<float>() : 14.0f;
     float target_max_yaw = config["target"] && config["target"]["max_yaw_deg"] ? config["target"]["max_yaw_deg"].as<float>() : 35.0f;
     float target_max_pitch = config["target"] && config["target"]["max_pitch_deg"] ? config["target"]["max_pitch_deg"].as<float>() : 22.0f;
     float target_occlusion_margin = config["target"] && config["target"]["occlusion_margin"] ? config["target"]["occlusion_margin"].as<float>() : 0.3f;
-    float target_mask_bbox_scale = config["target"] && config["target"]["mask_bbox_scale"] ? config["target"]["mask_bbox_scale"].as<float>() : 1.2f;
+    int target_mask_min_visible_pixels = config["target"]["mask_min_visible_pixels"].as<int>();
+    float target_mask_min_visible_ratio = config["target"]["mask_min_visible_ratio"].as<float>();
+    float target_min_center_distance = config["target"] && config["target"]["min_center_distance"]
+                                           ? config["target"]["min_center_distance"].as<float>()
+                                           : ((config["swarm"] && config["swarm"]["formation_lateral_spacing"])
+                                                  ? config["swarm"]["formation_lateral_spacing"].as<float>()
+                                                  : 2.0f);
+    int target_mask_dynamic_min_count = config["target"] && config["target"]["mask_dynamic_min_count"]
+                                            ? std::max(0, config["target"]["mask_dynamic_min_count"].as<int>())
+                                            : 0;
+    int target_mask_dynamic_max_count = config["target"] && config["target"]["mask_dynamic_max_count"]
+                                            ? std::max(target_mask_dynamic_min_count, config["target"]["mask_dynamic_max_count"].as<int>())
+                                            : 3;
 
     // 中心对齐，计算偏移量
     int dataset_num = env_num * image_num;
@@ -309,7 +414,12 @@ int main(int argc, char **argv)
         std::ofstream pose_file(save_path + "pose-" + std::to_string(map_i) + ".csv");
         pose_file << "px,py,pz,qw,qx,qy,qz\n";
         std::ofstream target_file(save_path + "target-" + std::to_string(map_i) + ".csv");
-        target_file << "tx,ty,tz,tvx,tvy,tvz,visible,u,v,depth\n";
+        target_file << "target_count";
+        for (int target_i = 0; target_i < target_mask_dynamic_max_count; ++target_i)
+            target_file << ",tx" << target_i << ",ty" << target_i << ",tz" << target_i
+                        << ",range" << target_i << ",u" << target_i << ",v" << target_i
+                        << ",depth" << target_i;
+        target_file << "\n";
         for (int image_i = 0; image_i < image_num; ++image_i)
         {
             Eigen::Vector3f pos;
@@ -335,44 +445,85 @@ int main(int argc, char **argv)
             cudaMat::SE3<float> T_wc(quat_wc.w(), quat_wc.x(), quat_wc.y(), quat_wc.z(),
                                      pos.x(), pos.y(), pos.z());
 
-            cv::Mat depth_image;
-            renderDepthImage(&grid_map, &camera, T_wc, depth_image);
+            cv::Mat static_depth_image;
+            renderDepthImage(&grid_map, &camera, T_wc, static_depth_image);
             cv::Mat target_mask = cv::Mat::zeros(camera.image_height, camera.image_width, CV_8UC1);
 
             Eigen::Matrix3f R_wc = quat_wc.toRotationMatrix();
-            Eigen::Vector3f target_c(target_min_depth, 0.0f, 0.0f);
-            Eigen::Vector3f target_w = pos + R_wc * target_c;
-            float target_u = -1.0f;
-            float target_v = -1.0f;
-            bool target_visible = false;
-            for (int attempt = 0; attempt < 120; ++attempt)
+            std::vector<VisibleTarget> visible_targets;
+            const int target_count = sampleDynamicTargetCount(
+                target_mask_dynamic_min_count,
+                target_mask_dynamic_max_count,
+                uniform_uniform,
+                generator);
+            visible_targets.reserve(target_count);
+            for (int target_i = 0; target_i < target_count; ++target_i)
             {
-                const float depth = target_min_depth + uniform_uniform(generator) * (target_max_depth - target_min_depth);
-                const float yaw_rad = (2.0f * uniform_uniform(generator) - 1.0f) * target_max_yaw * M_PI / 180.0f;
-                const float pitch_rad = (2.0f * uniform_uniform(generator) - 1.0f) * target_max_pitch * M_PI / 180.0f;
-                target_c = Eigen::Vector3f(
-                    depth * std::cos(pitch_rad) * std::cos(yaw_rad),
-                    -depth * std::cos(pitch_rad) * std::sin(yaw_rad),
-                    -depth * std::sin(pitch_rad));
-
-                if (!projectTarget(target_c, camera, target_u, target_v))
-                    continue;
-                target_w = pos + R_wc * target_c;
-                if (grid_map.mapQueryHost(Vector3f(target_w.x(), target_w.y(), target_w.z())) == 1)
-                    continue;
-
-                const float map_depth = depth_image.at<float>(
-                    std::max(0, std::min(camera.image_height - 1, static_cast<int>(std::round(target_v)))),
-                    std::max(0, std::min(camera.image_width - 1, static_cast<int>(std::round(target_u)))));
-                if (target_c.x() - target_radius < map_depth + target_occlusion_margin)
+                for (int attempt = 0; attempt < 120; ++attempt)
                 {
-                    target_visible = true;
-                    break;
+                    const float depth = target_min_depth + uniform_uniform(generator) * (target_max_depth - target_min_depth);
+                    const float yaw_rad = (2.0f * uniform_uniform(generator) - 1.0f) * target_max_yaw * M_PI / 180.0f;
+                    const float pitch_rad = (2.0f * uniform_uniform(generator) - 1.0f) * target_max_pitch * M_PI / 180.0f;
+                    Eigen::Vector3f candidate_c(
+                        depth * std::cos(pitch_rad) * std::cos(yaw_rad),
+                        -depth * std::cos(pitch_rad) * std::sin(yaw_rad),
+                        -depth * std::sin(pitch_rad));
+
+                    float candidate_u = -1.0f;
+                    float candidate_v = -1.0f;
+                    if (!projectTarget(candidate_c, camera, candidate_u, candidate_v))
+                        continue;
+
+                    Eigen::Vector3f candidate_w = pos + R_wc * candidate_c;
+                    if (targetInStaticCollision(grid_map, candidate_w, target_shape))
+                        continue;
+
+                    bool too_close_to_existing = false;
+                    for (const auto &existing_target : visible_targets)
+                    {
+                        if ((candidate_w - existing_target.target_w).norm() < target_min_center_distance)
+                        {
+                            too_close_to_existing = true;
+                            break;
+                        }
+                    }
+                    if (too_close_to_existing)
+                        continue;
+
+                    if (targetVisibleInDepth(static_depth_image,
+                                             candidate_c,
+                                             camera,
+                                             target_shape,
+                                             target_occlusion_margin,
+                                             target_mask_min_visible_pixels,
+                                             target_mask_min_visible_ratio))
+                    {
+                        visible_targets.push_back(VisibleTarget{
+                            candidate_c,
+                            candidate_w,
+                            candidate_u,
+                            candidate_v,
+                            candidate_c.norm()});
+                        break;
+                    }
                 }
             }
 
-            if (target_visible)
-                overlayTargetAndMask(depth_image, target_mask, target_c, camera, target_radius, target_occlusion_margin, target_mask_bbox_scale);
+            if (!visible_targets.empty())
+            {
+                std::sort(
+                    visible_targets.begin(),
+                    visible_targets.end(),
+                    [](const VisibleTarget &lhs, const VisibleTarget &rhs) {
+                        return lhs.distance < rhs.distance;
+                    });
+
+                for (const auto &visible_target : visible_targets)
+                    drawTargetMask(target_mask, visible_target.target_c, camera, target_shape);
+            }
+            const std::vector<EllipsoidObstacle> dynamic_obstacles = makeDynamicObstacles(visible_targets, target_shape);
+            cv::Mat depth_image;
+            renderDepthImage(&grid_map, &camera, T_wc, depth_image, dynamic_obstacles);
 
             const std::string depth_filename = image_path + "/depth_" + std::to_string(image_i) + ".png";
             const std::string mask_filename = image_path + "/mask_" + std::to_string(image_i) + ".png";
@@ -383,15 +534,27 @@ int main(int argc, char **argv)
                       << pos.x() << "," << pos.y() << "," << pos.z() << ","
                       << quat_wc.w() << "," << quat_wc.x() << ","
                       << quat_wc.y() << "," << quat_wc.z() << "\n";
-            const Eigen::Vector3f target_v_w(
-                normal_distribution(generator) * 0.5f,
-                normal_distribution(generator) * 0.5f,
-                normal_distribution(generator) * 0.2f);
             target_file << std::fixed << std::setprecision(6)
-                        << target_w.x() << "," << target_w.y() << "," << target_w.z() << ","
-                        << target_v_w.x() << "," << target_v_w.y() << "," << target_v_w.z() << ","
-                        << (target_visible ? 1 : 0) << ","
-                        << target_u << "," << target_v << "," << target_c.x() << "\n";
+                        << visible_targets.size();
+            for (int target_i = 0; target_i < target_mask_dynamic_max_count; ++target_i)
+            {
+                if (target_i < static_cast<int>(visible_targets.size()))
+                {
+                    const auto &target = visible_targets[target_i];
+                    target_file << "," << target.target_w.x()
+                                << "," << target.target_w.y()
+                                << "," << target.target_w.z()
+                                << "," << target.distance
+                                << "," << target.u
+                                << "," << target.v
+                                << "," << target.target_c.x();
+                }
+                else
+                {
+                    target_file << ",0,0,0,-1,-1,-1,-1";
+                }
+            }
+            target_file << "\n";
 
             printProgressBar(map_i * image_num + image_i + 1, dataset_num);
         }

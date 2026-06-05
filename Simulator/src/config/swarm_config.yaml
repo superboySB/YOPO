@@ -1,0 +1,112 @@
+# Unified simulator config for YOPOv2-Tracker data collection and swarm/single-UAV testing.
+
+odom_topic: "/sim/odom"
+depth_topic: "/depth_image"
+target_mask_topic: "/target_mask_image"
+target_depth_topic: "/target_depth_image"
+lidar_topic: "/lidar_points"
+target_odom_topic: "/target/odom"
+
+render_depth: true
+depth_fps: 8
+render_target_mask: true
+render_swarm_detector_mask: true
+
+render_lidar: false
+lidar_fps: 5
+visualize_local_map: false
+
+random_map: true
+resolution: 0.1
+mock_map_leaf_size: 0.5
+ply_file: "src/pointcloud/forest.ply"
+expand_x_times: 0
+expand_y_times: 0
+occupy_threshold: 0
+
+seed: 3
+x_length: 140
+y_length: 70
+z_length: 15
+maze_type: 5
+
+complexity: 0.02
+fill: 0.1
+fractal: 1
+attenuation: 0.1
+width_min: 0.6
+width_max: 1.5
+obstacle_number: 100
+road_width: 3
+add_wall_x: 1
+add_wall_y: 1
+tree_file: "src/pointcloud/tree.ply"
+tree_dist: 5
+room_number: 4
+max_windows: 2
+window_size_min: 2.0
+window_size_max: 2.8
+add_ceiling: 0
+wall_width_min: 0.5
+wall_width_max: 6.0
+wall_thick: 0.5
+wall_number: 100
+wall_ceiling: 1
+
+swarm:
+  enabled: false
+  uav_num: 10
+  namespace_prefix: "uav"
+  altitude: 1.5
+  collision_radius: 0.25
+  spawn_clear_radius: 2.6
+  forward_distance: 50.0
+  formation_rows: [4, 3, 2, 1]
+  formation_start_x: -30.0
+  formation_row_spacing: 1.7320508
+  formation_lateral_spacing: 2.0
+  ring_radius: 16.0
+
+camera:
+  fx: 46.1880215
+  fy: 48.0
+  cx: 80.0
+  cy: 48.0
+  image_width: 160
+  image_height: 96
+  max_depth_dist: 20.0
+  normalize_depth: false
+  pitch: -0.0
+
+target:
+  ellipsoid_size: [0.44, 0.44, 0.24]
+  min_depth: 1.0
+  max_depth: 5.0
+  max_yaw_deg: 55.0
+  max_pitch_deg: 40.0
+  occlusion_margin: 0.3
+  mask_dynamic_min_count: 0
+  mask_dynamic_max_count: 3
+  min_center_distance: 2.0
+  mask_min_forward_depth: 0.45
+  mask_min_visible_pixels: 4
+  mask_min_visible_ratio: 0.03
+
+lidar:
+  vertical_lines: 16
+  vertical_angle_start: -15.0
+  vertical_angle_end: 15.0
+  horizontal_num: 360
+  horizontal_resolution: 1.0
+  max_lidar_dist: 20.0
+
+save_path: "../dataset/"
+env_num: 10
+image_num: 10000
+roll_range: 30
+pitch_range: 30
+x_range: 40
+y_range: 40
+z_range: [0.5, 4]
+safe_dist: 0.5
+ply_res: 0.1
