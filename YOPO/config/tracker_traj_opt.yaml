@@ -51,11 +51,21 @@ goal_yaw_std: 20.0
 map_expand_min: [0, 0, 0.2]
 map_expand_max: [0, 0, 6.0]
 
-target_ellipsoid_size: [0.44, 0.44, 0.24]
+target_ellipsoid_size: [0.31, 0.31, 0.14]
 target_dynamic_max_count: 3
 target_mask_timeout: 0.25
 target_mask_min_pixels: 4
 
-target_separation_weight: 12.0
+# Swarm distance knobs: edit these here only.
+# swarm_initial_spacing controls the launch-time formation layout.
+# swarm_arrive_radius controls when each UAV is considered successful.
+# target_clearance_distance controls visible-target separation loss.
+swarm_initial_spacing: 1.0
+swarm_arrive_radius: 2.0
 target_clearance_distance: 2.0
-target_separation_eval_points: 30
+
+# Loss sampling knobs: keep static ESDF at the original YOPO density.
+static_safety_eval_points: 30
+dynamic_safety_eval_points: 10
+target_separation_eval_points: 10
+target_separation_weight: 12.0

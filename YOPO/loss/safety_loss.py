@@ -22,7 +22,11 @@ class SafetyLoss(nn.Module):
 
         self._L = L
         self.sgm_time = cfg["sgm_time"]
-        self.eval_points = 30
+        self.static_eval_points = int(cfg.get("static_safety_eval_points", 30))
+        self.dynamic_eval_points = int(cfg.get("dynamic_safety_eval_points", 10))
+        if self.static_eval_points <= 0 or self.dynamic_eval_points <= 0:
+            raise ValueError("static_safety_eval_points and dynamic_safety_eval_points must be positive.")
+        self.eval_points = self.static_eval_points
         self.device = self._L.device
         self.time_integral = True
 
@@ -50,8 +54,8 @@ class SafetyLoss(nn.Module):
         L = self._L.unsqueeze(0).expand(batch_size, -1, -1)
         coe = self.get_coefficient_from_derivative(Dp, Df, L)
 
-        dt = self.sgm_time / self.eval_points
-        t_list = th.linspace(dt, self.sgm_time, self.eval_points, device=self.device)
+        dt = self.sgm_time / self.static_eval_points
+        t_list = th.linspace(dt, self.sgm_time, self.static_eval_points, device=self.device)
         t_list = t_list.view(1, -1, 1).expand(batch_size, -1, -1)
 
         # get pos from coeff [B*H*V, N, 3] -> [B, H*V*N, 3]
@@ -59,7 +63,7 @@ class SafetyLoss(nn.Module):
         pos_batch = pos_coe.reshape(-1, self.traj_num * pos_coe.shape[1], 3)
 
         # get info from sdf_map
-        cost, dist = self.get_distance_cost(pos_batch, map_id, dynamic_target_w, dynamic_target_visible)
+        cost, dist = self.get_distance_cost(pos_batch, map_id)
 
         if self.time_integral:
             # Compute average time integral of trajectory cost
@@ -73,9 +77,9 @@ class SafetyLoss(nn.Module):
             line_length = (vel_coe * dt).sum(dim=1)  # [B*H*V]
             cost_colli = line_integral_cost / line_length  # [B*H*V]
 
-        return cost_colli
+        return cost_colli + self.get_dynamic_safety_cost(coe, batch_size, dynamic_target_w, dynamic_target_visible)
 
-    def get_distance_cost(self, pos, map_id, dynamic_target_w=None, dynamic_target_visible=None):
+    def get_distance_cost(self, pos, map_id):
         """
         pos:     (B, N, 3) - 点在世界坐标系下的位置
         map_id:  (B) - 每个 batch 使用哪张 sdf_map
@@ -97,14 +101,25 @@ class SafetyLoss(nn.Module):
         grid_point = grid_point.view(B, 1, 1, N, 3)
         grid_point = th.clamp(grid_point, min=-0.99, max=0.99)  # (B, N)
 
-        static_dist_query = F.grid_sample(sdf_maps, grid_point, mode='bilinear', padding_mode='zeros', align_corners=True)  # (B, 1, 1, 1, N)
-        static_dist_query = static_dist_query.view(B, N)
-        dynamic_dist_query = self.get_dynamic_distance(pos, dynamic_target_w, dynamic_target_visible)
-        dist_query = th.minimum(static_dist_query, dynamic_dist_query)
+        dist_query = F.grid_sample(sdf_maps, grid_point, mode='bilinear', padding_mode='zeros', align_corners=True)  # (B, 1, 1, 1, N)
+        dist_query = dist_query.view(B, N)
 
         # Cost function
         cost = self.cost_function(dist_query)  # (B, N)
         return cost, dist_query
+
+    def get_dynamic_safety_cost(self, coe, batch_size, dynamic_target_w, dynamic_target_visible):
+        if dynamic_target_w is None or dynamic_target_visible is None or self.dynamic_obstacle_radius <= 0.0:
+            return coe[:, 0] * 0.0
+
+        dt = self.sgm_time / self.dynamic_eval_points
+        t_list = th.linspace(dt, self.sgm_time, self.dynamic_eval_points, device=self.device, dtype=coe.dtype)
+        t_list = t_list.view(1, -1, 1).expand(batch_size, -1, -1)
+        pos_coe = self.get_position_from_coeff(coe, t_list)
+        pos_batch = pos_coe.reshape(-1, self.traj_num * pos_coe.shape[1], 3)
+        dynamic_dist_query = self.get_dynamic_distance(pos_batch, dynamic_target_w, dynamic_target_visible)
+        dynamic_cost = self.cost_function(dynamic_dist_query)
+        return dynamic_cost.reshape(-1, pos_coe.shape[1]).mean(dim=-1)
 
     def get_dynamic_distance(self, pos, dynamic_target_w, dynamic_target_visible):
         B, N, _ = pos.shape

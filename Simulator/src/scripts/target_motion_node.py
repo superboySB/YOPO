@@ -105,7 +105,7 @@ class TargetMotionNode:
         marker.pose.position = Point(*pos)
         marker.pose.orientation.z = math.sin(0.5 * yaw)
         marker.pose.orientation.w = math.cos(0.5 * yaw)
-        marker.scale = Vector3(0.7, 0.7, 0.25)
+        marker.scale = Vector3(0.31, 0.31, 0.14)
         marker.color.r = 1.0
         marker.color.g = 0.25
         marker.color.b = 0.08

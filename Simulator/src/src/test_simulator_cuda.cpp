@@ -235,7 +235,7 @@ private:
     bool visualize_local_map_{true};
     bool swarm_enabled_{false};
     int swarm_uav_num_{1};
-    float collision_radius_{0.45f};
+    float collision_radius_{0.155f};
     std::string swarm_namespace_prefix_{"uav"};
 
     Eigen::Quaternionf quat_bc_{Eigen::Quaternionf::Identity()};
@@ -270,7 +270,7 @@ private:
     int collision_counter_total_{0};
     int target_collision_counter_total_{0};
     int uav_collision_counter_total_{0};
-    Eigen::Vector3f target_ellipsoid_axes_{0.22f, 0.22f, 0.12f};
+    Eigen::Vector3f target_ellipsoid_axes_{0.155f, 0.155f, 0.07f};
     float target_occlusion_margin_{0.3f};
     float target_mask_min_forward_depth_{0.1f};
     int mask_min_visible_pixels_{4};
@@ -290,11 +290,11 @@ void SensorSimulator::applyRosParamOverrides(YAML::Node &config)
     double ring_radius = config["swarm"]["ring_radius"] ? config["swarm"]["ring_radius"].as<double>() : 8.0;
     double altitude = config["swarm"]["altitude"] ? config["swarm"]["altitude"].as<double>() : 2.0;
     double spawn_clear_radius = config["swarm"]["spawn_clear_radius"] ? config["swarm"]["spawn_clear_radius"].as<double>() : 2.2;
-    double collision_radius = config["swarm"]["collision_radius"] ? config["swarm"]["collision_radius"].as<double>() : 0.45;
+    double collision_radius = config["swarm"]["collision_radius"] ? config["swarm"]["collision_radius"].as<double>() : 0.155;
     double forward_distance = config["swarm"]["forward_distance"] ? config["swarm"]["forward_distance"].as<double>() : 50.0;
     double formation_start_x = config["swarm"]["formation_start_x"] ? config["swarm"]["formation_start_x"].as<double>() : -30.0;
-    double formation_row_spacing = config["swarm"]["formation_row_spacing"] ? config["swarm"]["formation_row_spacing"].as<double>() : 1.7320508;
-    double formation_lateral_spacing = config["swarm"]["formation_lateral_spacing"] ? config["swarm"]["formation_lateral_spacing"].as<double>() : 2.0;
+    double formation_row_spacing = config["swarm"]["formation_row_spacing"] ? config["swarm"]["formation_row_spacing"].as<double>() : 0.8660254;
+    double formation_lateral_spacing = config["swarm"]["formation_lateral_spacing"] ? config["swarm"]["formation_lateral_spacing"].as<double>() : 1.0;
     std::string formation_rows_csv = "4,3,2,1";
     if (config["swarm"]["formation_rows"])
     {

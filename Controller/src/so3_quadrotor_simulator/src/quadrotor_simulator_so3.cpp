@@ -403,9 +403,9 @@ odomToMesh(const nav_msgs::Odometry& odom_msg, visualization_msgs::Marker& meshR
 
   meshROS.pose = odom_msg.pose.pose;
 
-  meshROS.scale.x = 2.0;
-  meshROS.scale.y = 2.0;
-  meshROS.scale.z = 2.0;
+  meshROS.scale.x = 0.505;
+  meshROS.scale.y = 0.505;
+  meshROS.scale.z = 0.776;
   meshROS.color.r = 1.0;
   meshROS.color.g = 1.0;
   meshROS.color.b = 1.0;

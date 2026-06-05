@@ -13,7 +13,7 @@ from nav_msgs.msg import Odometry
 from sensor_msgs.msg import Image, PointCloud2, PointField
 from sensor_msgs import point_cloud2
 from scipy.spatial.transform import Rotation as R
-from std_msgs.msg import Bool, Float32
+from std_msgs.msg import Bool, Float32, Int32
 from visualization_msgs.msg import Marker
 
 from config.config import cfg
@@ -69,6 +69,8 @@ class YopoSwarmTracker:
         self.ctrl_time = None
         self.desire_init = False
         self.arrive = False
+        self.static_collision_count = 0
+        self.dynamic_collision_count = 0
         self.arrive_hold_pos = None
         self.arrival_close_since = None
         self.arrival_best_distance = np.inf
@@ -117,6 +119,20 @@ class YopoSwarmTracker:
         self.odom_sub = rospy.Subscriber(self.config["odom_topic"], Odometry, self.callback_odometry, queue_size=1, tcp_nodelay=True)
         self.depth_sub = rospy.Subscriber(self.config["depth_topic"], Image, self.callback_depth, queue_size=1, tcp_nodelay=True)
         self.target_mask_sub = rospy.Subscriber(self.config["target_mask_topic"], Image, self.callback_target_mask, queue_size=1, tcp_nodelay=True)
+        self.static_collision_sub = rospy.Subscriber(
+            f"{self.config['status_prefix']}/collision_counter",
+            Int32,
+            self.callback_static_collision_counter,
+            queue_size=1,
+            tcp_nodelay=True,
+        )
+        self.dynamic_collision_sub = rospy.Subscriber(
+            f"{self.config['status_prefix']}/uav_collision_counter",
+            Int32,
+            self.callback_dynamic_collision_counter,
+            queue_size=1,
+            tcp_nodelay=True,
+        )
         if self.enable_rviz_goal:
             self.goal_sub = rospy.Subscriber(
                 self.config["rviz_goal_topic"],
@@ -151,6 +167,12 @@ class YopoSwarmTracker:
             return
         self.latest_target_mask = mask.copy()
         self.latest_target_mask_stamp = data.header.stamp
+
+    def callback_static_collision_counter(self, msg):
+        self.static_collision_count = int(msg.data)
+
+    def callback_dynamic_collision_counter(self, msg):
+        self.dynamic_collision_count = int(msg.data)
 
     def callback_rviz_goal(self, data):
         if not self.odom_init or not self.reference_odom_init:
@@ -581,7 +603,11 @@ class YopoSwarmTracker:
         marker.color.g = 0.08
         marker.color.b = 0.08
         marker.color.a = 0.88
-        marker.text = f"{self.agent_name}\nv {speed:.1f} m/s | d {float(goal_distance):.1f} m"
+        marker.text = (
+            f"{self.agent_name}\n"
+            f"v {speed:.1f} m/s | d {float(goal_distance):.1f} m\n"
+            f"col S {self.static_collision_count} | D {self.dynamic_collision_count}"
+        )
         marker.lifetime = rospy.Duration(0.5)
         self.status_text_pub.publish(marker)
 
@@ -660,7 +686,7 @@ if __name__ == "__main__":
 
     arrive_radius = args.arrive_radius
     if arrive_radius is None:
-        arrive_radius = float(cfg.get("target_clearance_distance", 2.0))
+        arrive_radius = float(cfg["swarm_arrive_radius"])
     arrival_settle_radius = args.arrival_settle_radius
     if arrival_settle_radius is None:
         arrival_settle_radius = arrive_radius

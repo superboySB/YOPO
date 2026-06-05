@@ -13,7 +13,7 @@ FORMATION_START_X=-30.0
 FORWARD_DISTANCE=50.0
 ALTITUDE=1.5
 ARRIVE_RADIUS=""
-COLLISION_RADIUS=0.25
+COLLISION_RADIUS=0.155
 SPAWN_CLEAR_RADIUS=2.6
 
 YOPO_CONFIG="/workspace/YOPO/YOPO/config/tracker_traj_opt.yaml"
@@ -40,8 +40,8 @@ Options:
   --formation-start-x X     x position of the back row (default: -30.0)
   --forward-distance M      each UAV goal is init_x + this distance (default: 50.0)
   --altitude Z              formation altitude (default: 1.5)
-  --arrive-radius R         per-UAV arrival radius (default: target_clearance_distance from YOPO config)
-  --collision-radius R      UAV-UAV collision counter radius (default: 0.25)
+  --arrive-radius R         per-UAV arrival radius override (default: swarm_arrive_radius from YOPO config)
+  --collision-radius R      UAV-UAV collision counter radius (default: 0.155)
   --spawn-clear-radius R    tree clearing around starts/goals (default: 2.6)
   --yopo-config PATH        tracker config yaml
   --sim-config PATH         simulator config yaml
@@ -168,18 +168,27 @@ if row_sum != uav_num:
     )
 
 with open(sys.argv[3], "r", encoding="utf-8") as f:
-    cfg = yaml.safe_load(f)
-formation_distance = float(cfg.get("target_clearance_distance", 2.0))
-if not math.isfinite(formation_distance) or formation_distance <= 0.0:
-    raise SystemExit("Error: target_clearance_distance in YOPO config must be a positive number.")
+    cfg = yaml.safe_load(f) or {}
+
+def read_positive_float(key):
+    if key not in cfg:
+        raise SystemExit(f"Error: {key} is required in YOPO config.")
+    value = float(cfg[key])
+    if not math.isfinite(value) or value <= 0.0:
+        raise SystemExit(f"Error: {key} in YOPO config must be a positive number.")
+    return value
+
+initial_spacing = read_positive_float("swarm_initial_spacing")
+arrive_radius = read_positive_float("swarm_arrive_radius")
+clearance_distance = read_positive_float("target_clearance_distance")
 
 # With centered rows, adjacent rows with different parity are staggered by distance/2,
 # so sqrt(3)/2 * distance gives an equilateral spacing. Same-parity rows need a full
 # distance in x to keep the nearest inter-row distance from dropping below the target.
 has_same_parity_neighbors = any((rows[i] % 2) == (rows[i + 1] % 2) for i in range(len(rows) - 1))
-row_spacing = formation_distance if has_same_parity_neighbors else (math.sqrt(3.0) * 0.5 * formation_distance)
+row_spacing = initial_spacing if has_same_parity_neighbors else (math.sqrt(3.0) * 0.5 * initial_spacing)
 rows_csv = ",".join(str(row) for row in rows)
-print(f"{rows_csv}\t{row_spacing:.6f}\t{formation_distance:.6f}")
+print(f"{rows_csv}\t{row_spacing:.6f}\t{initial_spacing:.6f}\t{arrive_radius:.6f}\t{clearance_distance:.6f}")
 PY
 }
 
@@ -390,10 +399,10 @@ main() {
     exit 1
   fi
 
-  local formation_meta formation_rows_csv formation_row_spacing formation_lateral_spacing
+  local formation_meta formation_rows_csv formation_row_spacing formation_lateral_spacing config_arrive_radius target_clearance_distance
   formation_meta="$(validate_formation)"
-  IFS=$'\t' read -r formation_rows_csv formation_row_spacing formation_lateral_spacing <<<"${formation_meta}"
-  local arrive_radius="${ARRIVE_RADIUS:-${formation_lateral_spacing}}"
+  IFS=$'\t' read -r formation_rows_csv formation_row_spacing formation_lateral_spacing config_arrive_radius target_clearance_distance <<<"${formation_meta}"
+  local arrive_radius="${ARRIVE_RADIUS:-${config_arrive_radius}}"
 
   local weights_root_abs
   if [[ "${WEIGHTS_ROOT}" = /* ]]; then
@@ -473,7 +482,7 @@ PY
   tmux bind-key -T root C-c if-shell -F "#{==:#{session_name},${SESSION}}" "kill-session -t ${SESSION}" "send-keys C-c"
   tmux set-hook -t "${SESSION}" session-closed "unbind-key -T root C-c"
 
-  echo "[swarm_tracker] started tmux session='${SESSION}', uav_num=${UAV_NUM}, formation=${FORMATION}, row_spacing=${formation_row_spacing}m, lateral_spacing=${formation_lateral_spacing}m, arrive_radius=${arrive_radius}m, forward=${FORWARD_DISTANCE}m, speed=5m/s, rviz_goal=${ENABLE_RVIZ_GOAL}"
+  echo "[swarm_tracker] started tmux session='${SESSION}', uav_num=${UAV_NUM}, formation=${FORMATION}, row_spacing=${formation_row_spacing}m, lateral_spacing=${formation_lateral_spacing}m, arrive_radius=${arrive_radius}m, keep_distance=${target_clearance_distance}m, forward=${FORWARD_DISTANCE}m, speed=5m/s, rviz_goal=${ENABLE_RVIZ_GOAL}"
   echo "[swarm_tracker] tracker checkpoint: ${weight_path}"
   echo "[swarm_tracker] stop with: tools/swarm_tracker_launch.sh --session ${SESSION} --stop"
 

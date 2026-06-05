@@ -40,7 +40,7 @@ struct VisibleTarget
 
 struct TargetEllipsoid
 {
-    Eigen::Vector3f axes{0.22f, 0.22f, 0.12f};
+    Eigen::Vector3f axes{0.155f, 0.155f, 0.07f};
 };
 
 Eigen::Quaternionf RPY2Quat(float roll_deg, float pitch_deg, float yaw_deg);

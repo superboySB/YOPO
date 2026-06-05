@@ -46,8 +46,10 @@ class YopoTrainer:
         self.image_height = cfg["image_height"]
         self.target_dynamic_max_count = int(cfg.get("target_dynamic_max_count", 3))
         self.target_separation_weight = float(cfg.get("target_separation_weight", 0.0))
-        self.target_clearance_distance = float(cfg.get("target_clearance_distance", 1.0))
+        self.target_clearance_distance = float(cfg["target_clearance_distance"])
         self.target_separation_eval_points = int(cfg.get("target_separation_eval_points", 30))
+        if self.target_separation_eval_points <= 0:
+            raise ValueError("target_separation_eval_points must be positive.")
 
         # network
         print("Loading network...")

@@ -58,13 +58,12 @@ swarm:
   uav_num: 10
   namespace_prefix: "uav"
   altitude: 1.5
-  collision_radius: 0.25
+  collision_radius: 0.155
   spawn_clear_radius: 2.6
   forward_distance: 50.0
   formation_rows: [4, 3, 2, 1]
   formation_start_x: -30.0
-  formation_row_spacing: 1.7320508
-  formation_lateral_spacing: 2.0
+  # Formation spacing is generated from YOPO/config/tracker_traj_opt.yaml by tools/swarm_tracker_launch.sh.
   ring_radius: 16.0
 
 camera:
@@ -79,7 +78,7 @@ camera:
   pitch: -0.0
 
 target:
-  ellipsoid_size: [0.44, 0.44, 0.24]
+  ellipsoid_size: [0.31, 0.31, 0.14]
   min_depth: 1.0
   max_depth: 5.0
   max_yaw_deg: 55.0
