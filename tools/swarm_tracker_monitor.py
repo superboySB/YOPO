@@ -19,11 +19,18 @@ class SwarmTrackerMonitor:
         self.goal_distance = [None] * uav_num
         self.goal_position = [None] * uav_num
         self.odom_position = [None] * uav_num
+        self.odom_velocity = [None] * uav_num
+        self.initial_odom_position = [None] * uav_num
         self.arrival_time = [None] * uav_num
         self.mask_frames = [0] * uav_num
         self.nonempty_mask_frames = [0] * uav_num
         self.uav_collision_total = 0
         self.occupied_collision_total = 0
+        self.uav_collision_first_time = None
+        self.occupied_collision_first_time = None
+        self.min_pair_distance = None
+        self.min_pair_distance_time = None
+        self.min_pair_distance_pair = None
         self.start_time = time.time()
 
         for idx in range(uav_num):
@@ -61,7 +68,11 @@ class SwarmTrackerMonitor:
     def _odom_cb(self, idx):
         def callback(msg: Odometry):
             pos = msg.pose.pose.position
+            vel = msg.twist.twist.linear
             self.odom_position[idx] = [float(pos.x), float(pos.y), float(pos.z)]
+            self.odom_velocity[idx] = [float(vel.x), float(vel.y), float(vel.z)]
+            if self.initial_odom_position[idx] is None:
+                self.initial_odom_position[idx] = self.odom_position[idx]
 
         return callback
 
@@ -83,9 +94,35 @@ class SwarmTrackerMonitor:
 
     def _uav_collision_cb(self, msg: Int32):
         self.uav_collision_total = int(msg.data)
+        if self.uav_collision_total > 0 and self.uav_collision_first_time is None:
+            self.uav_collision_first_time = time.time() - self.start_time
 
     def _occupied_collision_cb(self, msg: Int32):
         self.occupied_collision_total = int(msg.data)
+        if self.occupied_collision_total > 0 and self.occupied_collision_first_time is None:
+            self.occupied_collision_first_time = time.time() - self.start_time
+
+    def update_pair_distance(self):
+        if any(pos is None for pos in self.odom_position):
+            return
+        positions = np.asarray(self.odom_position, dtype=np.float64)
+        for i in range(self.uav_num):
+            for j in range(i + 1, self.uav_num):
+                distance = float(np.linalg.norm(positions[i] - positions[j]))
+                if self.min_pair_distance is None or distance < self.min_pair_distance:
+                    self.min_pair_distance = distance
+                    self.min_pair_distance_time = time.time() - self.start_time
+                    self.min_pair_distance_pair = [f"uav{i}", f"uav{j}"]
+
+    def current_spread(self):
+        if any(pos is None for pos in self.odom_position):
+            return None
+        positions = np.asarray(self.odom_position, dtype=np.float64)
+        return {
+            "x": float(positions[:, 0].max() - positions[:, 0].min()),
+            "y": float(positions[:, 1].max() - positions[:, 1].min()),
+            "z": float(positions[:, 2].max() - positions[:, 2].min()),
+        }
 
     def summary(self, reason: str):
         elapsed = time.time() - self.start_time
@@ -94,7 +131,19 @@ class SwarmTrackerMonitor:
             "elapsed_sec": round(elapsed, 3),
             "all_arrived": all(self.arrived),
             "uav_collision_total": self.uav_collision_total,
+            "uav_collision_first_time_sec": (
+                None if self.uav_collision_first_time is None else round(self.uav_collision_first_time, 3)
+            ),
             "occupied_collision_total": self.occupied_collision_total,
+            "occupied_collision_first_time_sec": (
+                None if self.occupied_collision_first_time is None else round(self.occupied_collision_first_time, 3)
+            ),
+            "min_pair_distance": None if self.min_pair_distance is None else round(self.min_pair_distance, 4),
+            "min_pair_distance_time_sec": (
+                None if self.min_pair_distance_time is None else round(self.min_pair_distance_time, 3)
+            ),
+            "min_pair_distance_pair": self.min_pair_distance_pair,
+            "final_spread": self.current_spread(),
             "uavs": [
                 {
                     "name": f"uav{i}",
@@ -103,7 +152,9 @@ class SwarmTrackerMonitor:
                     "arrival_time_sec": None if self.arrival_time[i] is None else round(self.arrival_time[i], 3),
                     "goal_distance": self.goal_distance[i],
                     "goal_position": self.goal_position[i],
+                    "initial_odom_position": self.initial_odom_position[i],
                     "odom_position": self.odom_position[i],
+                    "odom_velocity": self.odom_velocity[i],
                     "mask_frames": self.mask_frames[i],
                     "nonempty_mask_frames": self.nonempty_mask_frames[i],
                     "nonempty_mask_ratio": (
@@ -123,6 +174,7 @@ def main():
     parser.add_argument("--max-uav-collisions", type=int, default=0)
     parser.add_argument("--max-static-collisions", type=int, default=0)
     parser.add_argument("--min-nonempty-mask-frames", type=int, default=0)
+    parser.add_argument("--json-out", type=str, default="")
     args = parser.parse_args()
 
     rospy.init_node("swarm_tracker_monitor", anonymous=True, disable_signals=True)
@@ -130,6 +182,7 @@ def main():
     rate = rospy.Rate(10)
     reason = "timeout"
     while not rospy.is_shutdown():
+        monitor.update_pair_distance()
         if all(monitor.arrived):
             reason = "all_arrived"
             break
@@ -138,7 +191,12 @@ def main():
         rate.sleep()
 
     summary = monitor.summary(reason)
-    print(json.dumps(summary, indent=2, sort_keys=False))
+    summary_text = json.dumps(summary, indent=2, sort_keys=False)
+    print(summary_text)
+    if args.json_out:
+        with open(args.json_out, "w", encoding="utf-8") as f:
+            f.write(summary_text)
+            f.write("\n")
 
     enough_masks = all(frames >= args.min_nonempty_mask_frames for frames in monitor.nonempty_mask_frames)
     success = (

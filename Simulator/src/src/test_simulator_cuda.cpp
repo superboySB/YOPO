@@ -19,9 +19,13 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <iostream>
+#include <limits>
 #include <sstream>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "sensor_simulator.cuh"
@@ -66,8 +70,24 @@ public:
         render_target_mask_ = config["render_target_mask"] ? config["render_target_mask"].as<bool>() : true;
         render_swarm_detector_mask_ = config["render_swarm_detector_mask"] ? config["render_swarm_detector_mask"].as<bool>() : true;
         visualize_local_map_ = config["visualize_local_map"] ? config["visualize_local_map"].as<bool>() : true;
+        local_map_visual_margin_ = config["local_map_visual_margin"]
+                                       ? config["local_map_visual_margin"].as<float>()
+                                       : lidar_->max_lidar_dist;
+        local_map_visual_min_z_ = config["local_map_visual_min_z"]
+                                      ? config["local_map_visual_min_z"].as<float>()
+                                      : 0.2f;
+        local_map_visual_max_points_ = config["local_map_visual_max_points"]
+                                           ? std::max(0, config["local_map_visual_max_points"].as<int>())
+                                           : 6000;
+        local_map_visual_tile_size_ = config["local_map_visual_tile_size"]
+                                          ? std::max(0.5f, config["local_map_visual_tile_size"].as<float>())
+                                          : 5.0f;
         depth_pub_duration_ = ros::Duration(1.0 / config["depth_fps"].as<float>());
         lidar_pub_duration_ = ros::Duration(1.0 / config["lidar_fps"].as<float>());
+        const float local_map_visual_fps = config["local_map_visual_fps"]
+                                               ? config["local_map_visual_fps"].as<float>()
+                                               : config["lidar_fps"].as<float>();
+        local_map_visual_pub_duration_ = ros::Duration(1.0 / std::max(0.1f, local_map_visual_fps));
 
         swarm_enabled_ = config["swarm"]["enabled"].as<bool>();
         swarm_uav_num_ = std::max(1, config["swarm"]["uav_num"].as<int>());
@@ -134,24 +154,25 @@ public:
                 PCL_ERROR("Couldn't read PLY file \n");
         }
 
-        pcl::PointCloud<pcl::PointXYZ>::Ptr map_visual_cloud(new pcl::PointCloud<pcl::PointXYZ>());
+        map_visual_cloud_.reset(new pcl::PointCloud<pcl::PointXYZ>());
         if (mock_map_leaf_size > resolution)
         {
             pcl::VoxelGrid<pcl::PointXYZ> voxel_filter;
             voxel_filter.setInputCloud(cloud);
             voxel_filter.setLeafSize(mock_map_leaf_size, mock_map_leaf_size, mock_map_leaf_size);
-            voxel_filter.filter(*map_visual_cloud);
+            voxel_filter.filter(*map_visual_cloud_);
         }
         else
         {
-            *map_visual_cloud = *cloud;
+            *map_visual_cloud_ = *cloud;
         }
 
-        pcl::toROSMsg(*map_visual_cloud, map_output_);
+        pcl::toROSMsg(*map_visual_cloud_, map_output_);
         map_output_.header.frame_id = "world";
+        buildLocalMapVisualTiles();
 
         std::cout << "PointCloud size (raw/visual): " << cloud->points.size() << " / "
-                  << map_visual_cloud->points.size() << std::endl;
+                  << map_visual_cloud_->points.size() << std::endl;
         printf("2.Mapping... \n");
         grid_map_ = new GridMap(cloud, resolution, occupy_threshold);
 
@@ -166,6 +187,7 @@ public:
                 ros::TransportHints().tcpNoDelay());
         }
         timer_map_ = nh_.createTimer(ros::Duration(1.0), &SensorSimulator::timerMapCallback, this);
+        timer_local_map_visual_ = nh_.createTimer(local_map_visual_pub_duration_, &SensorSimulator::timerLocalMapVisualCallback, this);
 
         printf("3.Simulation Ready! robots=%zu swarm=%s\n", robots_.size(), swarm_enabled_ ? "true" : "false");
         ros::spin();
@@ -198,8 +220,6 @@ private:
         Eigen::Quaternionf quat = Eigen::Quaternionf::Identity();
         Eigen::Quaternionf quat_wc = Eigen::Quaternionf::Identity();
         Eigen::Vector3f pos = Eigen::Vector3f::Zero();
-        pcl::PointCloud<pcl::PointXYZ> local_map_world;
-
         ros::Time next_depth_pub_time;
         ros::Time next_lidar_pub_time;
         int collision_counter = 0;
@@ -226,7 +246,10 @@ private:
     void overlaySwarmDetectorMasks(size_t robot_index, const cv::Mat &depth_image, cv::Mat &target_mask) const;
     void publishCollisionCounter(size_t robot_index);
     void publishCollisionCounterTotals();
+    void buildLocalMapVisualTiles();
     void publishLocalMapVisual(const ros::Time &stamp);
+    void timerLocalMapVisualCallback(const ros::TimerEvent &event);
+    std::int64_t localMapTileKey(int ix, int iy) const;
 
     bool render_depth_{false};
     bool render_lidar_{false};
@@ -236,6 +259,10 @@ private:
     bool swarm_enabled_{false};
     int swarm_uav_num_{1};
     float collision_radius_{0.155f};
+    float local_map_visual_margin_{20.0f};
+    float local_map_visual_min_z_{0.2f};
+    float local_map_visual_tile_size_{5.0f};
+    int local_map_visual_max_points_{6000};
     std::string swarm_namespace_prefix_{"uav"};
 
     Eigen::Quaternionf quat_bc_{Eigen::Quaternionf::Identity()};
@@ -258,11 +285,15 @@ private:
     ros::Publisher uav_collision_counter_total_pub_;
     ros::Subscriber target_odom_sub_;
     ros::Timer timer_map_;
+    ros::Timer timer_local_map_visual_;
     sensor_msgs::PointCloud2 map_output_;
+    pcl::PointCloud<pcl::PointXYZ>::Ptr map_visual_cloud_;
+    std::unordered_map<std::int64_t, std::vector<int>> local_map_visual_tiles_;
     std::vector<RobotChannels> robots_;
 
     ros::Duration depth_pub_duration_;
     ros::Duration lidar_pub_duration_;
+    ros::Duration local_map_visual_pub_duration_;
     double depth_time_{0.0};
     double lidar_time_{0.0};
     int depth_count_{0};
@@ -289,12 +320,12 @@ void SensorSimulator::applyRosParamOverrides(YAML::Node &config)
     std::string namespace_prefix = config["swarm"]["namespace_prefix"] ? config["swarm"]["namespace_prefix"].as<std::string>() : "uav";
     double ring_radius = config["swarm"]["ring_radius"] ? config["swarm"]["ring_radius"].as<double>() : 8.0;
     double altitude = config["swarm"]["altitude"] ? config["swarm"]["altitude"].as<double>() : 2.0;
-    double spawn_clear_radius = config["swarm"]["spawn_clear_radius"] ? config["swarm"]["spawn_clear_radius"].as<double>() : 2.2;
+    double spawn_clear_radius = config["swarm"]["spawn_clear_radius"] ? config["swarm"]["spawn_clear_radius"].as<double>() : 0.0;
     double collision_radius = config["swarm"]["collision_radius"] ? config["swarm"]["collision_radius"].as<double>() : 0.155;
     double forward_distance = config["swarm"]["forward_distance"] ? config["swarm"]["forward_distance"].as<double>() : 50.0;
     double formation_start_x = config["swarm"]["formation_start_x"] ? config["swarm"]["formation_start_x"].as<double>() : -30.0;
-    double formation_row_spacing = config["swarm"]["formation_row_spacing"] ? config["swarm"]["formation_row_spacing"].as<double>() : 0.8660254;
-    double formation_lateral_spacing = config["swarm"]["formation_lateral_spacing"] ? config["swarm"]["formation_lateral_spacing"].as<double>() : 1.0;
+    double formation_row_spacing = config["swarm"]["formation_row_spacing"] ? config["swarm"]["formation_row_spacing"].as<double>() : 1.7320508;
+    double formation_lateral_spacing = config["swarm"]["formation_lateral_spacing"] ? config["swarm"]["formation_lateral_spacing"].as<double>() : 2.0;
     std::string formation_rows_csv = "4,3,2,1";
     if (config["swarm"]["formation_rows"])
     {
@@ -679,24 +710,6 @@ void SensorSimulator::renderLidarCallback(size_t robot_index, const ros::Time &s
     output.header.stamp = stamp;
     output.header.frame_id = "odom";
     robot.point_cloud_pub.publish(output);
-
-    if (!visualize_local_map_)
-    {
-        robot.local_map_world.clear();
-        return;
-    }
-
-    robot.local_map_world.clear();
-    robot.local_map_world.points.reserve(lidar_points.points.size());
-    for (const auto &point_local : lidar_points.points)
-    {
-        const float3 point_world = T_wc * make_float3(point_local.x, point_local.y, point_local.z);
-        robot.local_map_world.points.emplace_back(point_world.x, point_world.y, point_world.z);
-    }
-    robot.local_map_world.width = robot.local_map_world.points.size();
-    robot.local_map_world.height = 1;
-    robot.local_map_world.is_dense = true;
-    publishLocalMapVisual(stamp);
 }
 
 void SensorSimulator::timerMapCallback(const ros::TimerEvent &)
@@ -705,16 +718,102 @@ void SensorSimulator::timerMapCallback(const ros::TimerEvent &)
         pcl_pub_.publish(map_output_);
 }
 
+void SensorSimulator::timerLocalMapVisualCallback(const ros::TimerEvent &event)
+{
+    publishLocalMapVisual(event.current_real);
+}
+
+std::int64_t SensorSimulator::localMapTileKey(int ix, int iy) const
+{
+    return (static_cast<std::int64_t>(ix) << 32) ^ static_cast<std::uint32_t>(iy);
+}
+
+void SensorSimulator::buildLocalMapVisualTiles()
+{
+    local_map_visual_tiles_.clear();
+    if (!map_visual_cloud_ || map_visual_cloud_->empty())
+        return;
+
+    for (size_t idx = 0; idx < map_visual_cloud_->points.size(); ++idx)
+    {
+        const auto &point = map_visual_cloud_->points[idx];
+        if (point.z < local_map_visual_min_z_)
+            continue;
+
+        const int ix = static_cast<int>(std::floor(point.x / local_map_visual_tile_size_));
+        const int iy = static_cast<int>(std::floor(point.y / local_map_visual_tile_size_));
+        local_map_visual_tiles_[localMapTileKey(ix, iy)].push_back(static_cast<int>(idx));
+    }
+    std::cout << "Local map visual tiles: " << local_map_visual_tiles_.size() << std::endl;
+}
+
 void SensorSimulator::publishLocalMapVisual(const ros::Time &stamp)
 {
     if (!visualize_local_map_)
         return;
     if (local_map_visual_pub_.getNumSubscribers() == 0)
         return;
+    if (!map_visual_cloud_ || map_visual_cloud_->empty())
+        return;
+
+    std::unordered_set<std::int64_t> selected_tiles;
+    for (const auto &robot : robots_)
+    {
+        if (!robot.odom_init)
+            continue;
+
+        const int min_ix = static_cast<int>(std::floor((robot.pos.x() - local_map_visual_margin_) / local_map_visual_tile_size_));
+        const int max_ix = static_cast<int>(std::floor((robot.pos.x() + local_map_visual_margin_) / local_map_visual_tile_size_));
+        const int min_iy = static_cast<int>(std::floor((robot.pos.y() - local_map_visual_margin_) / local_map_visual_tile_size_));
+        const int max_iy = static_cast<int>(std::floor((robot.pos.y() + local_map_visual_margin_) / local_map_visual_tile_size_));
+        for (int ix = min_ix; ix <= max_ix; ++ix)
+        {
+            for (int iy = min_iy; iy <= max_iy; ++iy)
+            {
+                const auto key = localMapTileKey(ix, iy);
+                if (local_map_visual_tiles_.find(key) != local_map_visual_tiles_.end())
+                    selected_tiles.insert(key);
+            }
+        }
+    }
+    if (selected_tiles.empty())
+        return;
+
+    int candidate_count = 0;
+    for (const auto key : selected_tiles)
+    {
+        const auto tile_it = local_map_visual_tiles_.find(key);
+        if (tile_it != local_map_visual_tiles_.end())
+            candidate_count += static_cast<int>(tile_it->second.size());
+    }
+    if (candidate_count <= 0)
+        return;
+
+    const int max_points = local_map_visual_max_points_ > 0 ? local_map_visual_max_points_ : candidate_count;
+    const int sample_stride = std::max(1, static_cast<int>(std::ceil(static_cast<float>(candidate_count) / max_points)));
 
     pcl::PointCloud<pcl::PointXYZ> merged_cloud;
-    for (const auto &robot : robots_)
-        merged_cloud += robot.local_map_world;
+    merged_cloud.points.reserve(std::min(candidate_count, max_points));
+    int kept_index = 0;
+    for (const auto key : selected_tiles)
+    {
+        const auto tile_it = local_map_visual_tiles_.find(key);
+        if (tile_it == local_map_visual_tiles_.end())
+            continue;
+        for (const auto point_idx : tile_it->second)
+        {
+            if ((kept_index++ % sample_stride) == 0)
+                merged_cloud.points.push_back(map_visual_cloud_->points[point_idx]);
+            if (static_cast<int>(merged_cloud.points.size()) >= max_points)
+                break;
+        }
+        if (static_cast<int>(merged_cloud.points.size()) >= max_points)
+            break;
+    }
+    merged_cloud.width = merged_cloud.points.size();
+    merged_cloud.height = 1;
+    merged_cloud.is_dense = true;
+
     sensor_msgs::PointCloud2 output;
     pcl::toROSMsg(merged_cloud, output);
     output.header.stamp = stamp;

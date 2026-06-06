@@ -1,4 +1,5 @@
 import argparse
+import csv
 import os
 import time
 from threading import Lock
@@ -41,12 +42,6 @@ class YopoSwarmTracker:
         self.max_dis = float(self.config["max_depth_dist"])
         self.goal = np.asarray(self.config["goal"], dtype=np.float64)
         self.arrive_radius = float(self.config["arrive_radius"])
-        self.arrival_settle_radius = max(self.arrive_radius, float(self.config["arrival_settle_radius"]))
-        self.arrival_settle_speed = float(self.config["arrival_settle_speed"])
-        self.arrival_settle_time = float(self.config["arrival_settle_time"])
-        self.arrival_stuck_radius = max(self.arrive_radius, float(self.config["arrival_stuck_radius"]))
-        self.arrival_stuck_timeout = float(self.config["arrival_stuck_timeout"])
-        self.arrival_min_progress = float(self.config["arrival_min_progress"])
         self.plan_from_reference = self.config["plan_from_reference"]
         self.use_trt = self.config["use_tensorrt"]
         self.verbose = self.config["verbose"]
@@ -55,17 +50,17 @@ class YopoSwarmTracker:
         self.status_text_scale = float(self.config["status_text_scale"])
         self.status_text_offset = np.asarray(self.config["status_text_offset"], dtype=np.float64)
         self.enable_rviz_goal = bool(self.config["enable_rviz_goal"])
-        self.rviz_goal_reference_odom_topic = self.config["rviz_goal_reference_odom_topic"]
-        self.min_altitude = float(self.config["min_altitude"])
+        self.rviz_goal_offset = np.asarray(self.config["rviz_goal_offset"], dtype=np.float64)
         self.Rotation_bc = R.from_euler("ZYX", [0, self.config["pitch_angle_deg"], 0], degrees=True).as_matrix()
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
         self.odom = Odometry()
         self.odom_init = False
-        self.reference_odom = Odometry()
-        self.reference_odom_init = False
         self.latest_target_mask = None
         self.latest_target_mask_stamp = None
+        self.last_target_mask_pixels = 0
+        self.last_target_mask_fresh = False
+        self.last_target_mask_age = np.nan
         self.last_yaw = 0.0
         self.ctrl_dt = 0.02
         self.ctrl_time = None
@@ -73,22 +68,22 @@ class YopoSwarmTracker:
         self.arrive = False
         self.static_collision_count = 0
         self.dynamic_collision_count = 0
-        self.arrive_hold_pos = None
-        self.arrival_close_since = None
-        self.arrival_best_distance = np.inf
-        self.arrival_best_stamp = None
         self.desire_pos = None
         self.desire_vel = None
         self.desire_acc = None
-        self.hold_mode = False
         self.pending_rviz_goal = None
         self.optimal_poly_x = None
         self.optimal_poly_y = None
         self.optimal_poly_z = None
+        self.last_control_msg = None
         self.lock = Lock()
         self.state_transform = StateTransform()
         self.lattice_primitive = LatticePrimitive.get_instance()
         self.traj_time = self.lattice_primitive.segment_time
+        self.diagnostic_stride = max(1, int(self.config["diagnostic_stride"]))
+        self.diagnostic_file = None
+        self.diagnostic_writer = None
+        self.diagnostic_count = 0
 
         self.time_forward = 0.0
         self.time_process = 0.0
@@ -108,6 +103,7 @@ class YopoSwarmTracker:
             self.policy = self.policy.to(self.device)
             self.policy.eval()
         self.warm_up()
+        self.open_diagnostic_log()
 
         self.lattice_traj_pub = rospy.Publisher(f"{self.config['visual_prefix']}/lattice_trajs_visual", PointCloud2, queue_size=1)
         self.best_traj_pub = rospy.Publisher(f"{self.config['visual_prefix']}/best_traj_visual", PointCloud2, queue_size=1)
@@ -143,18 +139,51 @@ class YopoSwarmTracker:
                 queue_size=1,
                 tcp_nodelay=True,
             )
-            self.reference_odom_sub = rospy.Subscriber(
-                self.rviz_goal_reference_odom_topic,
-                Odometry,
-                self.callback_reference_odometry,
-                queue_size=1,
-                tcp_nodelay=True,
-            )
         rospy.sleep(1.0)
         self.publish_status()
         self.timer_ctrl = rospy.Timer(rospy.Duration(self.ctrl_dt), self.control_pub)
         print(f"[{self.agent_name}] YOPOv2 swarm tracker ready. goal={self.goal.tolist()}")
         rospy.spin()
+
+    def open_diagnostic_log(self):
+        diagnostic_dir = self.config["diagnostic_dir"]
+        if not diagnostic_dir:
+            return
+        os.makedirs(diagnostic_dir, exist_ok=True)
+        path = os.path.join(diagnostic_dir, f"{self.agent_name}.csv")
+        self.diagnostic_file = open(path, "w", newline="", buffering=1)
+        score_cols = [f"score_{idx}" for idx in range(self.lattice_primitive.traj_num)]
+        fieldnames = [
+            "ros_time",
+            "wall_time",
+            "agent",
+            "px",
+            "py",
+            "pz",
+            "vx",
+            "vy",
+            "vz",
+            "goal_distance",
+            "mask_pixels",
+            "mask_fresh",
+            "mask_age",
+            "action_id",
+            "selected_score",
+            "best_score",
+            "second_score",
+            "score_gap",
+            "score_mean",
+            "score_std",
+            "end_x",
+            "end_y",
+            "end_z",
+            "end_vx",
+            "end_vy",
+            "end_vz",
+        ] + score_cols
+        self.diagnostic_writer = csv.DictWriter(self.diagnostic_file, fieldnames=fieldnames)
+        self.diagnostic_writer.writeheader()
+        print(f"[{self.agent_name}] diagnostic log: {path}")
 
     def callback_target_mask(self, data):
         if data.encoding in ("mono8", "8UC1"):
@@ -177,31 +206,19 @@ class YopoSwarmTracker:
         self.dynamic_collision_count = int(msg.data)
 
     def callback_rviz_goal(self, data):
-        if not self.odom_init or not self.reference_odom_init:
+        if not self.odom_init:
             self.pending_rviz_goal = data
             rospy.loginfo(f"[{self.agent_name}] queued RViz goal until odometry is ready.")
             return
 
         self.apply_rviz_goal(data)
 
-    def callback_reference_odometry(self, data):
-        self.reference_odom = data
-        self.reference_odom_init = True
-        self.apply_pending_rviz_goal()
-
     def apply_pending_rviz_goal(self):
-        if self.pending_rviz_goal is None or not self.odom_init or not self.reference_odom_init:
+        if self.pending_rviz_goal is None or not self.odom_init:
             return
         pending_goal = self.pending_rviz_goal
         self.pending_rviz_goal = None
         self.apply_rviz_goal(pending_goal)
-
-    def get_reference_position(self):
-        return np.array((
-            self.reference_odom.pose.pose.position.x,
-            self.reference_odom.pose.pose.position.y,
-            self.reference_odom.pose.pose.position.z,
-        ), dtype=np.float64)
 
     def apply_rviz_goal(self, data):
         reference_target_xy = np.array((data.pose.position.x, data.pose.position.y), dtype=np.float64)
@@ -209,11 +226,9 @@ class YopoSwarmTracker:
             rospy.logwarn(f"[{self.agent_name}] ignore RViz goal with invalid target position.")
             return
 
-        reference_pos = self.get_reference_position()
         start_pos = self.get_current_position(from_odom=True)
-        displacement_xy = reference_target_xy - reference_pos[:2]
-        new_goal = start_pos.copy()
-        new_goal[:2] += displacement_xy
+        new_goal = self.goal.copy()
+        new_goal[:2] = reference_target_xy + self.rviz_goal_offset
         new_goal[2] = self.goal[2]
         current_vel = np.array((
             self.odom.twist.twist.linear.x,
@@ -224,9 +239,6 @@ class YopoSwarmTracker:
         with self.lock:
             self.goal = new_goal
             self.arrive = False
-            self.arrive_hold_pos = None
-            self.reset_arrival_state()
-            self.hold_mode = False
             self.desire_pos = start_pos.copy()
             self.desire_vel = current_vel
             self.desire_acc = np.zeros(3)
@@ -236,19 +248,16 @@ class YopoSwarmTracker:
             self.optimal_poly_y = None
             self.optimal_poly_z = None
 
-        self.publish_status(np.linalg.norm(self.goal - start_pos))
+        self.publish_status(self.get_goal_planar_distance(start_pos))
         print(
             f"[{self.agent_name}] RViz formation goal: "
             f"uav0_target=({reference_target_xy[0]:.2f}, {reference_target_xy[1]:.2f}), "
-            f"displacement=({displacement_xy[0]:.2f}, {displacement_xy[1]:.2f}), "
+            f"offset=({self.rviz_goal_offset[0]:.2f}, {self.rviz_goal_offset[1]:.2f}), "
             f"goal={self.goal.tolist()}"
         )
 
     def callback_odometry(self, data):
         self.odom = data
-        if self.config["odom_topic"] == self.rviz_goal_reference_odom_topic:
-            self.reference_odom = data
-            self.reference_odom_init = True
         if not self.desire_init:
             self.desire_pos = np.array((data.pose.pose.position.x, data.pose.pose.position.y, data.pose.pose.position.z))
             self.desire_vel = np.array((data.twist.twist.linear.x, data.twist.twist.linear.y, data.twist.twist.linear.z))
@@ -257,65 +266,15 @@ class YopoSwarmTracker:
                                data.pose.pose.orientation.z, data.pose.pose.orientation.w]).as_euler("ZYX", degrees=False)
             self.last_yaw = ypr[0]
         self.odom_init = True
-        self.apply_pending_rviz_goal()
+        if self.enable_rviz_goal:
+            self.apply_pending_rviz_goal()
 
         pos = self.get_current_position(from_odom=True)
-        goal_distance = np.linalg.norm(self.goal - pos)
-        if self.update_arrival_state(pos, goal_distance):
-            goal_distance = np.linalg.norm(self.goal - pos)
+        goal_distance = self.get_goal_planar_distance(pos)
+        if goal_distance < self.arrive_radius and not self.arrive:
+            print(f"[{self.agent_name}] Arrive!")
+            self.arrive = True
         self.publish_status(goal_distance)
-
-    def reset_arrival_state(self):
-        self.arrival_close_since = None
-        self.arrival_best_distance = np.inf
-        self.arrival_best_stamp = None
-
-    def update_arrival_state(self, pos, goal_distance):
-        if self.arrive:
-            return False
-
-        now = rospy.Time.now()
-        speed = np.linalg.norm((
-            self.odom.twist.twist.linear.x,
-            self.odom.twist.twist.linear.y,
-            self.odom.twist.twist.linear.z,
-        ))
-
-        if goal_distance <= self.arrive_radius:
-            self.mark_arrived(pos, adjusted=False, reason="within radius")
-            return True
-
-        if goal_distance < self.arrival_best_distance - self.arrival_min_progress:
-            self.arrival_best_distance = goal_distance
-            self.arrival_best_stamp = now
-        elif self.arrival_best_stamp is None:
-            self.arrival_best_distance = goal_distance
-            self.arrival_best_stamp = now
-
-        if goal_distance <= self.arrival_settle_radius and speed <= self.arrival_settle_speed:
-            if self.arrival_close_since is None:
-                self.arrival_close_since = now
-            elif (now - self.arrival_close_since).to_sec() >= self.arrival_settle_time:
-                self.mark_arrived(pos, adjusted=True, reason="settled near goal")
-                return True
-        else:
-            self.arrival_close_since = None
-
-        stuck_time = (now - self.arrival_best_stamp).to_sec() if self.arrival_best_stamp is not None else 0.0
-        if goal_distance <= self.arrival_stuck_radius and stuck_time >= self.arrival_stuck_timeout:
-            self.mark_arrived(pos, adjusted=True, reason="goal likely unreachable")
-            return True
-
-        return False
-
-    def mark_arrived(self, pos, adjusted, reason):
-        self.arrive = True
-        self.arrive_hold_pos = pos.copy()
-        if adjusted:
-            self.goal = pos.copy()
-        self.reset_arrival_state()
-        mode = "adjusted" if adjusted else "arrived"
-        print(f"[{self.agent_name}] {mode}: {reason}, hold at {self.arrive_hold_pos.tolist()}")
 
     def process_odom(self):
         Rotation_wb = R.from_quat([self.odom.pose.pose.orientation.x, self.odom.pose.pose.orientation.y,
@@ -353,6 +312,9 @@ class YopoSwarmTracker:
             self.odom.twist.twist.linear.z,
         ), dtype=np.float64)
 
+    def get_goal_planar_distance(self, pos):
+        return float(np.linalg.norm((self.goal - pos)[:2]))
+
     def make_image_input(self, depth_msg):
         if depth_msg.encoding == "32FC1":
             depth_m = np.frombuffer(depth_msg.data, dtype=np.float32).reshape(depth_msg.height, depth_msg.width)
@@ -372,6 +334,7 @@ class YopoSwarmTracker:
 
         target_mask = self.latest_target_mask
         mask_is_fresh = False
+        stamp_delta = np.nan
         if target_mask is not None and self.latest_target_mask_stamp is not None:
             stamp_delta = abs((depth_msg.header.stamp - self.latest_target_mask_stamp).to_sec())
             mask_is_fresh = stamp_delta <= self.target_mask_timeout
@@ -380,6 +343,9 @@ class YopoSwarmTracker:
         else:
             target_mask = cv2.resize(target_mask, (self.width, self.height), interpolation=cv2.INTER_NEAREST)
             target_mask = target_mask.astype(np.float32) / 255.0
+        self.last_target_mask_pixels = int(np.count_nonzero(target_mask > 0.5))
+        self.last_target_mask_fresh = bool(mask_is_fresh)
+        self.last_target_mask_age = float(stamp_delta) if np.isfinite(stamp_delta) else np.nan
 
         image = np.concatenate((depth[None, :, :], target_mask[None, :, :]), axis=0)
         return image.reshape(1, cfg["input_channels"], self.height, self.width).astype(np.float32)
@@ -387,9 +353,6 @@ class YopoSwarmTracker:
     @torch.inference_mode()
     def callback_depth(self, data):
         if not self.odom_init:
-            return
-        if self.arrive:
-            self.publish_status()
             return
 
         time0 = time.time()
@@ -415,15 +378,14 @@ class YopoSwarmTracker:
 
         with self.lock:
             start_vel = self.get_current_velocity()
-            self.hold_mode = False
             end_pos = endstate_w[action_id, :, 0] + start_pos
             end_vel = endstate_w[action_id, :, 1]
             end_acc = endstate_w[action_id, :, 2]
-            end_pos[2] = max(float(end_pos[2]), self.min_altitude)
             self.set_optimal_poly(start_pos, start_vel, self.desire_acc, end_pos, end_vel, end_acc)
             self.ctrl_time = 0.0
 
         time4 = time.time()
+        self.write_diagnostic_row(score, action_id, start_pos, start_vel, end_pos, end_vel)
         self.visualize_trajectory(score, endstate_w)
         time5 = time.time()
         self.print_time(time0, time1, time2, time3, time4, time5)
@@ -431,59 +393,77 @@ class YopoSwarmTracker:
     def select_action(self, score):
         return int(np.argmin(score))
 
+    def write_diagnostic_row(self, score, action_id, start_pos, start_vel, end_pos, end_vel):
+        if self.diagnostic_writer is None:
+            return
+        self.diagnostic_count += 1
+        if self.diagnostic_count % self.diagnostic_stride != 0:
+            return
+
+        score = np.asarray(score, dtype=np.float64).reshape(-1)
+        sorted_scores = np.sort(score)
+        best_score = float(sorted_scores[0]) if sorted_scores.size > 0 else np.nan
+        second_score = float(sorted_scores[1]) if sorted_scores.size > 1 else np.nan
+        row = {
+            "ros_time": rospy.Time.now().to_sec(),
+            "wall_time": time.time(),
+            "agent": self.agent_name,
+            "px": float(start_pos[0]),
+            "py": float(start_pos[1]),
+            "pz": float(start_pos[2]),
+            "vx": float(start_vel[0]),
+            "vy": float(start_vel[1]),
+            "vz": float(start_vel[2]),
+            "goal_distance": self.get_goal_planar_distance(start_pos),
+            "mask_pixels": int(self.last_target_mask_pixels),
+            "mask_fresh": int(self.last_target_mask_fresh),
+            "mask_age": self.last_target_mask_age,
+            "action_id": int(action_id),
+            "selected_score": float(score[action_id]),
+            "best_score": best_score,
+            "second_score": second_score,
+            "score_gap": second_score - best_score,
+            "score_mean": float(np.mean(score)),
+            "score_std": float(np.std(score)),
+            "end_x": float(end_pos[0]),
+            "end_y": float(end_pos[1]),
+            "end_z": float(end_pos[2]),
+            "end_vx": float(end_vel[0]),
+            "end_vy": float(end_vel[1]),
+            "end_vz": float(end_vel[2]),
+        }
+        for idx, value in enumerate(score):
+            row[f"score_{idx}"] = float(value)
+        self.diagnostic_writer.writerow(row)
+
     def set_optimal_poly(self, start_pos, start_vel, start_acc, end_pos, end_vel, end_acc):
         self.optimal_poly_x = Poly5Solver(start_pos[0], start_vel[0], start_acc[0], end_pos[0], end_vel[0], end_acc[0], self.traj_time)
         self.optimal_poly_y = Poly5Solver(start_pos[1], start_vel[1], start_acc[1], end_pos[1], end_vel[1], end_acc[1], self.traj_time)
         self.optimal_poly_z = Poly5Solver(start_pos[2], start_vel[2], start_acc[2], end_pos[2], end_vel[2], end_acc[2], self.traj_time)
 
-    def build_hover_command(self):
-        control_msg = PositionCommand()
-        control_msg.header.stamp = rospy.Time.now()
-        control_msg.trajectory_flag = control_msg.TRAJECTORY_STATUS_EMPTY
-        hover_pos = self.arrive_hold_pos if self.arrive_hold_pos is not None else self.get_current_position()
-        control_msg.position.x = float(hover_pos[0])
-        control_msg.position.y = float(hover_pos[1])
-        control_msg.position.z = max(float(hover_pos[2]), self.min_altitude)
-        control_msg.velocity.x = 0.0
-        control_msg.velocity.y = 0.0
-        control_msg.velocity.z = 0.0
-        control_msg.acceleration.x = 0.0
-        control_msg.acceleration.y = 0.0
-        control_msg.acceleration.z = 0.0
-        control_msg.yaw = float(self.last_yaw)
-        control_msg.yaw_dot = 0.0
-        return control_msg
-
     def control_pub(self, _timer):
-        if self.arrive:
-            self.hold_mode = True
-            self.ctrl_pub.publish(self.build_hover_command())
-            self.publish_status()
+        if self.ctrl_time is None or self.ctrl_time > self.traj_time:
             return
-        if self.ctrl_time is None:
-            return
-        if self.ctrl_time > self.traj_time and not self.hold_mode:
+        if self.arrive and self.last_control_msg is not None:
+            self.desire_init = False
+            self.last_control_msg.trajectory_flag = self.last_control_msg.TRAJECTORY_STATUS_EMPTY
+            self.ctrl_pub.publish(self.last_control_msg)
             return
 
         with self.lock:
             self.ctrl_time += self.ctrl_dt
-            eval_time = min(self.ctrl_time, self.traj_time) if self.hold_mode else self.ctrl_time
             control_msg = PositionCommand()
             control_msg.header.stamp = rospy.Time.now()
-            control_msg.trajectory_flag = control_msg.TRAJECTORY_STATUS_EMPTY if self.hold_mode else control_msg.TRAJECTORY_STATUS_READY
-            control_msg.position.x = self.optimal_poly_x.get_position(eval_time)
-            control_msg.position.y = self.optimal_poly_y.get_position(eval_time)
-            control_msg.position.z = max(self.optimal_poly_z.get_position(eval_time), self.min_altitude)
-            control_msg.velocity.x = self.optimal_poly_x.get_velocity(eval_time)
-            control_msg.velocity.y = self.optimal_poly_y.get_velocity(eval_time)
-            control_msg.velocity.z = self.optimal_poly_z.get_velocity(eval_time)
-            if control_msg.position.z <= self.min_altitude + 1e-3 and control_msg.velocity.z < 0.0:
-                control_msg.velocity.z = 0.0
-            control_msg.acceleration.x = self.optimal_poly_x.get_acceleration(eval_time)
-            control_msg.acceleration.y = self.optimal_poly_y.get_acceleration(eval_time)
-            control_msg.acceleration.z = self.optimal_poly_z.get_acceleration(eval_time)
-            if control_msg.position.z <= self.min_altitude + 1e-3 and control_msg.acceleration.z < 0.0:
-                control_msg.acceleration.z = 0.0
+            control_msg.trajectory_flag = control_msg.TRAJECTORY_STATUS_READY
+            control_msg.position.x = self.optimal_poly_x.get_position(self.ctrl_time)
+            control_msg.position.y = self.optimal_poly_y.get_position(self.ctrl_time)
+            control_msg.position.z = self.optimal_poly_z.get_position(self.ctrl_time)
+            control_msg.velocity.x = self.optimal_poly_x.get_velocity(self.ctrl_time)
+            control_msg.velocity.y = self.optimal_poly_y.get_velocity(self.ctrl_time)
+            control_msg.velocity.z = self.optimal_poly_z.get_velocity(self.ctrl_time)
+            control_msg.acceleration.x = self.optimal_poly_x.get_acceleration(self.ctrl_time)
+            control_msg.acceleration.y = self.optimal_poly_y.get_acceleration(self.ctrl_time)
+            control_msg.acceleration.z = self.optimal_poly_z.get_acceleration(self.ctrl_time)
             self.desire_pos = np.array([control_msg.position.x, control_msg.position.y, control_msg.position.z])
             self.desire_vel = np.array([control_msg.velocity.x, control_msg.velocity.y, control_msg.velocity.z])
             self.desire_acc = np.array([control_msg.acceleration.x, control_msg.acceleration.y, control_msg.acceleration.z])
@@ -494,8 +474,9 @@ class YopoSwarmTracker:
             control_msg.yaw = yaw
             control_msg.yaw_dot = yaw_dot
             self.desire_init = True
+            self.last_control_msg = control_msg
             self.ctrl_pub.publish(control_msg)
-            self.publish_status(np.linalg.norm(self.goal - self.desire_pos))
+            self.publish_status(self.get_goal_planar_distance(self.desire_pos))
 
     def process_output_all(self, endstate_pred, score_pred):
         endstate_pred = endstate_pred.reshape(9, self.lattice_primitive.traj_num).T
@@ -571,7 +552,7 @@ class YopoSwarmTracker:
     def publish_status(self, goal_distance=None):
         pos = self.desire_pos if self.desire_pos is not None else self.get_current_position() if self.odom_init else np.zeros(3)
         if goal_distance is None:
-            goal_distance = np.linalg.norm(self.goal - pos)
+            goal_distance = self.get_goal_planar_distance(pos)
         self.arrive_pub.publish(Bool(data=bool(self.arrive)))
         self.goal_distance_pub.publish(Float32(data=float(goal_distance)))
         goal_msg = PoseStamped()
@@ -657,25 +638,21 @@ def parser():
     parser.add_argument("--goal_y", type=float, default=0.0)
     parser.add_argument("--goal_z", type=float, default=1.5)
     parser.add_argument("--arrive_radius", type=float, default=None)
-    parser.add_argument("--arrival_settle_radius", type=float, default=None)
-    parser.add_argument("--arrival_settle_speed", type=float, default=0.25)
-    parser.add_argument("--arrival_settle_time", type=float, default=1.5)
-    parser.add_argument("--arrival_stuck_radius", type=float, default=None)
-    parser.add_argument("--arrival_stuck_timeout", type=float, default=5.0)
-    parser.add_argument("--arrival_min_progress", type=float, default=0.15)
     parser.add_argument("--max_depth_dist", type=float, default=20.0)
     parser.add_argument("--depth_fps", type=float, default=10.0)
     parser.add_argument("--pitch_angle_deg", type=float, default=0.0)
     parser.add_argument("--plan_from_reference", type=int, default=0)
     parser.add_argument("--verbose", type=int, default=0)
     parser.add_argument("--visualize", type=int, default=0)
-    parser.add_argument("--status_text_scale", type=float, default=0.18)
+    parser.add_argument("--status_text_scale", type=float, default=0.27)
     parser.add_argument("--status_text_offset_x", type=float, default=0.18)
     parser.add_argument("--status_text_offset_y", type=float, default=0.12)
     parser.add_argument("--status_text_offset_z", type=float, default=0.35)
+    parser.add_argument("--diagnostic_dir", type=str, default="")
+    parser.add_argument("--diagnostic_stride", type=int, default=1)
     parser.add_argument("--enable_rviz_goal", type=int, default=1)
-    parser.add_argument("--rviz_goal_reference_odom_topic", type=str, default="/uav0/sim/odom")
-    parser.add_argument("--min_altitude", type=float, default=1.5)
+    parser.add_argument("--rviz_goal_offset_x", type=float, default=0.0)
+    parser.add_argument("--rviz_goal_offset_y", type=float, default=0.0)
     return parser
 
 
@@ -693,12 +670,6 @@ if __name__ == "__main__":
     arrive_radius = args.arrive_radius
     if arrive_radius is None:
         arrive_radius = float(cfg["swarm_arrive_radius"])
-    arrival_settle_radius = args.arrival_settle_radius
-    if arrival_settle_radius is None:
-        arrival_settle_radius = arrive_radius
-    arrival_stuck_radius = args.arrival_stuck_radius
-    if arrival_stuck_radius is None:
-        arrival_stuck_radius = arrive_radius
 
     settings = {
         "use_tensorrt": args.use_tensorrt,
@@ -706,12 +677,6 @@ if __name__ == "__main__":
         "node_name": args.node_name,
         "goal": [args.goal_x, args.goal_y, args.goal_z],
         "arrive_radius": arrive_radius,
-        "arrival_settle_radius": arrival_settle_radius,
-        "arrival_settle_speed": args.arrival_settle_speed,
-        "arrival_settle_time": args.arrival_settle_time,
-        "arrival_stuck_radius": arrival_stuck_radius,
-        "arrival_stuck_timeout": args.arrival_stuck_timeout,
-        "arrival_min_progress": args.arrival_min_progress,
         "pitch_angle_deg": -args.pitch_angle_deg,
         "odom_topic": args.odom_topic,
         "depth_topic": args.depth_topic,
@@ -731,8 +696,9 @@ if __name__ == "__main__":
             args.status_text_offset_y,
             args.status_text_offset_z,
         ],
+        "diagnostic_dir": args.diagnostic_dir,
+        "diagnostic_stride": args.diagnostic_stride,
         "enable_rviz_goal": bool(args.enable_rviz_goal),
-        "rviz_goal_reference_odom_topic": args.rviz_goal_reference_odom_topic,
-        "min_altitude": args.min_altitude,
+        "rviz_goal_offset": [args.rviz_goal_offset_x, args.rviz_goal_offset_y],
     }
     YopoSwarmTracker(settings, weight)

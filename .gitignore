@@ -16,6 +16,7 @@ YOPO/saved_swarm/*
 dataset/
 dataset_swarm/
 yopo_sim/
+experiments/
 
 *.pyc
 bags/

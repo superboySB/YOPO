@@ -60,7 +60,7 @@ cd /workspace/YOPO/YOPO
 python3 train_yopo.py \
   --config /workspace/YOPO/YOPO/config/tracker_traj_opt.yaml \
   --save-root saved \
-  --epochs 50 \
+  --epochs 500 \
   --batch-size 16 \
   --num-workers 4
 ```

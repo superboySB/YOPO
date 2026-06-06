@@ -14,17 +14,18 @@ FORWARD_DISTANCE=50.0
 ALTITUDE=1.5
 ARRIVE_RADIUS=""
 COLLISION_RADIUS=0.155
-SPAWN_CLEAR_RADIUS=2.6
+SPAWN_CLEAR_RADIUS=0.0
 
 YOPO_CONFIG="/workspace/YOPO/YOPO/config/tracker_traj_opt.yaml"
 SIMULATOR_CONFIG="/workspace/YOPO/Simulator/src/config/swarm_config.yaml"
 WEIGHTS_ROOT="saved"
 VISUALIZE=1
 RVIZ=0
-VISUALIZE_POINTCLOUD=0
-MIN_ALTITUDE=1.5
+VISUALIZE_POINTCLOUD=1
 ENABLE_RVIZ_GOAL=1
-PLANNER_START_DELAY_STEP=0.5
+PLANNER_START_DELAY_STEP=0
+DIAGNOSTIC_DIR=""
+DIAGNOSTIC_STRIDE=1
 
 usage() {
   cat <<'EOF'
@@ -42,16 +43,17 @@ Options:
   --altitude Z              formation altitude (default: 1.5)
   --arrive-radius R         per-UAV arrival radius override (default: swarm_arrive_radius from YOPO config)
   --collision-radius R      UAV-UAV collision counter radius (default: 0.155)
-  --spawn-clear-radius R    tree clearing around starts/goals (default: 2.6)
+  --spawn-clear-radius R    tree clearing around starts/goals (default: 0.0; strict test)
   --yopo-config PATH        tracker config yaml
   --sim-config PATH         simulator config yaml
   --weights-root DIR        tracker checkpoint root under YOPO/ (default: saved)
   --visualize 0|1           publish all candidate/lattice trajectory point clouds (default: 1)
   --rviz 0|1                open RViz (default: 0)
-  --visualize-pointcloud 0|1 publish aggregated local lidar map; only meaningful with lidar on (default: 0)
-  --min-altitude Z          clamp planned primitive endpoint z above this height (default: 1.5)
-  --enable-rviz-goal 0|1    let RViz 2D Nav Goal set uav0's target and translate the formation (default: 1)
-  --planner-start-delay-step S  seconds of startup stagger per UAV index (default: 0.5)
+  --visualize-pointcloud 0|1 publish shared dynamic local forest point cloud in RViz (default: 1)
+  --enable-rviz-goal 0|1    let RViz 2D Nav Goal set uav0's target and preserve formation goal offsets (default: 1)
+  --planner-start-delay-step S  seconds of startup stagger per UAV index (default: 0)
+  --diagnostic-dir DIR      write per-UAV tracker score/action CSV logs (default: disabled)
+  --diagnostic-stride N     write every Nth tracker frame when diagnostics are enabled (default: 1)
   --session NAME            tmux session name (default: yopo-swarm-tracker)
   --detach                  create session only, do not attach
   --stop                    stop this session and related processes
@@ -85,10 +87,11 @@ parse_args() {
       --visualize) VISUALIZE="${2:-}"; shift 2 ;;
       --rviz) RVIZ="${2:-}"; shift 2 ;;
       --visualize-pointcloud) VISUALIZE_POINTCLOUD="${2:-}"; shift 2 ;;
-      --min-altitude) MIN_ALTITUDE="${2:-}"; shift 2 ;;
       --enable-rviz-goal) ENABLE_RVIZ_GOAL="${2:-}"; shift 2 ;;
       --enable-rviz-direction-goal) ENABLE_RVIZ_GOAL="${2:-}"; shift 2 ;;
       --planner-start-delay-step) PLANNER_START_DELAY_STEP="${2:-}"; shift 2 ;;
+      --diagnostic-dir) DIAGNOSTIC_DIR="${2:-}"; shift 2 ;;
+      --diagnostic-stride) DIAGNOSTIC_STRIDE="${2:-}"; shift 2 ;;
       --session) SESSION="${2:-}"; shift 2 ;;
       --detach) DETACH=1; shift ;;
       --stop) STOP_ONLY=1; shift ;;
@@ -439,6 +442,20 @@ PY
   local yopo_env="export YOPO_CONFIG_PATH=${YOPO_CONFIG}; "
   mapfile -t layout_lines < <(build_layout "${formation_rows_csv}" "${formation_row_spacing}" "${formation_lateral_spacing}")
 
+  local reference_goal_x="" reference_goal_y=""
+  for line in "${layout_lines[@]}"; do
+    IFS=$'\t' read -r idx _init_x _init_y _init_z goal_x goal_y _goal_z <<<"${line}"
+    if [[ "${idx}" == "0" ]]; then
+      reference_goal_x="${goal_x}"
+      reference_goal_y="${goal_y}"
+      break
+    fi
+  done
+  if [[ -z "${reference_goal_x}" || -z "${reference_goal_y}" ]]; then
+    echo "Error: failed to find uav0 reference goal in formation layout." >&2
+    exit 1
+  fi
+
   local wait_for_all_odom_topics=""
   for line in "${layout_lines[@]}"; do
     IFS=$'\t' read -r idx _init_x _init_y _init_z _goal_x _goal_y _goal_z <<<"${line}"
@@ -460,20 +477,38 @@ PY
   for line in "${layout_lines[@]}"; do
     IFS=$'\t' read -r idx _init_x _init_y _init_z goal_x goal_y goal_z <<<"${line}"
     local uav_name="uav${idx}"
+    local rviz_goal_args="--enable_rviz_goal=0"
+    if [[ "${ENABLE_RVIZ_GOAL}" == "1" ]]; then
+      local rviz_goal_offset
+      rviz_goal_offset="$(python3 - "${goal_x}" "${goal_y}" "${reference_goal_x}" "${reference_goal_y}" <<'PY'
+import sys
+
+goal_x, goal_y, reference_goal_x, reference_goal_y = map(float, sys.argv[1:5])
+print(f"{goal_x - reference_goal_x:.6f}\t{goal_y - reference_goal_y:.6f}")
+PY
+)"
+      local rviz_goal_offset_x rviz_goal_offset_y
+      IFS=$'\t' read -r rviz_goal_offset_x rviz_goal_offset_y <<<"${rviz_goal_offset}"
+      rviz_goal_args="--enable_rviz_goal=1 --rviz_goal_topic=/move_base_simple/goal --rviz_goal_offset_x=${rviz_goal_offset_x} --rviz_goal_offset_y=${rviz_goal_offset_y}"
+    fi
     local planner_delay
     planner_delay="$(python3 - "${idx}" "${PLANNER_START_DELAY_STEP}" <<'PY'
 import sys
 print(f"{int(sys.argv[1]) * float(sys.argv[2]):.2f}")
 PY
 )"
-    local cmd_planner="${env_setup}; ${wait_lib}; wait_for_master; wait_for_topic /${uav_name}/sim/odom; wait_for_topic /${uav_name}/depth_image; wait_for_topic /${uav_name}/target_mask_image; sleep ${planner_delay}; cd /workspace/YOPO/YOPO; ${yopo_env}python3 test_yopo_ros_swarm_tracker.py --trial=${TRIAL} --epoch=${EPOCH} --weights_root=${weights_root_abs} --agent_name=${uav_name} --node_name=yopo_tracker_${uav_name} --odom_topic=/${uav_name}/sim/odom --depth_topic=/${uav_name}/depth_image --target_mask_topic=/${uav_name}/target_mask_image --ctrl_topic=/${uav_name}/so3_control/pos_cmd --visual_prefix=/${uav_name}/yopo_tracker --status_prefix=/${uav_name}/yopo --rviz_goal_topic=/move_base_simple/goal --rviz_goal_reference_odom_topic=/uav0/sim/odom --goal_x=${goal_x} --goal_y=${goal_y} --goal_z=${goal_z} --arrive_radius=${arrive_radius} --max_depth_dist=${simulator_max_depth_dist} --depth_fps=${simulator_depth_fps} --visualize=${VISUALIZE} --min_altitude=${MIN_ALTITUDE} --enable_rviz_goal=${ENABLE_RVIZ_GOAL}"
+    local cmd_planner="${env_setup}; ${wait_lib}; wait_for_master; wait_for_topic /${uav_name}/sim/odom; wait_for_topic /${uav_name}/depth_image; wait_for_topic /${uav_name}/target_mask_image; sleep ${planner_delay}; cd /workspace/YOPO/YOPO; ${yopo_env}python3 test_yopo_ros_swarm_tracker.py --trial=${TRIAL} --epoch=${EPOCH} --weights_root=${weights_root_abs} --agent_name=${uav_name} --node_name=yopo_tracker_${uav_name} --odom_topic=/${uav_name}/sim/odom --depth_topic=/${uav_name}/depth_image --target_mask_topic=/${uav_name}/target_mask_image --ctrl_topic=/${uav_name}/so3_control/pos_cmd --visual_prefix=/${uav_name}/yopo_tracker --status_prefix=/${uav_name}/yopo --goal_x=${goal_x} --goal_y=${goal_y} --goal_z=${goal_z} --arrive_radius=${arrive_radius} --max_depth_dist=${simulator_max_depth_dist} --depth_fps=${simulator_depth_fps} --visualize=${VISUALIZE} --diagnostic_dir=${DIAGNOSTIC_DIR} --diagnostic_stride=${DIAGNOSTIC_STRIDE} ${rviz_goal_args}"
     tmux new-window -t "${SESSION}:" -n "plan_${uav_name}" "bash -lc '${cmd_planner}'"
   done
 
   if [[ "${RVIZ}" == "1" ]]; then
     local rviz_config
     rviz_config="$(build_rviz_config)"
-    local cmd_rviz="${env_setup}; ${wait_lib}; wait_for_master; wait_for_topic /mock_map; wait_for_topic /uav0/depth_image; wait_for_topic /uav0/target_mask_image; cd /workspace/YOPO/YOPO; rviz -d ${rviz_config}"
+    local rviz_wait_topics="wait_for_topic /uav0/depth_image; wait_for_topic /uav0/target_mask_image; "
+    if [[ "${VISUALIZE_POINTCLOUD}" == "1" ]]; then
+      rviz_wait_topics="wait_for_topic /local_map_visual; ${rviz_wait_topics}"
+    fi
+    local cmd_rviz="${env_setup}; ${wait_lib}; wait_for_master; ${rviz_wait_topics}cd /workspace/YOPO/YOPO; rviz -d ${rviz_config}"
     tmux new-window -t "${SESSION}:" -n rviz "bash -lc '${cmd_rviz}'"
   fi
 
@@ -481,7 +516,7 @@ PY
   tmux bind-key -T root C-c if-shell -F "#{==:#{session_name},${SESSION}}" "kill-session -t ${SESSION}" "send-keys C-c"
   tmux set-hook -t "${SESSION}" session-closed "unbind-key -T root C-c"
 
-  echo "[swarm_tracker] started tmux session='${SESSION}', uav_num=${UAV_NUM}, formation=${FORMATION}, row_spacing=${formation_row_spacing}m, lateral_spacing=${formation_lateral_spacing}m, arrive_radius=${arrive_radius}m, target_spacing=${formation_lateral_spacing}m, forward=${FORWARD_DISTANCE}m, speed=5m/s, rviz_goal=${ENABLE_RVIZ_GOAL}"
+  echo "[swarm_tracker] started tmux session='${SESSION}', uav_num=${UAV_NUM}, formation=${FORMATION}, row_spacing=${formation_row_spacing}m, lateral_spacing=${formation_lateral_spacing}m, arrive_radius=${arrive_radius}m, target_spacing=${formation_lateral_spacing}m, forward=${FORWARD_DISTANCE}m, speed=5m/s, spawn_clear_radius=${SPAWN_CLEAR_RADIUS}m, rviz_goal=${ENABLE_RVIZ_GOAL}"
   echo "[swarm_tracker] tracker checkpoint: ${weight_path}"
   echo "[swarm_tracker] stop with: tools/swarm_tracker_launch.sh --session ${SESSION} --stop"
 

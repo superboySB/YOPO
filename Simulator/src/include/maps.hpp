@@ -69,8 +69,8 @@ private:
   double swarm_altitude{2.0};
   double swarm_forward_distance{50.0};
   double swarm_formation_start_x{-30.0};
-  double swarm_formation_row_spacing{0.8660254};
-  double swarm_formation_lateral_spacing{1.0};
+  double swarm_formation_row_spacing{1.7320508};
+  double swarm_formation_lateral_spacing{2.0};
   std::string swarm_namespace_prefix{"uav"};
   std::vector<int> swarm_formation_rows;
 

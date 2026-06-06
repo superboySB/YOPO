@@ -86,18 +86,18 @@ Visualization Manager:
       Class: rviz/PointCloud2
       Color: 255; 255; 255
       Color Transformer: AxisColor
-      Decay Time: 10
+      Decay Time: 0
       Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
       Min Color: 0; 0; 0
-      Name: Local_Map
+      Name: Forest
       Position Transformer: XYZ
-      Queue Size: 10
-      Selectable: true
-      Size (Pixels): 3
-      Size (m): 0.10000000149011612
-      Style: Flat Squares
+      Queue Size: 1
+      Selectable: false
+      Size (Pixels): 2
+      Size (m): 0.05000000074505806
+      Style: Points
       Topic: /local_map_visual
       Unreliable: false
       Use Fixed Frame: true

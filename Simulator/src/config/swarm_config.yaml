@@ -8,17 +8,22 @@ lidar_topic: "/lidar_points"
 target_odom_topic: "/target/odom"
 
 render_depth: true
-depth_fps: 8
+depth_fps: 10
 render_target_mask: true
 render_swarm_detector_mask: true
 
 render_lidar: false
 lidar_fps: 5
-visualize_local_map: false
+visualize_local_map: true
+local_map_visual_fps: 5
+local_map_visual_margin: 10.0
+local_map_visual_min_z: 0.2
+local_map_visual_max_points: 100000000
+local_map_visual_tile_size: 0.5
 
 random_map: true
 resolution: 0.1
-mock_map_leaf_size: 0.5
+mock_map_leaf_size: 1.0
 ply_file: "src/pointcloud/forest.ply"
 expand_x_times: 0
 expand_y_times: 0
@@ -59,7 +64,7 @@ swarm:
   namespace_prefix: "uav"
   altitude: 1.5
   collision_radius: 0.155
-  spawn_clear_radius: 2.6
+  spawn_clear_radius: 0.0
   forward_distance: 50.0
   formation_rows: [4, 3, 2, 1]
   formation_start_x: -30.0
@@ -87,7 +92,7 @@ target:
   mask_dynamic_min_count: 0
   mask_dynamic_max_count: 3
   # Keep aligned with YOPO/config/tracker_traj_opt.yaml swarm_initial_spacing.
-  min_center_distance: 1.0
+  min_center_distance: 2.0
   mask_min_forward_depth: 0.45
   mask_min_visible_pixels: 4
   mask_min_visible_ratio: 0.03
