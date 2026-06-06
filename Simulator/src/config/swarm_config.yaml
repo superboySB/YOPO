@@ -13,17 +13,10 @@ render_target_mask: true
 render_swarm_detector_mask: true
 
 render_lidar: false
-lidar_fps: 5
-visualize_local_map: true
-local_map_visual_fps: 5
-local_map_visual_margin: 10.0
-local_map_visual_min_z: 0.2
-local_map_visual_max_points: 100000000
-local_map_visual_tile_size: 0.5
+lidar_fps: 4
 
 random_map: true
 resolution: 0.1
-mock_map_leaf_size: 1.0
 ply_file: "src/pointcloud/forest.ply"
 expand_x_times: 0
 expand_y_times: 0
@@ -99,8 +92,8 @@ target:
 
 lidar:
   vertical_lines: 16
-  vertical_angle_start: -15.0
-  vertical_angle_end: 15.0
+  vertical_angle_start: -20.0
+  vertical_angle_end: 20.0
   horizontal_num: 360
   horizontal_resolution: 1.0
   max_lidar_dist: 20.0

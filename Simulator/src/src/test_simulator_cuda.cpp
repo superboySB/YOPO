@@ -3,7 +3,6 @@
 #include <pcl/point_cloud.h>
 #include <pcl/common/common.h>
 #include <pcl/common/eigen.h>
-#include <pcl/filters/voxel_grid.h>
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include <opencv2/opencv.hpp>
@@ -13,19 +12,18 @@
 #include <std_msgs/Int32.h>
 #include <pcl_ros/point_cloud.h>
 #include <cv_bridge/cv_bridge.h>
+#include <xmlrpcpp/XmlRpcValue.h>
 #include <yaml-cpp/yaml.h>
 #include <boost/bind/bind.hpp>
 
 #include <algorithm>
 #include <chrono>
+#include <cctype>
 #include <cmath>
-#include <cstdint>
 #include <iostream>
 #include <limits>
 #include <sstream>
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 #include "sensor_simulator.cuh"
@@ -69,25 +67,8 @@ public:
         render_depth_ = config["render_depth"].as<bool>();
         render_target_mask_ = config["render_target_mask"] ? config["render_target_mask"].as<bool>() : true;
         render_swarm_detector_mask_ = config["render_swarm_detector_mask"] ? config["render_swarm_detector_mask"].as<bool>() : true;
-        visualize_local_map_ = config["visualize_local_map"] ? config["visualize_local_map"].as<bool>() : true;
-        local_map_visual_margin_ = config["local_map_visual_margin"]
-                                       ? config["local_map_visual_margin"].as<float>()
-                                       : lidar_->max_lidar_dist;
-        local_map_visual_min_z_ = config["local_map_visual_min_z"]
-                                      ? config["local_map_visual_min_z"].as<float>()
-                                      : 0.2f;
-        local_map_visual_max_points_ = config["local_map_visual_max_points"]
-                                           ? std::max(0, config["local_map_visual_max_points"].as<int>())
-                                           : 6000;
-        local_map_visual_tile_size_ = config["local_map_visual_tile_size"]
-                                          ? std::max(0.5f, config["local_map_visual_tile_size"].as<float>())
-                                          : 5.0f;
         depth_pub_duration_ = ros::Duration(1.0 / config["depth_fps"].as<float>());
         lidar_pub_duration_ = ros::Duration(1.0 / config["lidar_fps"].as<float>());
-        const float local_map_visual_fps = config["local_map_visual_fps"]
-                                               ? config["local_map_visual_fps"].as<float>()
-                                               : config["lidar_fps"].as<float>();
-        local_map_visual_pub_duration_ = ros::Duration(1.0 / std::max(0.1f, local_map_visual_fps));
 
         swarm_enabled_ = config["swarm"]["enabled"].as<bool>();
         swarm_uav_num_ = std::max(1, config["swarm"]["uav_num"].as<int>());
@@ -112,7 +93,6 @@ public:
         const std::string ply_file = config["ply_file"].as<std::string>();
         const bool use_random_map = config["random_map"].as<bool>();
         const float resolution = config["resolution"].as<float>();
-        const float mock_map_leaf_size = config["mock_map_leaf_size"] ? config["mock_map_leaf_size"].as<float>() : resolution;
         const int occupy_threshold = config["occupy_threshold"].as<int>();
         const int seed = config["seed"].as<int>();
         int size_x = config["x_length"].as<int>();
@@ -124,8 +104,6 @@ public:
         size_y = size_y * scale;
         size_z = size_z * scale;
 
-        pcl_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("mock_map", 1);
-        local_map_visual_pub_ = nh_.advertise<sensor_msgs::PointCloud2>("local_map_visual", 1);
         collision_counter_total_pub_ = nh_.advertise<std_msgs::Int32>("/yopo/collision_counter_total", 1);
         target_collision_counter_total_pub_ = nh_.advertise<std_msgs::Int32>("/yopo/target_collision_counter_total", 1);
         uav_collision_counter_total_pub_ = nh_.advertise<std_msgs::Int32>("/yopo/uav_collision_counter_total", 1);
@@ -154,25 +132,7 @@ public:
                 PCL_ERROR("Couldn't read PLY file \n");
         }
 
-        map_visual_cloud_.reset(new pcl::PointCloud<pcl::PointXYZ>());
-        if (mock_map_leaf_size > resolution)
-        {
-            pcl::VoxelGrid<pcl::PointXYZ> voxel_filter;
-            voxel_filter.setInputCloud(cloud);
-            voxel_filter.setLeafSize(mock_map_leaf_size, mock_map_leaf_size, mock_map_leaf_size);
-            voxel_filter.filter(*map_visual_cloud_);
-        }
-        else
-        {
-            *map_visual_cloud_ = *cloud;
-        }
-
-        pcl::toROSMsg(*map_visual_cloud_, map_output_);
-        map_output_.header.frame_id = "world";
-        buildLocalMapVisualTiles();
-
-        std::cout << "PointCloud size (raw/visual): " << cloud->points.size() << " / "
-                  << map_visual_cloud_->points.size() << std::endl;
+        std::cout << "PointCloud size: " << cloud->points.size() << std::endl;
         printf("2.Mapping... \n");
         grid_map_ = new GridMap(cloud, resolution, occupy_threshold);
 
@@ -186,9 +146,6 @@ public:
                 this,
                 ros::TransportHints().tcpNoDelay());
         }
-        timer_map_ = nh_.createTimer(ros::Duration(1.0), &SensorSimulator::timerMapCallback, this);
-        timer_local_map_visual_ = nh_.createTimer(local_map_visual_pub_duration_, &SensorSimulator::timerLocalMapVisualCallback, this);
-
         printf("3.Simulation Ready! robots=%zu swarm=%s\n", robots_.size(), swarm_enabled_ ? "true" : "false");
         ros::spin();
     }
@@ -197,7 +154,6 @@ public:
     void targetOdomCallback(const nav_msgs::Odometry::ConstPtr &msg);
     void renderDepthCallback(size_t robot_index, const ros::Time &stamp);
     void renderLidarCallback(size_t robot_index, const ros::Time &stamp);
-    void timerMapCallback(const ros::TimerEvent &);
 
 private:
     struct RobotChannels
@@ -246,23 +202,15 @@ private:
     void overlaySwarmDetectorMasks(size_t robot_index, const cv::Mat &depth_image, cv::Mat &target_mask) const;
     void publishCollisionCounter(size_t robot_index);
     void publishCollisionCounterTotals();
-    void buildLocalMapVisualTiles();
-    void publishLocalMapVisual(const ros::Time &stamp);
-    void timerLocalMapVisualCallback(const ros::TimerEvent &event);
-    std::int64_t localMapTileKey(int ix, int iy) const;
+    static bool readBoolParam(const ros::NodeHandle &pnh, const std::string &name, bool default_value);
 
     bool render_depth_{false};
     bool render_lidar_{false};
     bool render_target_mask_{true};
     bool render_swarm_detector_mask_{true};
-    bool visualize_local_map_{true};
     bool swarm_enabled_{false};
     int swarm_uav_num_{1};
     float collision_radius_{0.155f};
-    float local_map_visual_margin_{20.0f};
-    float local_map_visual_min_z_{0.2f};
-    float local_map_visual_tile_size_{5.0f};
-    int local_map_visual_max_points_{6000};
     std::string swarm_namespace_prefix_{"uav"};
 
     Eigen::Quaternionf quat_bc_{Eigen::Quaternionf::Identity()};
@@ -278,22 +226,14 @@ private:
 
     ros::NodeHandle nh_;
     ros::NodeHandle pnh_;
-    ros::Publisher pcl_pub_;
-    ros::Publisher local_map_visual_pub_;
     ros::Publisher collision_counter_total_pub_;
     ros::Publisher target_collision_counter_total_pub_;
     ros::Publisher uav_collision_counter_total_pub_;
     ros::Subscriber target_odom_sub_;
-    ros::Timer timer_map_;
-    ros::Timer timer_local_map_visual_;
-    sensor_msgs::PointCloud2 map_output_;
-    pcl::PointCloud<pcl::PointXYZ>::Ptr map_visual_cloud_;
-    std::unordered_map<std::int64_t, std::vector<int>> local_map_visual_tiles_;
     std::vector<RobotChannels> robots_;
 
     ros::Duration depth_pub_duration_;
     ros::Duration lidar_pub_duration_;
-    ros::Duration local_map_visual_pub_duration_;
     double depth_time_{0.0};
     double lidar_time_{0.0};
     int depth_count_{0};
@@ -339,7 +279,7 @@ void SensorSimulator::applyRosParamOverrides(YAML::Node &config)
         }
         formation_rows_csv = rows_stream.str();
     }
-    bool visualize_local_map = config["visualize_local_map"] ? config["visualize_local_map"].as<bool>() : true;
+    bool render_lidar = config["render_lidar"] ? config["render_lidar"].as<bool>() : false;
     bool render_swarm_detector_mask = config["render_swarm_detector_mask"] ? config["render_swarm_detector_mask"].as<bool>() : true;
     pnh_.param("swarm_enabled", swarm_enabled, swarm_enabled);
     pnh_.param("swarm_uav_num", swarm_uav_num, swarm_uav_num);
@@ -353,7 +293,7 @@ void SensorSimulator::applyRosParamOverrides(YAML::Node &config)
     pnh_.param("swarm_formation_row_spacing", formation_row_spacing, formation_row_spacing);
     pnh_.param("swarm_formation_lateral_spacing", formation_lateral_spacing, formation_lateral_spacing);
     pnh_.param("swarm_formation_rows", formation_rows_csv, formation_rows_csv);
-    pnh_.param("visualize_local_map", visualize_local_map, visualize_local_map);
+    render_lidar = readBoolParam(pnh_, "render_lidar", render_lidar);
     pnh_.param("render_swarm_detector_mask", render_swarm_detector_mask, render_swarm_detector_mask);
 
     config["swarm"]["enabled"] = swarm_enabled;
@@ -378,8 +318,37 @@ void SensorSimulator::applyRosParamOverrides(YAML::Node &config)
     }
     if (formation_rows_node.size() > 0)
         config["swarm"]["formation_rows"] = formation_rows_node;
-    config["visualize_local_map"] = visualize_local_map;
+    config["render_lidar"] = render_lidar;
     config["render_swarm_detector_mask"] = render_swarm_detector_mask;
+}
+
+bool SensorSimulator::readBoolParam(const ros::NodeHandle &pnh, const std::string &name, bool default_value)
+{
+    if (!pnh.hasParam(name))
+        return default_value;
+
+    XmlRpc::XmlRpcValue value;
+    if (!pnh.getParam(name, value))
+        return default_value;
+
+    switch (value.getType())
+    {
+    case XmlRpc::XmlRpcValue::TypeBoolean:
+        return static_cast<bool>(value);
+    case XmlRpc::XmlRpcValue::TypeInt:
+        return static_cast<int>(value) != 0;
+    case XmlRpc::XmlRpcValue::TypeDouble:
+        return static_cast<double>(value) != 0.0;
+    case XmlRpc::XmlRpcValue::TypeString:
+    {
+        std::string text = static_cast<std::string>(value);
+        std::transform(text.begin(), text.end(), text.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return text == "1" || text == "true" || text == "yes" || text == "on";
+    }
+    default:
+        return default_value;
+    }
 }
 
 void SensorSimulator::setupRobots(const YAML::Node &config)
@@ -699,6 +668,18 @@ void SensorSimulator::renderLidarCallback(size_t robot_index, const ros::Time &s
                              robot.pos.x(), robot.pos.y(), robot.pos.z());
     pcl::PointCloud<pcl::PointXYZ> lidar_points;
     renderLidarPointcloud(grid_map_, lidar_, T_wc, lidar_points, dynamic_obstacles);
+    const Eigen::Matrix3f R_wb = robot.quat.toRotationMatrix();
+    for (auto &point : lidar_points.points)
+    {
+        const Eigen::Vector3f point_b(point.x, point.y, point.z);
+        const Eigen::Vector3f point_w = R_wb * point_b + robot.pos;
+        point.x = point_w.x();
+        point.y = point_w.y();
+        point.z = point_w.z();
+    }
+    lidar_points.width = lidar_points.points.size();
+    lidar_points.height = 1;
+    lidar_points.is_dense = true;
 
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
@@ -708,117 +689,8 @@ void SensorSimulator::renderLidarCallback(size_t robot_index, const ros::Time &s
     sensor_msgs::PointCloud2 output;
     pcl::toROSMsg(lidar_points, output);
     output.header.stamp = stamp;
-    output.header.frame_id = "odom";
-    robot.point_cloud_pub.publish(output);
-}
-
-void SensorSimulator::timerMapCallback(const ros::TimerEvent &)
-{
-    if (pcl_pub_.getNumSubscribers() > 0)
-        pcl_pub_.publish(map_output_);
-}
-
-void SensorSimulator::timerLocalMapVisualCallback(const ros::TimerEvent &event)
-{
-    publishLocalMapVisual(event.current_real);
-}
-
-std::int64_t SensorSimulator::localMapTileKey(int ix, int iy) const
-{
-    return (static_cast<std::int64_t>(ix) << 32) ^ static_cast<std::uint32_t>(iy);
-}
-
-void SensorSimulator::buildLocalMapVisualTiles()
-{
-    local_map_visual_tiles_.clear();
-    if (!map_visual_cloud_ || map_visual_cloud_->empty())
-        return;
-
-    for (size_t idx = 0; idx < map_visual_cloud_->points.size(); ++idx)
-    {
-        const auto &point = map_visual_cloud_->points[idx];
-        if (point.z < local_map_visual_min_z_)
-            continue;
-
-        const int ix = static_cast<int>(std::floor(point.x / local_map_visual_tile_size_));
-        const int iy = static_cast<int>(std::floor(point.y / local_map_visual_tile_size_));
-        local_map_visual_tiles_[localMapTileKey(ix, iy)].push_back(static_cast<int>(idx));
-    }
-    std::cout << "Local map visual tiles: " << local_map_visual_tiles_.size() << std::endl;
-}
-
-void SensorSimulator::publishLocalMapVisual(const ros::Time &stamp)
-{
-    if (!visualize_local_map_)
-        return;
-    if (local_map_visual_pub_.getNumSubscribers() == 0)
-        return;
-    if (!map_visual_cloud_ || map_visual_cloud_->empty())
-        return;
-
-    std::unordered_set<std::int64_t> selected_tiles;
-    for (const auto &robot : robots_)
-    {
-        if (!robot.odom_init)
-            continue;
-
-        const int min_ix = static_cast<int>(std::floor((robot.pos.x() - local_map_visual_margin_) / local_map_visual_tile_size_));
-        const int max_ix = static_cast<int>(std::floor((robot.pos.x() + local_map_visual_margin_) / local_map_visual_tile_size_));
-        const int min_iy = static_cast<int>(std::floor((robot.pos.y() - local_map_visual_margin_) / local_map_visual_tile_size_));
-        const int max_iy = static_cast<int>(std::floor((robot.pos.y() + local_map_visual_margin_) / local_map_visual_tile_size_));
-        for (int ix = min_ix; ix <= max_ix; ++ix)
-        {
-            for (int iy = min_iy; iy <= max_iy; ++iy)
-            {
-                const auto key = localMapTileKey(ix, iy);
-                if (local_map_visual_tiles_.find(key) != local_map_visual_tiles_.end())
-                    selected_tiles.insert(key);
-            }
-        }
-    }
-    if (selected_tiles.empty())
-        return;
-
-    int candidate_count = 0;
-    for (const auto key : selected_tiles)
-    {
-        const auto tile_it = local_map_visual_tiles_.find(key);
-        if (tile_it != local_map_visual_tiles_.end())
-            candidate_count += static_cast<int>(tile_it->second.size());
-    }
-    if (candidate_count <= 0)
-        return;
-
-    const int max_points = local_map_visual_max_points_ > 0 ? local_map_visual_max_points_ : candidate_count;
-    const int sample_stride = std::max(1, static_cast<int>(std::ceil(static_cast<float>(candidate_count) / max_points)));
-
-    pcl::PointCloud<pcl::PointXYZ> merged_cloud;
-    merged_cloud.points.reserve(std::min(candidate_count, max_points));
-    int kept_index = 0;
-    for (const auto key : selected_tiles)
-    {
-        const auto tile_it = local_map_visual_tiles_.find(key);
-        if (tile_it == local_map_visual_tiles_.end())
-            continue;
-        for (const auto point_idx : tile_it->second)
-        {
-            if ((kept_index++ % sample_stride) == 0)
-                merged_cloud.points.push_back(map_visual_cloud_->points[point_idx]);
-            if (static_cast<int>(merged_cloud.points.size()) >= max_points)
-                break;
-        }
-        if (static_cast<int>(merged_cloud.points.size()) >= max_points)
-            break;
-    }
-    merged_cloud.width = merged_cloud.points.size();
-    merged_cloud.height = 1;
-    merged_cloud.is_dense = true;
-
-    sensor_msgs::PointCloud2 output;
-    pcl::toROSMsg(merged_cloud, output);
-    output.header.stamp = stamp;
     output.header.frame_id = "world";
-    local_map_visual_pub_.publish(output);
+    robot.point_cloud_pub.publish(output);
 }
 
 void SensorSimulator::publishCollisionCounter(size_t robot_index)

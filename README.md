@@ -1,224 +1,111 @@
+# YOPO-swarm 改进版
 
-# You Only Plan Once
+## Docker 构建与启动
 
-Original Paper: [You Only Plan Once: A Learning-Based One-Stage Planner With Guidance Learning](https://ieeexplore.ieee.org/document/10528860)
+```bash
+cd /home/dzp/projects/YOPO
 
-Improvements and Applications: [YOPOv2-Tracker: An End-to-End Agile Tracking and Navigation Framework from Perception to Action](https://arxiv.org/html/2505.06923v1)
+docker build -f docker/simulation.dockerfile \
+  -t dzp_yopo:sim-u2004-noetic-py38 \
+  --network=host --progress=plain .
 
-Video of the paper: [YouTube](https://youtu.be/m7u1MYIuIn4), [bilibili](https://www.bilibili.com/video/BV15M4m1d7j5)
+xhost +local:root
 
-Some realworld experiment: [YouTube](https://youtu.be/LHvtbKmTwvE), [bilibili](https://www.bilibili.com/video/BV1jBpve5EkP)
+docker run --name dzp-yopo -itd --privileged --gpus all --network host \
+  --entrypoint bash \
+  -e DISPLAY -e QT_X11_NO_MITSHM=1 \
+  -v $HOME/.Xauthority:/root/.Xauthority \
+  -v /tmp/.X11-unix:/tmp/.X11-unix \
+  --shm-size=4g \
+  -v /home/dzp/projects/YOPO:/workspace/YOPO \
+  dzp_yopo:sim-u2004-noetic-py38
 
-<table>
-  <tr>
-    <td align="center" width="38.5%"><img src="docs/realworld_1.gif" alt="Fig1" width="100%"></td>
-    <td align="center" width="38.5%"><img src="docs/realworld_2.gif" alt="Fig2" width="100%"></td>
-    <td align="center" width="23.0%"><img src="docs/platform.gif" alt="Fig3" width="100%"></td>
-  </tr>
-</table>
-
-**Faster and Simpler:** The code is greatly simplified and refactored in Python/PyTorch. We also replaced the simulator with our CUDA-accelerated randomized environment, which is faster, lightweight, and boundless. For the stable version consistent with our paper, please refer to the [main](https://github.com/TJU-Aerial-Robotics/YOPO/tree/main) branch.
-
-### Hardware:
-Our drone designed by [@Mioulo](https://github.com/Mioulo) is also open-source. The hardware components are listed in [hardware_list.pdf](hardware/hardware_list.pdf), and the SolidWorks file of carbon fiber frame can be found in [/hardware](hardware/) (complete assembly files are included in the [Release](https://github.com/TJU-Aerial-Robotics/YOPO/releases/tag/hardware)).
-
-## Introduction:
-We propose **a learning-based planner for autonomous navigation in obstacle-dense environments** which integrates (i) perception and mapping, (ii) front-end path searching, and (iii) back-end optimization of classical methods into a single network. 
-
-**Learning-based Planner:** Considering the multi-modal nature of the navigation problem and to avoid local minima around initial values, our approach adopts a set of motion primitives as anchor to cover the searching space, and predicts the offsets and scores of primitives for further improvement (like the one-stage object detector YOLO). 
-
-**Training Strategy:** Compared to giving expert demonstrations as labels in imitation learning or exploring by trial-and-error in reinforcement learning, we directly back-propagate the gradients of trajectory costs (e.g. from ESDF) to the weights of network, which is simple, straightforward, accurate, and sequence-independent (free of online simulator interaction or rendering).
-
-<table>
-    <tr>
-        <td align="center" style="border: none;"><img src="docs/primitive_trajectories.png" alt="Fig1" style="width: 80%;"></td>
-        <td align="center" style="border: none;"><img src="docs/predicted_trajectories.png" alt="Fig2" style="width: 80%;"></td>
-		<td align="center" style="border: none;"><img src="docs/proposed_guidance_learning.png" alt="Fig3" style="width: 100%;"></td>
-    </tr>
-    <tr>
-        <td align="center" style="border: none;">primitive anchors</td>
-        <td align="center" style="border: none;">predicted traj and scores</td>
-		<td align="center" style="border: none;">learning method</td>
-    </tr>
-</table>
-
-
-## Installation
-
-The project was tested with Ubuntu 20.04 and Jetson Orin/Xavier NX. We assume that you have already installed the necessary dependencies such as CUDA, ROS, and Conda.
-
-**1. Clone the Code**
-```
-git clone --depth 1 git@github.com:TJU-Aerial-Robotics/YOPO.git
+docker exec -it dzp-yopo /bin/bash
 ```
 
-**2. Create Virtual Environment**
+## 编译
 
-I specified the version numbers I used currently to avoid future changes; you can remove them.
-```
-conda create --name yopo python=3.8
-conda activate yopo
-cd YOPO
-pip install -r requirements.txt
-```
-**3. Build Simulator** 
-
-Build the controller and dynamics simulator
-```
-conda deactivate
-cd Controller
-catkin_make
-```
-Build the environment and sensors simulator (if CUDA errors occur, please refer to [Simulator_Introduction](Simulator/src/readme.md))
-```
-conda deactivate
-cd Simulator
+```bash
+source /opt/ros/noetic/setup.bash && \
+cd /workspace/YOPO/Controller && \
+catkin_make && \
+cd /workspace/YOPO/Simulator && \
 catkin_make
 ```
 
-## Test the Policy
+## 数据采集
 
-You can test the tracker policy using checkpoints under `YOPO/saved/YOPO_<trial>/epoch<epoch>.pth`.
+仿真配置文件：`/workspace/YOPO/Simulator/src/config/swarm_config.yaml`。
 
-**1. Start the Unified Simulation**
-
-The swarm tracker launcher defaults to the single-UAV case. For swarm tests, set `--uav-num` and a matching pipe-separated `--formation`, for example `--uav-num 10 --formation '1|2|3|4'`.
+```bash
+cd /workspace/YOPO/Simulator && \
+source /opt/ros/noetic/setup.bash && \
+source devel/setup.bash && \
+rosrun sensor_simulator dataset_generator \
+  --config /workspace/YOPO/Simulator/src/config/swarm_config.yaml \
+  --save-path /workspace/YOPO/dataset/ \
+  --env-num 10 \
+  --image-num 10000
 ```
+
+数据集 depth 包含静态地图和当前帧动态目标；动态目标按 250 级四旋翼近似为 `0.31 x 0.31 x 0.14 m` 椭球，并同步写入 mask。每帧动态目标数量按 `50%,25%,12.5%,12.5%` 采样为 `0,1,2,3` 个，距离本机 `1-5m`，目标间真值 3D 距离不小于 `2m`。CSV 按真值 3D 距离排序记录所有可见目标。
+
+## 正式训练
+
+网络配置文件：`/workspace/YOPO/YOPO/config/tracker_traj_opt.yaml`。
+
+```bash
+cd /workspace/YOPO/YOPO
+
+python3 train_yopo.py \
+  --config /workspace/YOPO/YOPO/config/tracker_traj_opt.yaml \
+  --save-root saved \
+  --epochs 150 \
+  --batch-size 16 \
+  --num-workers 4
+```
+
+训练配置使用水平 `120 deg`、垂直 `90 deg` 相机模型。状态输入包含本机导航目标向量。训练 score label 由 smoothness、static safety、dynamic safety、goal guidance、acceleration 和 visible-target separation 组成；static safety 保持原版 ESDF 30 点采样，dynamic safety 和 separation 对当前帧所有可见目标用 5 个采样点，不做速度外推。单机或无可见目标时 dynamic/separation 项为 0。
+
+## Tracker Swarm 测试
+
+统一启动脚本：`/workspace/YOPO/tools/swarm_tracker_launch.sh`。它同时覆盖单机和多机；默认 `1` 机、`--formation '1'`。多机时用 `--formation '1|2|3|4'` 这种从后到前的行数描述，脚本会检查各行求和是否等于 `--uav-num`。初始编队最近邻距离和 separation loss 距离都读 `swarm_initial_spacing`，到达成功半径读 `swarm_arrive_radius`；这些量都在 `tracker_traj_opt.yaml` 的 Swarm distance knobs 注释块里设置。
+
+单机和少机使用同一入口：
+
+```bash
 cd /workspace/YOPO
-./tools/swarm_tracker_launch.sh --trial 0 --epoch 50 --rviz 1
-```
 
-For a 10-UAV swarm:
-```
-./tools/swarm_tracker_launch.sh --uav-num 10 --trial 0 --epoch 50 --rviz 1
-```
+./tools/swarm_tracker_launch.sh --trial 0 --epoch 150 --rviz 1
+./tools/swarm_tracker_launch.sh --uav-num 5 --formation '2|1|2' --trial 0 --epoch 150 --rviz 1
+./tools/swarm_tracker_launch.sh --uav-num 10 --formation '4|3|2|1' --trial 0 --epoch 150 --rviz 1
 
-You can refer to [swarm_config.yaml](Simulator/src/config/swarm_config.yaml) for modifications of the sensor (e.g., camera and LiDAR parameters) and environment (e.g., scenario type and obstacle density).
-
-**2. Stop the Simulation**
-
-```
 ./tools/swarm_tracker_launch.sh --stop
 ```
 
-RViz uses [swarm_tracker.rviz](YOPO/swarm_tracker.rviz), and the launcher generates a per-UAV RViz config from it. Candidate trajectories are published on `/uavN/yopo_tracker/trajs_visual` with network score in the `intensity` channel, so RViz can color different candidates by weight/score.
+周围点云可视化默认关闭，以免多机 RViz 太卡。需要打开时，在任一启动命令后追加 `--vis_ply_per_uav 1`，
+该功能只发布轻量 per-UAV LiDAR 点云到 `/uavN/lidar_points` 供 RViz decay 累积显示，不使用之前的全局格子/盒子地图，不改变训练数据、深度图、mask、YOPO 网络输入输出或控制指令。
 
-Left: Random Forest (maze_type=5); Right: 3D Perlin (maze_type=1).
-<p align="center">
-    <img src="docs/new_env.gif" alt="new_env" />
-</p>
+RViz `2D Nav Goal` 的点击位置表示 `uav0` 的目标位置。所有飞机根据 `uav0` 实时位置到点击位置的位移更新各自目标，因此队形按同一位移平移，不会聚集到同一绝对坐标。
 
-You can click the `2D Nav Goal` on RVIZ as the goal (the map is infinite so the goal is freely), just like the following GIF ( Flightmare Simulator).
+ROS planner 统一入口为 `/workspace/YOPO/YOPO/test_yopo_ros_swarm_tracker.py`,`--uav-num 1` 时没有其它飞机 mask，输入第二通道为空，行为退化为单机 YOPO navigation。
 
-<p align="center">
-    <img src="docs/click_in_rviz.gif" alt="click_in_rviz" />
-</p>
+## 任务定义，输入各个维度，输出意义，网络结构
 
-**5. Collision Counter**
+任务：无通信高速 swarm navigation。每架飞机运行同一个 YOPOv2-Tracker 网络，以本机独立 goal 导航为主，以相机内所有可见动态目标 mask 为辅，在静态障碍和队友之间规划轨迹。
 
-The simulator exposes a static-map collision counter:
-```
-rostopic echo /yopo/collision_counter_total
-```
+输入：
 
-Notes:
-- `collision_counter_total` counts entry events where the UAV body center enters an occupied map voxel, so it is a conservative static-obstacle proxy.
+- 图像：`(2, 96, 160)`。
+- 第 0 通道：静态障碍和动态目标共同渲染的深度图。
+- 第 1 通道：动态目标椭球投影 mask。swarm 模式下包含本机相机内所有可见其它飞机；无可见飞机或单机模式下为空 mask。
+- 状态：`(9,)`，相机/body 坐标系速度 `(vx, vy, vz)`、加速度 `(ax, ay, az)`、本机导航目标向量 `(gx, gy, gz)`。
+- 相机：`fx=46.1880215`、`fy=48.0`、`cx=80.0`、`cy=48.0`，对应水平 `120 deg`、垂直 `90 deg`。
 
+输出：
 
-## Train the Policy
-**1. Data Collection** 
+- `5 x 3 = 15` 个 primitives，每个 primitive 输出 `10` 维。
+- `0:9`：终端位置、速度、加速度参数。
+- `9`：轨迹 cost，越小越优。
 
-For efficiency, we proactively collect dataset (images, states, and map) by randomly resetting the drone's states (positions and orientations). It only takes 1–2 minutes to collect 100,000 samples, and you only need to collect once.
-```
-cd Simulator
-source devel/setup.bash
-rosrun sensor_simulator dataset_generator
-```
-The data will be saved at `./dataset`:
-```
-YOPO/
-├── YOPO/
-├── Simulator/
-├── Controller/
-├── dataset/
-```
-You can refer to [swarm_config.yaml](Simulator/src/config/swarm_config.yaml) for modifications of the sampling state, sensor, and environment. Besides, we use random `vel/acc/goal` for data augmentation, and the distribution can be found in [state_samples](docs/state_samples.png)
-
-**2. Train the Policy**
-```
-cd YOPO/
-conda activate yopo
-python train_yopo.py
-```
-It takes less than 1 hour to train on 100,000 samples for 50 epochs on an RTX 3080 GPU and i9-12900K CPU. Besides, we highly recommend binding the process to P-cores  via `taskset -c 1,2,3,4 python train_yopo.py` if your CPU uses a hybrid architecture with P-cores and E-cores. If everything goes well, the training log is as follows:
-
-```
-cd YOPO/saved
-conda activate yopo
-tensorboard --logdir=./
-```
-<p align="center">
-    <img src="docs/train_log.png" alt="train_log" width="100%"/>
-</p>
-
-Besides, you can refer to [tracker_traj_opt.yaml](YOPO/config/tracker_traj_opt.yaml) for modifications of trajectory optimization (e.g. the speed and penalties).
-
-
-## TensorRT Deployment
-We highly recommend using TensorRT for acceleration when flying in real world. It only takes 1ms (with ResNet-14 Backbone) to 5ms (with ResNet-18 Backbone) for inference on NVIDIA Orin NX.
-
-**1. Prepare**
-```
-conda activate yopo
-pip install -U nvidia-tensorrt --index-url https://pypi.ngc.nvidia.com
-
-git clone https://github.com/NVIDIA-AI-IOT/torch2trt
-cd torch2trt
-python setup.py install
-```
-**2. PyTorch Model to TensorRT**
-```
-cd YOPO
-conda activate yopo
-python yopo_trt_transfer.py --trial=1 --epoch=50
-```
-**3. TensorRT Inference**
-```
-cd YOPO
-conda activate yopo
-python test_yopo_ros_swarm_tracker.py --use_tensorrt=1
-```
-
-**4. Adapt to Your Platform**
-+ You need to modify the odometry/depth/mask topic arguments of `test_yopo_ros_swarm_tracker.py` for your own platform (in the NWU frame).
-
-+ Configure your depth camera to match the training configuration (the pre-trained weights use a 16:9 resolution and a 90° FOV; for RealSense, you can set the resolution in ROS-driver file to 480×270).
-
-+ You may want to use the position controller like traditional planners in real flight to make it compatible with your controller. Pass `--plan_from_reference=1` to `test_yopo_ros_swarm_tracker.py` when running the node directly. You can test the changes in simulation using the position controller: `roslaunch so3_quadrotor_simulator simulator_position_control.launch
-`
-
-**5. Generalization**
-
-We use random training scenes, images, and states to enhance generalization. Policy trained with ground truth depth images can be zero-shot transferred to stereo cameras and unseen scenarios:
-<p align="center">
-    <img src="docs/sim2real.gif" alt="sim2real" />
-</p>
-
-
-## RKNN Deployment
-On the RK3566 clip (only 1 TOPS NPU), after deploying with RKNN and INT8 quantization, inference takes only about 20 ms (backbone: ResNet-14). The update of deployment on RK3566 or RK3588 is coming soon.
-
-## Finally
-We are still working on improving and refactoring the code to improve the readability, reliability, and efficiency. For any technical issues, please feel free to contact me (lqzx1998@tju.edu.cn) 😀 We are very open and enjoy collaboration!
-
-If you find this work useful or interesting, please kindly give us a star ⭐; If our repository supports your academic projects, please cite our paper. Thank you!
-
-```
-@article{YOPO,
-  title={You Only Plan Once: A Learning-based One-stage Planner with Guidance Learning},
-  author={Lu, Junjie and Zhang, Xuewei and Shen, Hongming and Xu, Liwen and Tian, Bailing},
-  journal={IEEE Robotics and Automation Letters},
-  year={2024},
-  publisher={IEEE}
-}
-```
+网络结构：2 通道 ResNet-18 backbone + 9 维状态 broadcast + 三层 `1x1 Conv` head。推理时直接选择网络 score 最小的 primitive，不叠加测试端规则或虚拟目标。节点将选定 primitive 转换为五次多项式，并发布 `PositionCommand`。

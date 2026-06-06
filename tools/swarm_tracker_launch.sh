@@ -21,7 +21,7 @@ SIMULATOR_CONFIG="/workspace/YOPO/Simulator/src/config/swarm_config.yaml"
 WEIGHTS_ROOT="saved"
 VISUALIZE=1
 RVIZ=0
-VISUALIZE_POINTCLOUD=1
+VIS_PLY_PER_UAV=0
 ENABLE_RVIZ_GOAL=1
 PLANNER_START_DELAY_STEP=0
 DIAGNOSTIC_DIR=""
@@ -49,7 +49,7 @@ Options:
   --weights-root DIR        tracker checkpoint root under YOPO/ (default: saved)
   --visualize 0|1           publish all candidate/lattice trajectory point clouds (default: 1)
   --rviz 0|1                open RViz (default: 0)
-  --visualize-pointcloud 0|1 publish shared dynamic local forest point cloud in RViz (default: 1)
+  --vis_ply_per_uav 0|1     publish lightweight per-UAV LiDAR point clouds in RViz (default: 0)
   --enable-rviz-goal 0|1    let RViz 2D Nav Goal set uav0's target and preserve formation goal offsets (default: 1)
   --planner-start-delay-step S  seconds of startup stagger per UAV index (default: 0)
   --diagnostic-dir DIR      write per-UAV tracker score/action CSV logs (default: disabled)
@@ -86,7 +86,8 @@ parse_args() {
       --weights-root) WEIGHTS_ROOT="${2:-}"; shift 2 ;;
       --visualize) VISUALIZE="${2:-}"; shift 2 ;;
       --rviz) RVIZ="${2:-}"; shift 2 ;;
-      --visualize-pointcloud) VISUALIZE_POINTCLOUD="${2:-}"; shift 2 ;;
+      --vis_ply_per_uav|--vis-ply-per-uav) VIS_PLY_PER_UAV="${2:-}"; shift 2 ;;
+      --visualize-pointcloud) VIS_PLY_PER_UAV="${2:-}"; shift 2 ;;
       --enable-rviz-goal) ENABLE_RVIZ_GOAL="${2:-}"; shift 2 ;;
       --enable-rviz-direction-goal) ENABLE_RVIZ_GOAL="${2:-}"; shift 2 ;;
       --planner-start-delay-step) PLANNER_START_DELAY_STEP="${2:-}"; shift 2 ;;
@@ -123,6 +124,8 @@ stop_all() {
     pkill -9 -f "${pattern}" >/dev/null 2>&1 || true
   done
   sleep 2
+  rosparam delete /sensor_simulator_node >/dev/null 2>&1 || true
+  timeout 5 bash -lc 'yes y | rosnode cleanup' >/dev/null 2>&1 || true
 }
 
 ensure_inside_container() {
@@ -240,7 +243,7 @@ wait_for_master() {
 wait_for_topic() {
   local topic="$1"
   local deadline=$((SECONDS + 90))
-  until rostopic info "$topic" >/dev/null 2>&1; do
+  until timeout 2 rostopic echo -n 1 "$topic" >/dev/null 2>&1; do
     if (( SECONDS >= deadline )); then
       echo "[swarm_tracker] timed out waiting for topic ${topic}." >&2
       exit 1
@@ -252,7 +255,7 @@ EOF
 }
 
 build_rviz_config() {
-  python3 - "/workspace/YOPO/YOPO/swarm_tracker.rviz" "${UAV_NUM}" <<'PY'
+  python3 - "/workspace/YOPO/YOPO/swarm_tracker.rviz" "${UAV_NUM}" "${VIS_PLY_PER_UAV}" <<'PY'
 import copy
 import os
 import sys
@@ -263,6 +266,7 @@ import yaml
 
 src_path = Path(sys.argv[1])
 uav_num = int(sys.argv[2])
+lidar_enabled = sys.argv[3] == "1"
 config = yaml.safe_load(src_path.read_text(encoding="utf-8"))
 displays = config.get("Visualization Manager", {}).get("Displays", [])
 
@@ -271,6 +275,7 @@ mask_template = next((d for d in displays if d.get("Class") == "rviz/Image" and 
 traj_template = next((d for d in displays if d.get("Class") == "rviz/Group" and d.get("Name") == "Trajectory"), None)
 drone_template = next((d for d in displays if d.get("Class") == "rviz/Marker" and d.get("Name") == "Drone"), None)
 label_template = next((d for d in displays if d.get("Class") == "rviz/Marker" and d.get("Name") == "Status_Label"), None)
+lidar_template = next((d for d in displays if d.get("Class") == "rviz/PointCloud2" and (d.get("Name") == "Lidar" or d.get("Topic") in ("/lidar_points", "/uav0/lidar_points"))), None)
 
 palette = [
     "231; 76; 60", "52; 152; 219", "46; 204; 113", "241; 196; 15", "155; 89; 182",
@@ -312,6 +317,14 @@ def clone_traj(idx):
             child["Value"] = False
     return item
 
+def clone_lidar(idx):
+    item = copy.deepcopy(lidar_template)
+    item["Name"] = f"Lidar_uav{idx}"
+    item["Topic"] = f"/uav{idx}/lidar_points"
+    item["Enabled"] = lidar_enabled
+    item["Value"] = lidar_enabled
+    return item
+
 def clone_drone(idx):
     item = copy.deepcopy(drone_template)
     item["Marker Topic"] = f"/uav{idx}_simulator/uav"
@@ -329,6 +342,7 @@ inserted_images = False
 inserted_trajs = False
 inserted_drones = False
 inserted_labels = False
+inserted_lidars = False
 
 for item in displays:
     cls = item.get("Class")
@@ -346,6 +360,12 @@ for item in displays:
             for idx in range(uav_num):
                 new_displays.append(clone_traj(idx))
             inserted_trajs = True
+        continue
+    if cls == "rviz/PointCloud2" and (name == "Lidar" or item.get("Topic") in ("/lidar_points", "/uav0/lidar_points")):
+        if not inserted_lidars and lidar_template:
+            for idx in range(uav_num):
+                new_displays.append(clone_lidar(idx))
+            inserted_lidars = True
         continue
     if cls == "rviz/Marker" and name in ("Drone", "Target_Drone"):
         if not inserted_drones and drone_template:
@@ -380,7 +400,7 @@ main() {
 
   validate_binary_flag --visualize "${VISUALIZE}"
   validate_binary_flag --rviz "${RVIZ}"
-  validate_binary_flag --visualize-pointcloud "${VISUALIZE_POINTCLOUD}"
+  validate_binary_flag --vis_ply_per_uav "${VIS_PLY_PER_UAV}"
   validate_binary_flag --enable-rviz-goal "${ENABLE_RVIZ_GOAL}"
   if [[ "${RVIZ}" == "1" ]]; then
     require_cmd rviz
@@ -471,7 +491,11 @@ PY
     tmux new-window -t "${SESSION}:" -n "ctrl_${uav_name}" "bash -lc '${cmd_controller}'"
   done
 
-  local cmd_simulator="${env_setup}; ${wait_lib}; wait_for_master; ${wait_for_all_odom_topics} cd /workspace/YOPO/Simulator; source devel/setup.bash; rosrun sensor_simulator sensor_simulator_cuda _config_path:=${SIMULATOR_CONFIG} _swarm_enabled:=true _swarm_uav_num:=${UAV_NUM} _swarm_namespace_prefix:=uav _swarm_altitude:=${ALTITUDE} _swarm_collision_radius:=${COLLISION_RADIUS} _swarm_spawn_clear_radius:=${SPAWN_CLEAR_RADIUS} _swarm_forward_distance:=${FORWARD_DISTANCE} _swarm_formation_start_x:=${FORMATION_START_X} _swarm_formation_row_spacing:=${formation_row_spacing} _swarm_formation_lateral_spacing:=${formation_lateral_spacing} _swarm_formation_rows:=${formation_rows_csv} _visualize_local_map:=${VISUALIZE_POINTCLOUD}"
+  local render_lidar_param="false"
+  if [[ "${VIS_PLY_PER_UAV}" == "1" ]]; then
+    render_lidar_param="true"
+  fi
+  local cmd_simulator="${env_setup}; ${wait_lib}; wait_for_master; ${wait_for_all_odom_topics} rosparam delete /sensor_simulator_node >/dev/null 2>&1 || true; cd /workspace/YOPO/Simulator; source devel/setup.bash; rosrun sensor_simulator sensor_simulator_cuda _config_path:=${SIMULATOR_CONFIG} _swarm_enabled:=true _swarm_uav_num:=${UAV_NUM} _swarm_namespace_prefix:=uav _swarm_altitude:=${ALTITUDE} _swarm_collision_radius:=${COLLISION_RADIUS} _swarm_spawn_clear_radius:=${SPAWN_CLEAR_RADIUS} _swarm_forward_distance:=${FORWARD_DISTANCE} _swarm_formation_start_x:=${FORMATION_START_X} _swarm_formation_row_spacing:=${formation_row_spacing} _swarm_formation_lateral_spacing:=${formation_lateral_spacing} _swarm_formation_rows:=${formation_rows_csv} _render_lidar:=${render_lidar_param}"
   tmux new-window -t "${SESSION}:" -n simulator "bash -lc '${cmd_simulator}'"
 
   for line in "${layout_lines[@]}"; do
@@ -505,8 +529,8 @@ PY
     local rviz_config
     rviz_config="$(build_rviz_config)"
     local rviz_wait_topics="wait_for_topic /uav0/depth_image; wait_for_topic /uav0/target_mask_image; "
-    if [[ "${VISUALIZE_POINTCLOUD}" == "1" ]]; then
-      rviz_wait_topics="wait_for_topic /local_map_visual; ${rviz_wait_topics}"
+    if [[ "${VIS_PLY_PER_UAV}" == "1" ]]; then
+      rviz_wait_topics="wait_for_topic /uav0/lidar_points; ${rviz_wait_topics}"
     fi
     local cmd_rviz="${env_setup}; ${wait_lib}; wait_for_master; ${rviz_wait_topics}cd /workspace/YOPO/YOPO; rviz -d ${rviz_config}"
     tmux new-window -t "${SESSION}:" -n rviz "bash -lc '${cmd_rviz}'"
@@ -516,7 +540,7 @@ PY
   tmux bind-key -T root C-c if-shell -F "#{==:#{session_name},${SESSION}}" "kill-session -t ${SESSION}" "send-keys C-c"
   tmux set-hook -t "${SESSION}" session-closed "unbind-key -T root C-c"
 
-  echo "[swarm_tracker] started tmux session='${SESSION}', uav_num=${UAV_NUM}, formation=${FORMATION}, row_spacing=${formation_row_spacing}m, lateral_spacing=${formation_lateral_spacing}m, arrive_radius=${arrive_radius}m, target_spacing=${formation_lateral_spacing}m, forward=${FORWARD_DISTANCE}m, speed=5m/s, spawn_clear_radius=${SPAWN_CLEAR_RADIUS}m, rviz_goal=${ENABLE_RVIZ_GOAL}"
+  echo "[swarm_tracker] started tmux session='${SESSION}', uav_num=${UAV_NUM}, formation=${FORMATION}, row_spacing=${formation_row_spacing}m, lateral_spacing=${formation_lateral_spacing}m, arrive_radius=${arrive_radius}m, target_spacing=${formation_lateral_spacing}m, forward=${FORWARD_DISTANCE}m, speed=5m/s, spawn_clear_radius=${SPAWN_CLEAR_RADIUS}m, rviz_goal=${ENABLE_RVIZ_GOAL}, vis_ply_per_uav=${VIS_PLY_PER_UAV}"
   echo "[swarm_tracker] tracker checkpoint: ${weight_path}"
   echo "[swarm_tracker] stop with: tools/swarm_tracker_launch.sh --session ${SESSION} --stop"
 

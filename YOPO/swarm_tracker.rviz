@@ -4,7 +4,7 @@ Panels:
     Name: Displays
     Property Tree Widget:
       Expanded:
-        - /Map1/Autocompute Value Bounds1
+        - /Lidar1/Autocompute Value Bounds1
         - /Trajectory1
       Splitter Ratio: 0.6625221967697144
     Tree Height: 653
@@ -25,7 +25,7 @@ Panels:
   - Class: rviz/Time
     Name: Time
     SyncMode: 0
-    SyncSource: Map
+    SyncSource: Lidar
 Preferences:
   PromptSaveOnExit: true
 Toolbars:
@@ -37,7 +37,7 @@ Visualization Manager:
       Cell Size: 10
       Class: rviz/Grid
       Color: 160; 160; 164
-      Enabled: true
+      Enabled: false
       Line Style:
         Line Width: 0.029999999329447746
         Value: Lines
@@ -50,7 +50,7 @@ Visualization Manager:
       Plane: XY
       Plane Cell Count: 10
       Reference Frame: <Fixed Frame>
-      Value: true
+      Value: false
     - Class: rviz/Image
       Enabled: true
       Image Topic: /uav0/depth_image
@@ -86,47 +86,19 @@ Visualization Manager:
       Class: rviz/PointCloud2
       Color: 255; 255; 255
       Color Transformer: AxisColor
-      Decay Time: 0
-      Enabled: true
-      Invert Rainbow: false
-      Max Color: 255; 255; 255
-      Min Color: 0; 0; 0
-      Name: Forest
-      Position Transformer: XYZ
-      Queue Size: 1
-      Selectable: false
-      Size (Pixels): 2
-      Size (m): 0.05000000074505806
-      Style: Points
-      Topic: /local_map_visual
-      Unreliable: false
-      Use Fixed Frame: true
-      Use rainbow: true
-      Value: true
-    - Alpha: 1
-      Autocompute Intensity Bounds: true
-      Autocompute Value Bounds:
-        Max Value: 4
-        Min Value: -5
-        Value: false
-      Axis: Z
-      Channel Name: intensity
-      Class: rviz/PointCloud2
-      Color: 255; 255; 255
-      Color Transformer: AxisColor
-      Decay Time: 0
+      Decay Time: 8
       Enabled: false
       Invert Rainbow: false
       Max Color: 255; 255; 255
       Min Color: 0; 0; 0
-      Name: Mock_Map
+      Name: Lidar
       Position Transformer: XYZ
       Queue Size: 10
-      Selectable: true
-      Size (Pixels): 3
-      Size (m): 0.10000000149011612
-      Style: Flat Squares
-      Topic: /mock_map
+      Selectable: false
+      Size (Pixels): 2
+      Size (m): 0.05000000074505806
+      Style: Points
+      Topic: /uav0/lidar_points
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: true
