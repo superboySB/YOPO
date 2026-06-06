@@ -248,7 +248,7 @@ class YopoSwarmTracker:
             self.optimal_poly_y = None
             self.optimal_poly_z = None
 
-        self.publish_status(self.get_goal_planar_distance(start_pos))
+        self.publish_status(self.get_goal_distance(start_pos))
         print(
             f"[{self.agent_name}] RViz formation goal: "
             f"uav0_target=({reference_target_xy[0]:.2f}, {reference_target_xy[1]:.2f}), "
@@ -270,7 +270,7 @@ class YopoSwarmTracker:
             self.apply_pending_rviz_goal()
 
         pos = self.get_current_position(from_odom=True)
-        goal_distance = self.get_goal_planar_distance(pos)
+        goal_distance = self.get_goal_distance(pos)
         if goal_distance < self.arrive_radius and not self.arrive:
             print(f"[{self.agent_name}] Arrive!")
             self.arrive = True
@@ -312,8 +312,8 @@ class YopoSwarmTracker:
             self.odom.twist.twist.linear.z,
         ), dtype=np.float64)
 
-    def get_goal_planar_distance(self, pos):
-        return float(np.linalg.norm((self.goal - pos)[:2]))
+    def get_goal_distance(self, pos):
+        return float(np.linalg.norm(self.goal - pos))
 
     def make_image_input(self, depth_msg):
         if depth_msg.encoding == "32FC1":
@@ -414,7 +414,7 @@ class YopoSwarmTracker:
             "vx": float(start_vel[0]),
             "vy": float(start_vel[1]),
             "vz": float(start_vel[2]),
-            "goal_distance": self.get_goal_planar_distance(start_pos),
+            "goal_distance": self.get_goal_distance(start_pos),
             "mask_pixels": int(self.last_target_mask_pixels),
             "mask_fresh": int(self.last_target_mask_fresh),
             "mask_age": self.last_target_mask_age,
@@ -476,7 +476,7 @@ class YopoSwarmTracker:
             self.desire_init = True
             self.last_control_msg = control_msg
             self.ctrl_pub.publish(control_msg)
-            self.publish_status(self.get_goal_planar_distance(self.desire_pos))
+            self.publish_status(self.get_goal_distance(self.desire_pos))
 
     def process_output_all(self, endstate_pred, score_pred):
         endstate_pred = endstate_pred.reshape(9, self.lattice_primitive.traj_num).T
@@ -552,7 +552,7 @@ class YopoSwarmTracker:
     def publish_status(self, goal_distance=None):
         pos = self.desire_pos if self.desire_pos is not None else self.get_current_position() if self.odom_init else np.zeros(3)
         if goal_distance is None:
-            goal_distance = self.get_goal_planar_distance(pos)
+            goal_distance = self.get_goal_distance(pos)
         self.arrive_pub.publish(Bool(data=bool(self.arrive)))
         self.goal_distance_pub.publish(Float32(data=float(goal_distance)))
         goal_msg = PoseStamped()

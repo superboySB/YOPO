@@ -8,7 +8,8 @@ class GuidanceLoss(nn.Module):
     def __init__(self):
         super(GuidanceLoss, self).__init__()
         self.goal_length = cfg['goal_length']
-        self.vel_dir_weight = 0  # 5
+        self.perp_weight = float(cfg.get("guidance_perp_weight", 0.5))
+        self.vel_dir_weight = float(cfg.get("guidance_velocity_direction_weight", 0.0))
 
     def forward(self, Df, Dp, goal):
         """
@@ -73,8 +74,7 @@ class GuidanceLoss(nn.Module):
         perp_diff = traj_perp.norm(dim=1)  # [B]
 
         # distance weighting (reduce perpendicular constraint, allow lateral exploration)
-        perp_weight = 0.5   # the given weight is trained with perp_weight = 0, for higher speed in large-scale scenario
-        similarity_loss = parallel_diff + perp_weight * perp_diff
+        similarity_loss = parallel_diff + self.perp_weight * perp_diff
         return similarity_loss
 
     def derivative_similarity_loss(self, derivative, goal_dir):

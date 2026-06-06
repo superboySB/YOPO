@@ -18,7 +18,9 @@ class SafetyLoss(nn.Module):
         self.d0 = cfg["d0"]
         self.r = cfg["r"]
         target_size = np.array(cfg.get("target_ellipsoid_size", [0.0, 0.0, 0.0]), dtype=np.float32)
-        self.dynamic_obstacle_radius = float(np.max(target_size) * 0.5)
+        target_radius = float(np.max(target_size) * 0.5)
+        # UAV-UAV collision is center distance <= own radius + observed UAV radius.
+        self.dynamic_obstacle_radius = float(cfg.get("dynamic_safety_radius", 2.0 * target_radius))
 
         self._L = L
         self.sgm_time = cfg["sgm_time"]
@@ -50,10 +52,26 @@ class SafetyLoss(nn.Module):
         Returns:
             cost_colli: (batch_size) → safety loss
         """
+        components = self.forward_components(Df, Dp, map_id, dynamic_target_w, dynamic_target_visible)
+        return components["static_cost"] + components["dynamic_cost"]
+
+    def forward_components(self, Df, Dp, map_id, dynamic_target_w=None, dynamic_target_visible=None):
         batch_size = Dp.shape[0]
         L = self._L.unsqueeze(0).expand(batch_size, -1, -1)
         coe = self.get_coefficient_from_derivative(Dp, Df, L)
 
+        static_cost, static_min_distance = self.get_static_safety_cost_and_distance(coe, batch_size, map_id)
+        dynamic_cost, dynamic_min_distance = self.get_dynamic_safety_cost_and_distance(
+            coe, batch_size, dynamic_target_w, dynamic_target_visible
+        )
+        return {
+            "static_cost": static_cost,
+            "dynamic_cost": dynamic_cost,
+            "static_min_distance": static_min_distance,
+            "dynamic_min_distance": dynamic_min_distance,
+        }
+
+    def get_static_safety_cost_and_distance(self, coe, batch_size, map_id):
         dt = self.sgm_time / self.static_eval_points
         t_list = th.linspace(dt, self.sgm_time, self.static_eval_points, device=self.device)
         t_list = t_list.view(1, -1, 1).expand(batch_size, -1, -1)
@@ -64,20 +82,22 @@ class SafetyLoss(nn.Module):
 
         # get info from sdf_map
         cost, dist = self.get_distance_cost(pos_batch, map_id)
+        cost_by_traj = cost.reshape(-1, pos_coe.shape[1])
+        dist_by_traj = dist.reshape(-1, pos_coe.shape[1])
 
         if self.time_integral:
             # Compute average time integral of trajectory cost
             # Issue: uneven eval points may undercut cost by quickly crossing obstacles
-            cost_colli = cost.reshape(-1, pos_coe.shape[1]).mean(dim=-1)  # [B*H*V, N]
+            cost_colli = cost_by_traj.mean(dim=-1)  # [B*H*V, N]
         else:
             # Compute average line integral of trajectory cost
             vel_coe = self.get_velocity_from_coeff(coe, t_list)
             vel_coe = vel_coe.norm(dim=-1)
-            line_integral_cost = (cost.reshape(-1, pos_coe.shape[1]) * vel_coe * dt).sum(dim=1)  # [B*H*V, N] -> [B*H*V]
+            line_integral_cost = (cost_by_traj * vel_coe * dt).sum(dim=1)  # [B*H*V, N] -> [B*H*V]
             line_length = (vel_coe * dt).sum(dim=1)  # [B*H*V]
             cost_colli = line_integral_cost / line_length  # [B*H*V]
 
-        return cost_colli + self.get_dynamic_safety_cost(coe, batch_size, dynamic_target_w, dynamic_target_visible)
+        return cost_colli, dist_by_traj.amin(dim=-1)
 
     def get_distance_cost(self, pos, map_id):
         """
@@ -109,8 +129,16 @@ class SafetyLoss(nn.Module):
         return cost, dist_query
 
     def get_dynamic_safety_cost(self, coe, batch_size, dynamic_target_w, dynamic_target_visible):
+        cost, _min_distance = self.get_dynamic_safety_cost_and_distance(
+            coe, batch_size, dynamic_target_w, dynamic_target_visible
+        )
+        return cost
+
+    def get_dynamic_safety_cost_and_distance(self, coe, batch_size, dynamic_target_w, dynamic_target_visible):
         if dynamic_target_w is None or dynamic_target_visible is None or self.dynamic_obstacle_radius <= 0.0:
-            return coe[:, 0] * 0.0
+            zero_cost = coe[:, 0] * 0.0
+            min_distance = th.full_like(zero_cost, float("inf"))
+            return zero_cost, min_distance
 
         dt = self.sgm_time / self.dynamic_eval_points
         t_list = th.linspace(dt, self.sgm_time, self.dynamic_eval_points, device=self.device, dtype=coe.dtype)
@@ -119,7 +147,9 @@ class SafetyLoss(nn.Module):
         pos_batch = pos_coe.reshape(-1, self.traj_num * pos_coe.shape[1], 3)
         dynamic_dist_query = self.get_dynamic_distance(pos_batch, dynamic_target_w, dynamic_target_visible)
         dynamic_cost = self.cost_function(dynamic_dist_query)
-        return dynamic_cost.reshape(-1, pos_coe.shape[1]).mean(dim=-1)
+        dynamic_dist_by_traj = dynamic_dist_query.reshape(-1, pos_coe.shape[1])
+        dynamic_cost_by_traj = dynamic_cost.reshape(-1, pos_coe.shape[1])
+        return dynamic_cost_by_traj.mean(dim=-1), dynamic_dist_by_traj.amin(dim=-1)
 
     def get_dynamic_distance(self, pos, dynamic_target_w, dynamic_target_visible):
         B, N, _ = pos.shape

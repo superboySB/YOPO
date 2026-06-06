@@ -5,10 +5,21 @@ velocity: 5
 vel_max_train: 6.0
 acc_max_train: 6.0
 
-wg: 0.15
-ws: 10.0
-wa: 1.0
-wc: 1.0
+# Loss weights.
+# smoothness_weight and acceleration_weight are raw config weights; the trainer
+# scales them internally by vel_max_train to keep tuning comparable across speed.
+trajectory_loss_weight: 1.0
+score_loss_weight: 1.0
+smoothness_weight: 2.0
+acceleration_weight: 1.0
+static_safety_weight: 5.0
+dynamic_safety_weight: 10.0
+goal_weight: 0.2
+target_separation_weight: 50.0
+
+# Guidance sub-loss knobs.
+guidance_perp_weight: 0.5
+guidance_velocity_direction_weight: 0
 
 dataset_path: "../dataset"
 image_height: 96
@@ -52,6 +63,9 @@ map_expand_min: [0, 0, 0.2]
 map_expand_max: [0, 0, 6.0]
 
 target_ellipsoid_size: [0.31, 0.31, 0.14]
+# Center-distance radius used by train/eval dynamic safety for UAV-UAV collision.
+# Matches the simulator default: own 0.155m radius + observed UAV 0.155m radius.
+dynamic_safety_radius: 0.31
 target_dynamic_max_count: 3
 target_mask_timeout: 0.25
 target_mask_min_pixels: 4
@@ -65,6 +79,5 @@ swarm_arrive_radius: 3.0
 
 # Loss sampling knobs: keep static ESDF at the original YOPO density.
 static_safety_eval_points: 30
-dynamic_safety_eval_points: 5
-target_separation_eval_points: 5
-target_separation_weight: 12.0
+dynamic_safety_eval_points: 10
+target_separation_eval_points: 10

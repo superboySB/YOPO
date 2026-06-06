@@ -60,12 +60,14 @@ cd /workspace/YOPO/YOPO
 python3 train_yopo.py \
   --config /workspace/YOPO/YOPO/config/tracker_traj_opt.yaml \
   --save-root saved \
-  --epochs 150 \
-  --batch-size 16 \
-  --num-workers 4
+  --epochs 500 \
+  --batch-size 32 \
+  --num-workers 16
 ```
 
-训练配置使用水平 `120 deg`、垂直 `90 deg` 相机模型。状态输入包含本机导航目标向量。训练 score label 由 smoothness、static safety、dynamic safety、goal guidance、acceleration 和 visible-target separation 组成；static safety 保持原版 ESDF 30 点采样，dynamic safety 和 separation 对当前帧所有可见目标用 5 个采样点，不做速度外推。单机或无可见目标时 dynamic/separation 项为 0。
+训练配置使用水平 `120 deg`、垂直 `90 deg` 相机模型。状态输入包含本机导航目标向量。训练 score label 由 smoothness、static safety、dynamic safety、goal guidance、acceleration 和 visible-target separation 组成；static safety 保持原版 ESDF 30 点采样，dynamic safety 和 separation 对当前帧所有可见目标用 5 个采样点，不做速度外推。单机或无可见目标时 dynamic/separation 项为 0。各项权重在 `YOPO/config/tracker_traj_opt.yaml` 的 `Loss weights` 和 `Guidance sub-loss knobs` 中设置；旧配置里的 `wg/ws/wa/wc` 仍会被兼容映射。
+
+TensorBoard 会同时记录 `Train/*` 和 `Eval/*` 的加权 loss 组件，并在 `TrainRaw/*`、`EvalRaw/*` 下记录未加权 cost 量级。`TrainDiagnostics/*` 和 `EvalDiagnostics/*` 包含 static/dynamic 最小距离、碰撞率、目标可见比例和 separation 违反率，用来辅助判断静态碰撞、动态目标避让和编队间距设置是否需要调参。
 
 ## Tracker Swarm 测试
 
@@ -76,12 +78,21 @@ python3 train_yopo.py \
 ```bash
 cd /workspace/YOPO
 
-./tools/swarm_tracker_launch.sh --trial 0 --epoch 150 --rviz 1
-./tools/swarm_tracker_launch.sh --uav-num 5 --formation '2|1|2' --trial 0 --epoch 150 --rviz 1
-./tools/swarm_tracker_launch.sh --uav-num 10 --formation '4|3|2|1' --trial 0 --epoch 150 --rviz 1
+./tools/swarm_tracker_launch.sh --trial 0 --epoch 200 --rviz 1
+./tools/swarm_tracker_launch.sh --uav-num 5 --formation '2|1|2' --trial 0 --epoch 200 --rviz 1
+./tools/swarm_tracker_launch.sh --uav-num 10 --formation '4|3|2|1' --trial 0 --epoch 200 --rviz 1
 
 ./tools/swarm_tracker_launch.sh --stop
 ```
+
+默认环境是树林，也就是 `Simulator/src/config/swarm_config.yaml` 里的 `maze_type: 5`；不传 `--env`/`--maze-type` 时，脚本直接使用原始 `swarm_config.yaml`，原来的树林测试命令不变。临时切换环境时不需要手动改 YAML，直接在启动命令后追加参数即可：`--env forest`/`--maze-type 5` 是树林，`--env pillar`/`--maze-type 2` 是柱子，`--env cave`/`--maze-type 1` 是溶洞。例如：
+
+```bash
+./tools/swarm_tracker_launch.sh --env pillar --uav-num 5 --formation '2|1|2' --trial 0 --epoch 200 --rviz 1
+./tools/swarm_tracker_launch.sh --env cave --uav-num 10 --formation '4|3|2|1' --trial 0 --epoch 200 --rviz 1
+```
+
+起点和终点附近不生成障碍物的逻辑会随 swarm 启动参数一起复用到这些环境；清障半径默认读取 `swarm.spawn_clear_radius`，也可以用 `--spawn-clear-radius 2.5` 临时调整。
 
 周围点云可视化默认关闭，以免多机 RViz 太卡。需要打开时，在任一启动命令后追加 `--vis_ply_per_uav 1`，
 该功能只发布轻量 per-UAV LiDAR 点云到 `/uavN/lidar_points` 供 RViz decay 累积显示，不使用之前的全局格子/盒子地图，不改变训练数据、深度图、mask、YOPO 网络输入输出或控制指令。

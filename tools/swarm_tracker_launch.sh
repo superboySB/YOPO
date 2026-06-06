@@ -7,21 +7,23 @@ SESSION="yopo-swarm-tracker"
 DETACH=0
 STOP_ONLY=0
 
-UAV_NUM=1
-FORMATION="1"
-FORMATION_START_X=-30.0
-FORWARD_DISTANCE=50.0
-ALTITUDE=1.5
+UAV_NUM=""
+FORMATION=""
+FORMATION_START_X=""
+FORWARD_DISTANCE=""
+ALTITUDE=""
 ARRIVE_RADIUS=""
-COLLISION_RADIUS=0.155
-SPAWN_CLEAR_RADIUS=0.0
+COLLISION_RADIUS=""
+SPAWN_CLEAR_RADIUS=""
+MAZE_TYPE=""
+ENV_NAME=""
 
 YOPO_CONFIG="/workspace/YOPO/YOPO/config/tracker_traj_opt.yaml"
 SIMULATOR_CONFIG="/workspace/YOPO/Simulator/src/config/swarm_config.yaml"
 WEIGHTS_ROOT="saved"
 VISUALIZE=1
 RVIZ=0
-VIS_PLY_PER_UAV=0
+VIS_PLY_PER_UAV=""
 ENABLE_RVIZ_GOAL=1
 PLANNER_START_DELAY_STEP=0
 DIAGNOSTIC_DIR=""
@@ -38,18 +40,20 @@ Options:
   --epoch N                 tracker checkpoint epoch id (default: 50)
   --uav-num N               number of UAVs (default: 1)
   --formation ROWS          pipe-separated back-to-front rows, e.g. 1 or 1|2|3|4 (default: 1)
-  --formation-start-x X     x position of the back row (default: -30.0)
-  --forward-distance M      each UAV goal is init_x + this distance (default: 50.0)
-  --altitude Z              formation altitude (default: 1.5)
+  --formation-start-x X     x position of the back row (default: simulator config)
+  --forward-distance M      each UAV goal is init_x + this distance (default: simulator config)
+  --altitude Z              formation altitude (default: simulator config)
   --arrive-radius R         per-UAV arrival radius override (default: swarm_arrive_radius from YOPO config)
-  --collision-radius R      UAV-UAV collision counter radius (default: 0.155)
-  --spawn-clear-radius R    tree clearing around starts/goals (default: 0.0; strict test)
+  --collision-radius R      UAV-UAV collision counter radius (default: simulator config)
+  --spawn-clear-radius R    tree clearing around starts/goals (default: simulator config)
+  --env NAME                environment alias: forest, pillar, cave, wall (default: simulator config)
+  --maze-type N             simulator maze_type override, e.g. 5=forest, 2=pillar, 1=cave
   --yopo-config PATH        tracker config yaml
   --sim-config PATH         simulator config yaml
   --weights-root DIR        tracker checkpoint root under YOPO/ (default: saved)
   --visualize 0|1           publish all candidate/lattice trajectory point clouds (default: 1)
   --rviz 0|1                open RViz (default: 0)
-  --vis_ply_per_uav 0|1     publish lightweight per-UAV LiDAR point clouds in RViz (default: 0)
+  --vis_ply_per_uav 0|1     publish lightweight per-UAV LiDAR point clouds in RViz (default: simulator config render_lidar)
   --enable-rviz-goal 0|1    let RViz 2D Nav Goal set uav0's target and preserve formation goal offsets (default: 1)
   --planner-start-delay-step S  seconds of startup stagger per UAV index (default: 0)
   --diagnostic-dir DIR      write per-UAV tracker score/action CSV logs (default: disabled)
@@ -81,6 +85,8 @@ parse_args() {
       --arrive-radius) ARRIVE_RADIUS="${2:-}"; shift 2 ;;
       --collision-radius) COLLISION_RADIUS="${2:-}"; shift 2 ;;
       --spawn-clear-radius) SPAWN_CLEAR_RADIUS="${2:-}"; shift 2 ;;
+      --env|--environment) ENV_NAME="${2:-}"; shift 2 ;;
+      --maze-type|--maze_type) MAZE_TYPE="${2:-}"; shift 2 ;;
       --yopo-config) YOPO_CONFIG="${2:-}"; shift 2 ;;
       --sim-config) SIMULATOR_CONFIG="${2:-}"; shift 2 ;;
       --weights-root) WEIGHTS_ROOT="${2:-}"; shift 2 ;;
@@ -145,7 +151,9 @@ validate_binary_flag() {
 }
 
 validate_formation() {
-  python3 - "$UAV_NUM" "$FORMATION" "$YOPO_CONFIG" <<'PY'
+  local uav_num="$1"
+  local formation="$2"
+  python3 - "$uav_num" "$formation" "$YOPO_CONFIG" <<'PY'
 import math
 import re
 import sys
@@ -186,6 +194,7 @@ def read_positive_float(key):
 
 initial_spacing = read_positive_float("swarm_initial_spacing")
 arrive_radius = read_positive_float("swarm_arrive_radius")
+velocity = read_positive_float("velocity")
 
 # With centered rows, adjacent rows with different parity are staggered by distance/2,
 # so sqrt(3)/2 * distance gives an equilateral spacing. Same-parity rows need a full
@@ -193,12 +202,26 @@ arrive_radius = read_positive_float("swarm_arrive_radius")
 has_same_parity_neighbors = any((rows[i] % 2) == (rows[i + 1] % 2) for i in range(len(rows) - 1))
 row_spacing = initial_spacing if has_same_parity_neighbors else (math.sqrt(3.0) * 0.5 * initial_spacing)
 rows_csv = ",".join(str(row) for row in rows)
-print(f"{rows_csv}\t{row_spacing:.6f}\t{initial_spacing:.6f}\t{arrive_radius:.6f}")
+print(f"{rows_csv}\t{row_spacing:.6f}\t{initial_spacing:.6f}\t{arrive_radius:.6f}\t{velocity:.6f}")
+PY
+}
+
+formation_sum() {
+  python3 - "$1" <<'PY'
+import sys
+print(sum(int(item) for item in sys.argv[1].split("|") if item.strip()))
 PY
 }
 
 build_layout() {
-  python3 - "$UAV_NUM" "$1" "$FORMATION_START_X" "$2" "$3" "$FORWARD_DISTANCE" "$ALTITUDE" <<'PY'
+  local uav_num="$1"
+  local formation_rows_csv="$2"
+  local formation_start_x="$3"
+  local row_spacing="$4"
+  local lateral_spacing="$5"
+  local forward_distance="$6"
+  local altitude="$7"
+  python3 - "$uav_num" "$formation_rows_csv" "$formation_start_x" "$row_spacing" "$lateral_spacing" "$forward_distance" "$altitude" <<'PY'
 import sys
 
 uav_num = int(sys.argv[1])
@@ -224,6 +247,210 @@ for row_idx, row_count in enumerate(rows):
         y = y0 + col * lateral_spacing
         print(f"{idx}\t{x:.3f}\t{y:.3f}\t{altitude:.3f}\t{x + forward_distance:.3f}\t{y:.3f}\t{altitude:.3f}")
         idx += 1
+PY
+}
+
+check_config_consistency() {
+  python3 - "$YOPO_CONFIG" "$SIMULATOR_CONFIG" <<'PY'
+import math
+import sys
+
+import yaml
+
+yopo_path, sim_path = sys.argv[1:3]
+with open(yopo_path, "r", encoding="utf-8") as f:
+    yopo = yaml.safe_load(f) or {}
+with open(sim_path, "r", encoding="utf-8") as f:
+    sim = yaml.safe_load(f) or {}
+
+camera = sim.get("camera") or {}
+target = sim.get("target") or {}
+
+checks = [
+    ("image_width", yopo.get("image_width"), camera.get("image_width")),
+    ("image_height", yopo.get("image_height"), camera.get("image_height")),
+    ("camera_fx", yopo.get("camera_fx"), camera.get("fx")),
+    ("camera_fy", yopo.get("camera_fy"), camera.get("fy")),
+    ("camera_cx", yopo.get("camera_cx"), camera.get("cx")),
+    ("camera_cy", yopo.get("camera_cy"), camera.get("cy")),
+    ("target_dynamic_max_count", yopo.get("target_dynamic_max_count"), target.get("mask_dynamic_max_count")),
+    ("target_mask_min_pixels", yopo.get("target_mask_min_pixels"), target.get("mask_min_visible_pixels")),
+    ("swarm_initial_spacing", yopo.get("swarm_initial_spacing"), target.get("min_center_distance")),
+]
+for name, left, right in checks:
+    if left is None or right is None:
+        raise SystemExit(f"Error: missing shared config key for {name}.")
+    if abs(float(left) - float(right)) > 1e-6:
+        raise SystemExit(f"Error: shared config mismatch for {name}: YOPO={left}, simulator={right}.")
+
+yopo_size = yopo.get("target_ellipsoid_size")
+sim_size = target.get("ellipsoid_size")
+if not isinstance(yopo_size, list) or not isinstance(sim_size, list) or len(yopo_size) != len(sim_size):
+    raise SystemExit("Error: target ellipsoid size must be a list with matching length in both configs.")
+for idx, (left, right) in enumerate(zip(yopo_size, sim_size)):
+    if abs(float(left) - float(right)) > 1e-6:
+        raise SystemExit(
+            f"Error: shared config mismatch for target_ellipsoid_size[{idx}]: YOPO={left}, simulator={right}."
+        )
+
+for name in ("swarm_initial_spacing", "swarm_arrive_radius", "velocity"):
+    value = float(yopo.get(name, float("nan")))
+    if not math.isfinite(value) or value <= 0.0:
+        raise SystemExit(f"Error: YOPO config {name} must be a positive number.")
+PY
+}
+
+read_simulator_defaults() {
+  python3 - "$SIMULATOR_CONFIG" <<'PY'
+import math
+import sys
+
+import yaml
+
+with open(sys.argv[1], "r", encoding="utf-8") as f:
+    config = yaml.safe_load(f) or {}
+swarm = config.get("swarm") or {}
+camera = config.get("camera") or {}
+namespace_prefix = swarm.get("namespace_prefix", "uav")
+if namespace_prefix != "uav":
+    raise SystemExit("Error: tools/swarm_tracker_launch.sh currently requires simulator swarm.namespace_prefix to be 'uav'.")
+
+def number(name, value, positive=False, non_negative=False):
+    if value is None:
+        raise SystemExit(f"Error: simulator config {name} is required.")
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        raise SystemExit(f"Error: simulator config {name} must be a number.")
+    if not math.isfinite(parsed) or (positive and parsed <= 0.0) or (non_negative and parsed < 0.0):
+        if positive:
+            kind = "a positive"
+        elif non_negative:
+            kind = "a non-negative"
+        else:
+            kind = "a finite"
+        raise SystemExit(f"Error: simulator config {name} must be {kind} number.")
+    return parsed
+
+def integer(name, value):
+    if value is None:
+        raise SystemExit(f"Error: simulator config {name} is required.")
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        raise SystemExit(f"Error: simulator config {name} must be an integer.")
+    if parsed <= 0:
+        raise SystemExit(f"Error: simulator config {name} must be a positive integer.")
+    return parsed
+
+uav_num = integer("swarm.uav_num", swarm.get("uav_num", 1))
+formation_rows = swarm.get("formation_rows", [uav_num])
+if not isinstance(formation_rows, list) or not formation_rows:
+    raise SystemExit("Error: simulator config swarm.formation_rows must be a non-empty list.")
+formation = []
+for item in formation_rows:
+    value = integer("swarm.formation_rows[]", item)
+    formation.append(str(value))
+
+values = [
+    str(uav_num),
+    "|".join(formation),
+    f"{number('swarm.formation_start_x', swarm.get('formation_start_x', -30.0)):.6f}",
+    f"{number('swarm.forward_distance', swarm.get('forward_distance', 50.0), positive=True):.6f}",
+    f"{number('swarm.altitude', swarm.get('altitude', 1.5), positive=True):.6f}",
+    f"{number('swarm.collision_radius', swarm.get('collision_radius', 0.155), positive=True):.6f}",
+    f"{number('swarm.spawn_clear_radius', swarm.get('spawn_clear_radius', 0.0), non_negative=True):.6f}",
+    f"{number('depth_fps', config.get('depth_fps'), positive=True):.6f}",
+    f"{number('camera.max_depth_dist', camera.get('max_depth_dist'), positive=True):.6f}",
+    "1" if bool(config.get("render_lidar", False)) else "0",
+    str(integer("maze_type", config.get("maze_type", 5))),
+]
+print("\t".join(values))
+PY
+}
+
+resolve_maze_type() {
+  local default_maze_type="$1"
+  python3 - "$default_maze_type" "$MAZE_TYPE" "$ENV_NAME" <<'PY'
+import sys
+
+default_raw, maze_raw, env_raw = sys.argv[1:4]
+labels = {
+    1: "cave",
+    2: "pillar",
+    3: "maze",
+    4: "maze3d",
+    5: "forest",
+    6: "room",
+    7: "wall",
+}
+aliases = {
+    "cave": 1,
+    "caves": 1,
+    "cavern": 1,
+    "perlin": 1,
+    "perlin3d": 1,
+    "pillar": 2,
+    "pillars": 2,
+    "column": 2,
+    "columns": 2,
+    "forest": 5,
+    "tree": 5,
+    "trees": 5,
+    "woods": 5,
+    "wall": 7,
+    "walls": 7,
+    "maze": 3,
+    "maze2d": 3,
+    "maze3d": 4,
+    "room": 6,
+    "rooms": 6,
+}
+
+if maze_raw and env_raw:
+    raise SystemExit("Error: use only one of --env or --maze-type.")
+
+if env_raw:
+    key = env_raw.strip().lower().replace("_", "").replace("-", "")
+    if key not in aliases:
+        raise SystemExit("Error: --env must be one of forest, pillar, cave, wall, maze, maze3d, room.")
+    maze_type = aliases[key]
+elif maze_raw:
+    try:
+        maze_type = int(maze_raw)
+    except ValueError:
+        raise SystemExit("Error: --maze-type must be an integer.")
+else:
+    maze_type = int(default_raw)
+
+if maze_type not in labels:
+    raise SystemExit("Error: --maze-type must be between 1 and 7.")
+
+print(f"{maze_type}\t{labels[maze_type]}")
+PY
+}
+
+build_runtime_simulator_config() {
+  local maze_type="$1"
+  python3 - "$SIMULATOR_CONFIG" "$maze_type" <<'PY'
+import os
+import sys
+import tempfile
+
+import yaml
+
+src_path, maze_type = sys.argv[1:3]
+with open(src_path, "r", encoding="utf-8") as f:
+    config = yaml.safe_load(f) or {}
+
+config["maze_type"] = int(maze_type)
+
+fd, out_path = tempfile.mkstemp(prefix="yopo_swarm_config_", suffix=".yaml")
+os.close(fd)
+with open(out_path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(config, f, sort_keys=False, allow_unicode=True)
+
+print(out_path)
 PY
 }
 
@@ -255,7 +482,9 @@ EOF
 }
 
 build_rviz_config() {
-  python3 - "/workspace/YOPO/YOPO/swarm_tracker.rviz" "${UAV_NUM}" "${VIS_PLY_PER_UAV}" <<'PY'
+  local uav_num="$1"
+  local vis_ply_per_uav="$2"
+  python3 - "/workspace/YOPO/YOPO/swarm_tracker.rviz" "${uav_num}" "${vis_ply_per_uav}" <<'PY'
 import copy
 import os
 import sys
@@ -400,7 +629,6 @@ main() {
 
   validate_binary_flag --visualize "${VISUALIZE}"
   validate_binary_flag --rviz "${RVIZ}"
-  validate_binary_flag --vis_ply_per_uav "${VIS_PLY_PER_UAV}"
   validate_binary_flag --enable-rviz-goal "${ENABLE_RVIZ_GOAL}"
   if [[ "${RVIZ}" == "1" ]]; then
     require_cmd rviz
@@ -421,9 +649,69 @@ main() {
     exit 1
   fi
 
-  local formation_meta formation_rows_csv formation_row_spacing formation_lateral_spacing config_arrive_radius
-  formation_meta="$(validate_formation)"
-  IFS=$'\t' read -r formation_rows_csv formation_row_spacing formation_lateral_spacing config_arrive_radius <<<"${formation_meta}"
+  check_config_consistency
+
+  local simulator_defaults
+  local simulator_uav_num simulator_formation simulator_formation_start_x simulator_forward_distance
+  local simulator_altitude simulator_collision_radius simulator_spawn_clear_radius simulator_depth_fps simulator_max_depth_dist simulator_render_lidar simulator_maze_type
+  simulator_defaults="$(read_simulator_defaults)"
+  IFS=$'\t' read -r \
+    simulator_uav_num \
+    simulator_formation \
+    simulator_formation_start_x \
+    simulator_forward_distance \
+    simulator_altitude \
+    simulator_collision_radius \
+    simulator_spawn_clear_radius \
+    simulator_depth_fps \
+    simulator_max_depth_dist \
+    simulator_render_lidar \
+    simulator_maze_type <<<"${simulator_defaults}"
+
+  local maze_meta maze_type maze_label
+  maze_meta="$(resolve_maze_type "${simulator_maze_type}")"
+  IFS=$'\t' read -r maze_type maze_label <<<"${maze_meta}"
+
+  local formation="${FORMATION:-1}"
+  local uav_num="${UAV_NUM:-1}"
+  if [[ -z "${UAV_NUM}" && -n "${FORMATION}" ]]; then
+    uav_num="$(formation_sum "${formation}")"
+  fi
+  local formation_start_x="${FORMATION_START_X:-${simulator_formation_start_x}}"
+  local forward_distance="${FORWARD_DISTANCE:-${simulator_forward_distance}}"
+  local altitude="${ALTITUDE:-${simulator_altitude}}"
+  local collision_radius="${COLLISION_RADIUS:-${simulator_collision_radius}}"
+  local spawn_clear_radius="${SPAWN_CLEAR_RADIUS:-${simulator_spawn_clear_radius}}"
+  local vis_ply_per_uav="${VIS_PLY_PER_UAV:-${simulator_render_lidar}}"
+  validate_binary_flag --vis_ply_per_uav "${vis_ply_per_uav}"
+
+  python3 - "${formation_start_x}" "${forward_distance}" "${altitude}" "${collision_radius}" "${spawn_clear_radius}" <<'PY'
+import math
+import sys
+
+checks = [
+    ("--formation-start-x", "finite"),
+    ("--forward-distance", "positive"),
+    ("--altitude", "positive"),
+    ("--collision-radius", "positive"),
+    ("--spawn-clear-radius", "non-negative"),
+]
+for (name, mode), raw in zip(checks, sys.argv[1:]):
+    try:
+        value = float(raw)
+    except ValueError:
+        raise SystemExit(f"Error: {name} must be a {mode} number.")
+    if (
+        not math.isfinite(value)
+        or (mode == "positive" and value <= 0.0)
+        or (mode == "non-negative" and value < 0.0)
+    ):
+        raise SystemExit(f"Error: {name} must be a {mode} number.")
+PY
+
+  local formation_meta formation_rows_csv formation_row_spacing formation_lateral_spacing config_arrive_radius yopo_velocity
+  formation_meta="$(validate_formation "${uav_num}" "${formation}")"
+  IFS=$'\t' read -r formation_rows_csv formation_row_spacing formation_lateral_spacing config_arrive_radius yopo_velocity <<<"${formation_meta}"
   local arrive_radius="${ARRIVE_RADIUS:-${config_arrive_radius}}"
 
   local weights_root_abs
@@ -444,23 +732,26 @@ main() {
     exit 1
   fi
 
-  local simulator_depth_fps simulator_max_depth_dist
-  IFS=$'\t' read -r simulator_depth_fps simulator_max_depth_dist < <(
-    python3 - "${SIMULATOR_CONFIG}" <<'PY'
-import sys
-import yaml
-
-with open(sys.argv[1], "r", encoding="utf-8") as f:
-    config = yaml.safe_load(f)
-print(f"{float(config['depth_fps'])}\t{float(config['camera']['max_depth_dist'])}")
-PY
-  )
-
   local env_setup='source /opt/ros/noetic/setup.bash'
   local wait_lib
   wait_lib="$(build_wait_lib)"
+  local runtime_simulator_config
+  if [[ -n "${MAZE_TYPE}" || -n "${ENV_NAME}" ]]; then
+    runtime_simulator_config="$(build_runtime_simulator_config "${maze_type}")"
+  else
+    runtime_simulator_config="${SIMULATOR_CONFIG}"
+  fi
   local yopo_env="export YOPO_CONFIG_PATH=${YOPO_CONFIG}; "
-  mapfile -t layout_lines < <(build_layout "${formation_rows_csv}" "${formation_row_spacing}" "${formation_lateral_spacing}")
+  mapfile -t layout_lines < <(
+    build_layout \
+      "${uav_num}" \
+      "${formation_rows_csv}" \
+      "${formation_start_x}" \
+      "${formation_row_spacing}" \
+      "${formation_lateral_spacing}" \
+      "${forward_distance}" \
+      "${altitude}"
+  )
 
   local reference_goal_x="" reference_goal_y=""
   for line in "${layout_lines[@]}"; do
@@ -492,10 +783,10 @@ PY
   done
 
   local render_lidar_param="false"
-  if [[ "${VIS_PLY_PER_UAV}" == "1" ]]; then
+  if [[ "${vis_ply_per_uav}" == "1" ]]; then
     render_lidar_param="true"
   fi
-  local cmd_simulator="${env_setup}; ${wait_lib}; wait_for_master; ${wait_for_all_odom_topics} rosparam delete /sensor_simulator_node >/dev/null 2>&1 || true; cd /workspace/YOPO/Simulator; source devel/setup.bash; rosrun sensor_simulator sensor_simulator_cuda _config_path:=${SIMULATOR_CONFIG} _swarm_enabled:=true _swarm_uav_num:=${UAV_NUM} _swarm_namespace_prefix:=uav _swarm_altitude:=${ALTITUDE} _swarm_collision_radius:=${COLLISION_RADIUS} _swarm_spawn_clear_radius:=${SPAWN_CLEAR_RADIUS} _swarm_forward_distance:=${FORWARD_DISTANCE} _swarm_formation_start_x:=${FORMATION_START_X} _swarm_formation_row_spacing:=${formation_row_spacing} _swarm_formation_lateral_spacing:=${formation_lateral_spacing} _swarm_formation_rows:=${formation_rows_csv} _render_lidar:=${render_lidar_param}"
+  local cmd_simulator="${env_setup}; ${wait_lib}; wait_for_master; ${wait_for_all_odom_topics} rosparam delete /sensor_simulator_node >/dev/null 2>&1 || true; cd /workspace/YOPO/Simulator; source devel/setup.bash; rosrun sensor_simulator sensor_simulator_cuda _config_path:=${runtime_simulator_config} _swarm_enabled:=true _swarm_uav_num:=${uav_num} _swarm_namespace_prefix:=uav _swarm_altitude:=${altitude} _swarm_collision_radius:=${collision_radius} _swarm_spawn_clear_radius:=${spawn_clear_radius} _swarm_forward_distance:=${forward_distance} _swarm_formation_start_x:=${formation_start_x} _swarm_formation_row_spacing:=${formation_row_spacing} _swarm_formation_lateral_spacing:=${formation_lateral_spacing} _swarm_formation_rows:=${formation_rows_csv} _render_lidar:=${render_lidar_param}"
   tmux new-window -t "${SESSION}:" -n simulator "bash -lc '${cmd_simulator}'"
 
   for line in "${layout_lines[@]}"; do
@@ -527,9 +818,9 @@ PY
 
   if [[ "${RVIZ}" == "1" ]]; then
     local rviz_config
-    rviz_config="$(build_rviz_config)"
+    rviz_config="$(build_rviz_config "${uav_num}" "${vis_ply_per_uav}")"
     local rviz_wait_topics="wait_for_topic /uav0/depth_image; wait_for_topic /uav0/target_mask_image; "
-    if [[ "${VIS_PLY_PER_UAV}" == "1" ]]; then
+    if [[ "${vis_ply_per_uav}" == "1" ]]; then
       rviz_wait_topics="wait_for_topic /uav0/lidar_points; ${rviz_wait_topics}"
     fi
     local cmd_rviz="${env_setup}; ${wait_lib}; wait_for_master; ${rviz_wait_topics}cd /workspace/YOPO/YOPO; rviz -d ${rviz_config}"
@@ -540,8 +831,9 @@ PY
   tmux bind-key -T root C-c if-shell -F "#{==:#{session_name},${SESSION}}" "kill-session -t ${SESSION}" "send-keys C-c"
   tmux set-hook -t "${SESSION}" session-closed "unbind-key -T root C-c"
 
-  echo "[swarm_tracker] started tmux session='${SESSION}', uav_num=${UAV_NUM}, formation=${FORMATION}, row_spacing=${formation_row_spacing}m, lateral_spacing=${formation_lateral_spacing}m, arrive_radius=${arrive_radius}m, target_spacing=${formation_lateral_spacing}m, forward=${FORWARD_DISTANCE}m, speed=5m/s, spawn_clear_radius=${SPAWN_CLEAR_RADIUS}m, rviz_goal=${ENABLE_RVIZ_GOAL}, vis_ply_per_uav=${VIS_PLY_PER_UAV}"
+  echo "[swarm_tracker] started tmux session='${SESSION}', env=${maze_label}, maze_type=${maze_type}, uav_num=${uav_num}, formation=${formation}, row_spacing=${formation_row_spacing}m, lateral_spacing=${formation_lateral_spacing}m, arrive_radius=${arrive_radius}m, target_spacing=${formation_lateral_spacing}m, forward=${forward_distance}m, speed=${yopo_velocity}m/s, altitude=${altitude}m, collision_radius=${collision_radius}m, spawn_clear_radius=${spawn_clear_radius}m, rviz_goal=${ENABLE_RVIZ_GOAL}, vis_ply_per_uav=${vis_ply_per_uav}"
   echo "[swarm_tracker] tracker checkpoint: ${weight_path}"
+  echo "[swarm_tracker] simulator config: ${runtime_simulator_config}"
   echo "[swarm_tracker] stop with: tools/swarm_tracker_launch.sh --session ${SESSION} --stop"
 
   if [[ "${DETACH}" -eq 1 ]]; then

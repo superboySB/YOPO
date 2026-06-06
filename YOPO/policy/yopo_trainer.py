@@ -5,6 +5,8 @@ supervised learning, imitation learning, testing, rollout
 import os
 import time
 import atexit
+import numpy as np
+import torch
 from torch.nn import functional as F
 from rich.progress import Progress
 from torch.utils.data import DataLoader
@@ -22,7 +24,7 @@ class YopoTrainer:
             self,
             learning_rate=0.001,
             batch_size=32,
-            loss_weight=[],
+            loss_weight=None,
             tensorboard_path=None,
             checkpoint_path=None,
             num_workers=4,
@@ -31,7 +33,14 @@ class YopoTrainer:
         self.batch_size = batch_size
         self.max_grad_norm = 0.1
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.loss_weight = loss_weight
+        legacy_loss_weight = loss_weight or []
+        self.trajectory_loss_weight = float(
+            cfg.get("trajectory_loss_weight", legacy_loss_weight[0] if len(legacy_loss_weight) > 0 else 1.0)
+        )
+        self.score_loss_weight = float(
+            cfg.get("score_loss_weight", legacy_loss_weight[1] if len(legacy_loss_weight) > 1 else 1.0)
+        )
+        self.loss_weight = [self.trajectory_loss_weight, self.score_loss_weight]
         self.num_workers = num_workers
         if save_on_exit: self._exit_func = atexit.register(self.save_model)
         # logger
@@ -66,6 +75,7 @@ class YopoTrainer:
 
         # loss
         self.yopo_loss = YOPOLoss()
+        self._log_loss_weight_config()
 
         # optimizer
         fused_adamw = self.device.type == "cuda"
@@ -99,89 +109,78 @@ class YopoTrainer:
     def train_one_epoch(self, epoch: int, total_progress):
         one_epoch_progress = self.progress_log.add_task(f"Epoch: {epoch}", total=len(self.train_dataloader))
         inspect_interval = max(1, len(self.train_dataloader) // 16)
-        traj_losses, score_losses = [], []
-        smooth_losses, safety_losses, goal_losses, acc_losses, target_sep_losses = [], [], [], [], []
+        metric_buffer = {}
         start_time = time.time()
         for step, batch in enumerate(self.train_dataloader):  # obs: camera/body frame
             self.optimizer.zero_grad()
 
-            (
-                trajectory_loss,
-                score_loss,
-                smooth_cost,
-                safety_cost,
-                goal_cost,
-                acc_cost,
-                target_sep_cost,
-            ) = self.forward_and_compute_loss(*batch)
-
+            metrics = self.forward_and_compute_loss(*batch)
+            batch_weight = batch[0].shape[0]
             loss = (
-                self.loss_weight[0] * trajectory_loss
-                + self.loss_weight[1] * score_loss
+                self.trajectory_loss_weight * metrics["trajectory_loss"]
+                + self.score_loss_weight * metrics["score_loss"]
             )
+            metrics["total_loss"] = loss.detach()
+            metrics["weighted_trajectory_loss"] = self.trajectory_loss_weight * metrics["trajectory_loss"]
+            metrics["weighted_score_loss"] = self.score_loss_weight * metrics["score_loss"]
 
             # Optimize the policy
             loss.backward()
             self.optimizer.step()
 
-            traj_losses.append(self.loss_weight[0] * trajectory_loss.item())
-            score_losses.append(self.loss_weight[1] * score_loss.item())
-            smooth_losses.append(self.loss_weight[0] * smooth_cost.item())
-            safety_losses.append(self.loss_weight[0] * safety_cost.item())
-            goal_losses.append(self.loss_weight[0] * goal_cost.item())
-            acc_losses.append(self.loss_weight[0] * acc_cost.item())
-            target_sep_losses.append(self.loss_weight[0] * target_sep_cost.item())
+            self._append_metrics(metric_buffer, metrics, default_weight=batch_weight)
 
             if step % inspect_interval == inspect_interval - 1:
                 batch_fps = inspect_interval / (time.time() - start_time)
-                self.progress_log.console.log(f"Epoch: {epoch}, Traj Loss: {np.mean(traj_losses):.3g}, "
-                                              f"Score Loss: {np.mean(score_losses):.3g}, "
-                                              f"Target Sep Loss: {np.mean(target_sep_losses):.3g} "
-                                              f"Batch FPS: {batch_fps:.3g}")
-                self.tensorboard_log.add_scalar("Train/TrajLoss", np.mean(traj_losses), epoch * len(self.train_dataloader) + step)
-                self.tensorboard_log.add_scalar("Train/ScoreLoss", np.mean(score_losses), epoch * len(self.train_dataloader) + step)
-                self.tensorboard_log.add_scalar("Detail/SmoothLoss", np.mean(smooth_losses), epoch * len(self.train_dataloader) + step)
-                self.tensorboard_log.add_scalar("Detail/SafetyLoss", np.mean(safety_losses), epoch * len(self.train_dataloader) + step)
-                self.tensorboard_log.add_scalar("Detail/GoalLoss", np.mean(goal_losses), epoch * len(self.train_dataloader) + step)
-                self.tensorboard_log.add_scalar("Detail/AccelLoss", np.mean(acc_losses), epoch * len(self.train_dataloader) + step)
-                self.tensorboard_log.add_scalar("Detail/TargetSeparationLoss", np.mean(target_sep_losses), epoch * len(self.train_dataloader) + step)
-                traj_losses, score_losses = [], []
-                smooth_losses, safety_losses, goal_losses, acc_losses, target_sep_losses = [], [], [], [], []
+                avg_metrics = self._mean_metrics(metric_buffer)
+                self.progress_log.console.log(
+                    f"Epoch: {epoch}, Total Loss: {avg_metrics['total_loss']:.3g}, "
+                    f"Traj Loss: {avg_metrics['trajectory_loss']:.3g}, "
+                    f"Score Loss: {avg_metrics['score_loss']:.3g}, "
+                    f"Static Safety: {avg_metrics['static_safety_loss']:.3g}, "
+                    f"Dynamic Safety: {avg_metrics['dynamic_safety_loss']:.3g}, "
+                    f"Target Sep: {avg_metrics['target_separation_loss']:.3g}, "
+                    f"Batch FPS: {batch_fps:.3g}"
+                )
+                self._write_metrics("Train", avg_metrics, epoch * len(self.train_dataloader) + step)
+                metric_buffer = {}
                 start_time = time.time()
 
             self.progress_log.update(one_epoch_progress, advance=1)
             self.progress_log.update(total_progress, advance=1 / len(self.train_dataloader))
+
+        if metric_buffer:
+            avg_metrics = self._mean_metrics(metric_buffer)
+            self._write_metrics("Train", avg_metrics, epoch * len(self.train_dataloader) + len(self.train_dataloader) - 1)
 
         self.progress_log.remove_task(one_epoch_progress)
 
     @torch.inference_mode()
     def eval_one_epoch(self, epoch: int):
         one_epoch_progress = self.progress_log.add_task(f"Eval: {epoch}", total=len(self.val_dataloader))
-        traj_losses, score_losses, target_sep_losses = [], [], []
+        metric_buffer = {}
         for step, batch in enumerate(self.val_dataloader):  # obs: camera/body frame
-            (
-                trajectory_loss,
-                score_loss,
-                _smooth_cost,
-                _safety_cost,
-                _goal_cost,
-                _acc_cost,
-                target_sep_cost,
-            ) = self.forward_and_compute_loss(*batch)
-
-            traj_losses.append(self.loss_weight[0] * trajectory_loss.item())
-            score_losses.append(self.loss_weight[1] * score_loss.item())
-            target_sep_losses.append(self.loss_weight[0] * target_sep_cost.item())
+            metrics = self.forward_and_compute_loss(*batch)
+            batch_weight = batch[0].shape[0]
+            metrics["total_loss"] = (
+                self.trajectory_loss_weight * metrics["trajectory_loss"]
+                + self.score_loss_weight * metrics["score_loss"]
+            )
+            metrics["weighted_trajectory_loss"] = self.trajectory_loss_weight * metrics["trajectory_loss"]
+            metrics["weighted_score_loss"] = self.score_loss_weight * metrics["score_loss"]
+            self._append_metrics(metric_buffer, metrics, default_weight=batch_weight)
             self.progress_log.update(one_epoch_progress, advance=1)
 
+        avg_metrics = self._mean_metrics(metric_buffer)
         self.progress_log.console.log(
-            f"Eval: {epoch}, Traj Loss: {np.mean(traj_losses):.3g}, "
-            f"Score Loss: {np.mean(score_losses):.3g}, "
-            f"Target Sep Loss: {np.mean(target_sep_losses):.3g} "
+            f"Eval: {epoch}, Total Loss: {avg_metrics['total_loss']:.3g}, "
+            f"Traj Loss: {avg_metrics['trajectory_loss']:.3g}, "
+            f"Score Loss: {avg_metrics['score_loss']:.3g}, "
+            f"Static Safety: {avg_metrics['static_safety_loss']:.3g}, "
+            f"Dynamic Safety: {avg_metrics['dynamic_safety_loss']:.3g}, "
+            f"Target Sep: {avg_metrics['target_separation_loss']:.3g} "
         )
-        self.tensorboard_log.add_scalar("Eval/TrajLoss", np.mean(traj_losses), epoch)
-        self.tensorboard_log.add_scalar("Eval/ScoreLoss", np.mean(score_losses), epoch)
-        self.tensorboard_log.add_scalar("Eval/TargetSeparationLoss", np.mean(target_sep_losses), epoch)
+        self._write_metrics("Eval", avg_metrics, epoch)
         self.progress_log.remove_task(one_epoch_progress)
 
     def forward_and_compute_loss(self, image, pos, rot, obs_b, target_w, target_visible, map_id):
@@ -217,33 +216,72 @@ class YopoTrainer:
         # [B*V*H, 3, 3]: [px, py, pz; vx, vy, vz; ax, ay, az]
         end_state_w = torch.stack([end_pos_w, end_vel_w, end_acc_w], dim=1)
 
-        smooth_cost, safety_cost, goal_cost, acc_cost = self.yopo_loss(
+        loss_components = self.yopo_loss(
             start_state_w, end_state_w, goal_w, map_id, target_w, target_visible
         )
         target_w_expanded = target_w.repeat_interleave(self.traj_num, dim=0)
         target_visible_expanded = target_visible.repeat_interleave(self.traj_num, dim=0)
-        target_sep_cost = self.compute_target_separation_cost(
+        target_sep_raw_cost, target_sep_min_distance = self.compute_target_separation_cost(
             start_state_w, end_state_w, target_w_expanded, target_visible_expanded
         )
-        trajectory_loss = (smooth_cost + safety_cost + goal_cost + acc_cost + target_sep_cost).mean()
+        target_sep_cost = self.target_separation_weight * target_sep_raw_cost
 
-        score_label = (smooth_cost + safety_cost + goal_cost + acc_cost + target_sep_cost).clone().detach()
+        smooth_cost = loss_components["smoothness"]
+        static_safety_cost = loss_components["static_safety"]
+        dynamic_safety_cost = loss_components["dynamic_safety"]
+        safety_cost = static_safety_cost + dynamic_safety_cost
+        goal_cost = loss_components["goal"]
+        acc_cost = loss_components["acceleration"]
+        trajectory_cost = smooth_cost + static_safety_cost + dynamic_safety_cost + goal_cost + acc_cost + target_sep_cost
+        trajectory_loss = trajectory_cost.mean()
+
+        score_label = trajectory_cost.clone().detach()
         score_loss = F.smooth_l1_loss(score_flat, score_label)
 
-        return (
-            trajectory_loss,
-            score_loss,
-            smooth_cost.mean(),
-            safety_cost.mean(),
-            goal_cost.mean(),
-            acc_cost.mean(),
-            target_sep_cost.mean(),
+        static_min_distance = loss_components["static_min_distance"]
+        dynamic_min_distance = loss_components["dynamic_min_distance"]
+        dynamic_finite = torch.isfinite(dynamic_min_distance)
+        dynamic_collision = (dynamic_min_distance < 0.0) & dynamic_finite
+        dynamic_collision_rate, dynamic_collision_weight = self._finite_rate(dynamic_collision, dynamic_finite)
+        target_sep_finite = torch.isfinite(target_sep_min_distance)
+        target_sep_violation = (target_sep_raw_cost > 0.0) & target_sep_finite
+        target_sep_violation_rate, target_sep_violation_weight = self._finite_rate(
+            target_sep_violation, target_sep_finite
         )
+        return {
+            "trajectory_loss": trajectory_loss,
+            "score_loss": score_loss,
+            "smooth_loss": smooth_cost.mean(),
+            "safety_loss": safety_cost.mean(),
+            "static_safety_loss": static_safety_cost.mean(),
+            "dynamic_safety_loss": dynamic_safety_cost.mean(),
+            "goal_loss": goal_cost.mean(),
+            "acceleration_loss": acc_cost.mean(),
+            "target_separation_loss": target_sep_cost.mean(),
+            "raw_smooth_cost": loss_components["raw_smoothness"].mean(),
+            "raw_static_safety_cost": loss_components["raw_static_safety"].mean(),
+            "raw_dynamic_safety_cost": loss_components["raw_dynamic_safety"].mean(),
+            "raw_goal_cost": loss_components["raw_goal"].mean(),
+            "raw_acceleration_cost": loss_components["raw_acceleration"].mean(),
+            "raw_target_separation_cost": target_sep_raw_cost.mean(),
+            "score_label_mean": score_label.mean(),
+            "score_pred_mean": score_flat.mean(),
+            "score_abs_error": (score_flat - score_label).abs().mean(),
+            "visible_target_fraction": target_visible.float().mean(),
+            "visible_target_sample_fraction": (target_visible > 0.5).any(dim=1).float().mean(),
+            "static_min_distance": self._finite_mean(static_min_distance),
+            "dynamic_min_distance": self._finite_mean(dynamic_min_distance),
+            "target_separation_min_distance": self._finite_mean(target_sep_min_distance),
+            "static_collision_rate": (static_min_distance < 0.0).float().mean(),
+            "dynamic_collision_rate": dynamic_collision_rate,
+            "dynamic_collision_rate_weight": dynamic_collision_weight,
+            "dynamic_collision_rate_overall": dynamic_collision.float().mean(),
+            "target_separation_violation_rate": target_sep_violation_rate,
+            "target_separation_violation_rate_weight": target_sep_violation_weight,
+            "target_separation_violation_rate_overall": target_sep_violation.float().mean(),
+        }
 
     def compute_target_separation_cost(self, start_state_w, end_state_w, target_w, target_visible):
-        if self.target_separation_weight <= 0.0:
-            return end_state_w[:, 0, :].sum(dim=1) * 0.0
-
         batch_size = end_state_w.shape[0]
         Df = start_state_w.permute(0, 2, 1)
         Dp = end_state_w.permute(0, 2, 1)
@@ -266,7 +304,127 @@ class YopoTrainer:
         nearest_distance = distance.amin(dim=2)
         spacing_error = torch.relu(self.target_separation_distance - nearest_distance)
         worst_spacing_error = spacing_error.square().amax(dim=1)
-        return self.target_separation_weight * worst_spacing_error
+        return worst_spacing_error, nearest_distance.amin(dim=1)
+
+    @staticmethod
+    def _finite_mean(value):
+        finite = torch.isfinite(value)
+        if finite.any():
+            return value[finite].mean()
+        return value.new_tensor(0.0)
+
+    @staticmethod
+    def _finite_rate(condition, finite):
+        denominator = finite.float().sum()
+        return condition.float().sum() / denominator.clamp_min(1.0), denominator.detach()
+
+    def _append_metrics(self, metric_buffer, metrics, default_weight=1.0):
+        for name, value in metrics.items():
+            if name.endswith("_weight"):
+                continue
+            weight = metrics.get(f"{name}_weight", default_weight)
+            if torch.is_tensor(value):
+                value = value.detach()
+                if value.numel() != 1:
+                    value = value.mean()
+                value = value.cpu().item()
+            if torch.is_tensor(weight):
+                weight = weight.detach().cpu().item()
+            weight = float(weight)
+            weighted_sum, weight_sum = metric_buffer.setdefault(name, [0.0, 0.0])
+            if weight <= 0.0:
+                continue
+            metric_buffer[name] = [weighted_sum + float(value) * weight, weight_sum + weight]
+
+    def _mean_metrics(self, metric_buffer):
+        if not metric_buffer:
+            raise RuntimeError("No metrics were collected. Check that the dataloader is not empty.")
+        return {
+            name: (weighted_sum / weight_sum if weight_sum > 0.0 else 0.0)
+            for name, (weighted_sum, weight_sum) in metric_buffer.items()
+        }
+
+    def _write_metrics(self, split, metrics, step):
+        loss_tags = {
+            "total_loss": "TotalLoss",
+            "weighted_trajectory_loss": "WeightedTrajLoss",
+            "weighted_score_loss": "WeightedScoreLoss",
+            "trajectory_loss": "TrajLoss",
+            "score_loss": "ScoreLoss",
+            "smooth_loss": "SmoothLoss",
+            "safety_loss": "SafetyLoss",
+            "static_safety_loss": "StaticSafetyLoss",
+            "dynamic_safety_loss": "DynamicSafetyLoss",
+            "goal_loss": "GoalLoss",
+            "acceleration_loss": "AccelLoss",
+            "target_separation_loss": "TargetSeparationLoss",
+        }
+        raw_tags = {
+            "raw_smooth_cost": "SmoothCost",
+            "raw_static_safety_cost": "StaticSafetyCost",
+            "raw_dynamic_safety_cost": "DynamicSafetyCost",
+            "raw_goal_cost": "GoalCost",
+            "raw_acceleration_cost": "AccelCost",
+            "raw_target_separation_cost": "TargetSeparationCost",
+        }
+        diagnostic_tags = {
+            "score_label_mean": "ScoreLabelMean",
+            "score_pred_mean": "ScorePredMean",
+            "score_abs_error": "ScoreAbsError",
+            "visible_target_fraction": "VisibleTargetFraction",
+            "visible_target_sample_fraction": "VisibleTargetSampleFraction",
+            "static_min_distance": "StaticMinDistance",
+            "dynamic_min_distance": "DynamicMinDistance",
+            "target_separation_min_distance": "TargetSeparationMinDistance",
+            "static_collision_rate": "StaticCollisionRate",
+            "dynamic_collision_rate": "DynamicCollisionRate",
+            "dynamic_collision_rate_overall": "DynamicCollisionRateOverall",
+            "target_separation_violation_rate": "TargetSeparationViolationRate",
+            "target_separation_violation_rate_overall": "TargetSeparationViolationRateOverall",
+        }
+        for metric_name, tag_name in loss_tags.items():
+            if metric_name in metrics:
+                self.tensorboard_log.add_scalar(f"{split}/{tag_name}", metrics[metric_name], step)
+        for metric_name, tag_name in raw_tags.items():
+            if metric_name in metrics:
+                self.tensorboard_log.add_scalar(f"{split}Raw/{tag_name}", metrics[metric_name], step)
+        for metric_name, tag_name in diagnostic_tags.items():
+            if metric_name in metrics:
+                self.tensorboard_log.add_scalar(f"{split}Diagnostics/{tag_name}", metrics[metric_name], step)
+
+    def _log_loss_weight_config(self):
+        raw_weights = {
+            "trajectory_loss_weight": self.trajectory_loss_weight,
+            "score_loss_weight": self.score_loss_weight,
+            "smoothness_weight": self.yopo_loss.raw_smoothness_weight,
+            "acceleration_weight": self.yopo_loss.raw_acceleration_weight,
+            "static_safety_weight": self.yopo_loss.static_safety_weight,
+            "dynamic_safety_weight": self.yopo_loss.dynamic_safety_weight,
+            "goal_weight": self.yopo_loss.goal_weight,
+            "target_separation_weight": self.target_separation_weight,
+            "guidance_perp_weight": float(cfg.get("guidance_perp_weight", 0.5)),
+            "guidance_velocity_direction_weight": float(cfg.get("guidance_velocity_direction_weight", 0.0)),
+        }
+        effective_weights = {
+            "smoothness_effective_weight": self.yopo_loss.smoothness_weight,
+            "acceleration_effective_weight": self.yopo_loss.acceleration_weight,
+        }
+        for name, value in raw_weights.items():
+            self.tensorboard_log.add_scalar(f"LossWeightsRaw/{name}", value, 0)
+        for name, value in effective_weights.items():
+            self.tensorboard_log.add_scalar(f"LossWeightsEffective/{name}", value, 0)
+
+        lines = [
+            f"config_path: `{cfg['config_path']}`",
+            "",
+            "| name | value |",
+            "| --- | ---: |",
+        ]
+        for name, value in raw_weights.items():
+            lines.append(f"| {name} | {value:.8g} |")
+        for name, value in effective_weights.items():
+            lines.append(f"| {name} | {value:.8g} |")
+        self.tensorboard_log.add_text("Config/LossWeights", "\n".join(lines), 0)
 
     def save_model(self):
         if hasattr(self, "epoch_i"):

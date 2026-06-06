@@ -26,11 +26,13 @@ class YOPOLoss(nn.Module):
         self.smoothness_loss = SmoothnessLoss(self._RJ, self._RA)
         self.safety_loss = SafetyLoss(self._L)
         self.goal_loss = GuidanceLoss()
-        print("------ Actual Loss ------")
-        print(f"| {'smooth':<12} = {self.smoothness_weight:6.4f} |")
-        print(f"| {'safety':<12} = {self.safety_weight:6.4f} |")
-        print(f"| {'goal':<12} = {self.goal_weight:6.4f} |")
-        print("-------------------------")
+        print("------ Loss Weights ------")
+        print(f"| {'smooth raw':<16} = {self.raw_smoothness_weight:8.4f} | effective = {self.smoothness_weight:8.6f} |")
+        print(f"| {'accel raw':<16} = {self.raw_acceleration_weight:8.4f} | effective = {self.acceleration_weight:8.6f} |")
+        print(f"| {'static safety':<16} = {self.static_safety_weight:8.4f} |")
+        print(f"| {'dynamic safety':<16} = {self.dynamic_safety_weight:8.4f} |")
+        print(f"| {'goal':<16} = {self.goal_weight:8.4f} |")
+        print("--------------------------")
 
     def qp_generation(self):
         # 论文中的映射矩阵
@@ -83,10 +85,14 @@ class YOPOLoss(nn.Module):
                          Independent of speed.
         """
         vel_scale = cfg["vel_max_train"] / 1.0
-        self.smoothness_weight = cfg["ws"] / vel_scale ** 5
-        self.accele_weight = cfg["wa"] / vel_scale ** 3
-        self.safety_weight = cfg["wc"]
-        self.goal_weight = cfg["wg"]
+        self.raw_smoothness_weight = float(cfg.get("smoothness_weight", cfg.get("ws", 10.0)))
+        self.raw_acceleration_weight = float(cfg.get("acceleration_weight", cfg.get("wa", 1.0)))
+        self.smoothness_weight = self.raw_smoothness_weight / vel_scale ** 5
+        self.acceleration_weight = self.raw_acceleration_weight / vel_scale ** 3
+        self.accele_weight = self.acceleration_weight
+        self.static_safety_weight = float(cfg.get("static_safety_weight", cfg.get("wc", 1.0)))
+        self.dynamic_safety_weight = float(cfg.get("dynamic_safety_weight", cfg.get("wc", 1.0)))
+        self.goal_weight = float(cfg.get("goal_weight", cfg.get("wg", 0.15)))
 
     def forward(self, state, prediction, goal, map_id, dynamic_target_w=None, dynamic_target_visible=None):
         """
@@ -96,7 +102,7 @@ class YOPOLoss(nn.Module):
             map_id: (batch_size) which ESDF map to query
 
         Returns:
-            cost: (batch_size) → weighted cost
+            cost components: each cost tensor is (batch_size)
         """
         # Fixed part: initial pos, vel, acc → (batch_size, 3, 3) [px, vx, ax; py, vy, ay; pz, vz, az]
         Df = state.permute(0, 2, 1)
@@ -105,7 +111,24 @@ class YOPOLoss(nn.Module):
         Dp = prediction.permute(0, 2, 1)
 
         smoothness_cost, acceleration_cost = self.smoothness_loss(Df, Dp)
-        safety_cost = self.safety_loss(Df, Dp, map_id, dynamic_target_w, dynamic_target_visible)
+        safety_components = self.safety_loss.forward_components(
+            Df, Dp, map_id, dynamic_target_w, dynamic_target_visible
+        )
         goal_cost = self.goal_loss(Df, Dp, goal)
 
-        return self.smoothness_weight * smoothness_cost, self.safety_weight * safety_cost, self.goal_weight * goal_cost, self.accele_weight * acceleration_cost
+        static_safety_cost = safety_components["static_cost"]
+        dynamic_safety_cost = safety_components["dynamic_cost"]
+        return {
+            "smoothness": self.smoothness_weight * smoothness_cost,
+            "static_safety": self.static_safety_weight * static_safety_cost,
+            "dynamic_safety": self.dynamic_safety_weight * dynamic_safety_cost,
+            "goal": self.goal_weight * goal_cost,
+            "acceleration": self.acceleration_weight * acceleration_cost,
+            "raw_smoothness": smoothness_cost,
+            "raw_static_safety": static_safety_cost,
+            "raw_dynamic_safety": dynamic_safety_cost,
+            "raw_goal": goal_cost,
+            "raw_acceleration": acceleration_cost,
+            "static_min_distance": safety_components["static_min_distance"],
+            "dynamic_min_distance": safety_components["dynamic_min_distance"],
+        }

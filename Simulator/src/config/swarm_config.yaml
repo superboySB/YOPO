@@ -26,7 +26,7 @@ seed: 3
 x_length: 140
 y_length: 70
 z_length: 15
-maze_type: 5
+maze_type: 5  # default forest. 1: cave, 2: pillar, 3: maze, 5: forest, 6: room, 7: wall
 
 complexity: 0.02
 fill: 0.1
@@ -57,7 +57,7 @@ swarm:
   namespace_prefix: "uav"
   altitude: 1.5
   collision_radius: 0.155
-  spawn_clear_radius: 0.0
+  spawn_clear_radius: 2.0
   forward_distance: 50.0
   formation_rows: [4, 3, 2, 1]
   formation_start_x: -30.0
