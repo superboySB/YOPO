@@ -52,6 +52,8 @@ class YopoSwarmTracker:
         self.verbose = self.config["verbose"]
         self.visualize = self.config["visualize"]
         self.target_mask_timeout = cfg["target_mask_timeout"]
+        self.status_text_scale = float(self.config["status_text_scale"])
+        self.status_text_offset = np.asarray(self.config["status_text_offset"], dtype=np.float64)
         self.enable_rviz_goal = bool(self.config["enable_rviz_goal"])
         self.rviz_goal_reference_odom_topic = self.config["rviz_goal_reference_odom_topic"]
         self.min_altitude = float(self.config["min_altitude"])
@@ -594,19 +596,19 @@ class YopoSwarmTracker:
         marker.id = 0
         marker.type = Marker.TEXT_VIEW_FACING
         marker.action = Marker.ADD
-        marker.pose.position.x = float(pos[0] + 0.45)
-        marker.pose.position.y = float(pos[1] + 0.25)
-        marker.pose.position.z = float(pos[2] + 0.85)
+        marker.pose.position.x = float(pos[0] + self.status_text_offset[0])
+        marker.pose.position.y = float(pos[1] + self.status_text_offset[1])
+        marker.pose.position.z = float(pos[2] + self.status_text_offset[2])
         marker.pose.orientation.w = 1.0
-        marker.scale.z = 0.55
+        marker.scale.z = self.status_text_scale
         marker.color.r = 0.08
         marker.color.g = 0.08
         marker.color.b = 0.08
         marker.color.a = 0.88
         marker.text = (
             f"{self.agent_name}\n"
-            f"v {speed:.1f} m/s | d {float(goal_distance):.1f} m\n"
-            f"col S {self.static_collision_count} | D {self.dynamic_collision_count}"
+            f"v{speed:.1f} d{float(goal_distance):.0f}\n"
+            f"S{self.static_collision_count} D{self.dynamic_collision_count}"
         )
         marker.lifetime = rospy.Duration(0.5)
         self.status_text_pub.publish(marker)
@@ -667,6 +669,10 @@ def parser():
     parser.add_argument("--plan_from_reference", type=int, default=0)
     parser.add_argument("--verbose", type=int, default=0)
     parser.add_argument("--visualize", type=int, default=0)
+    parser.add_argument("--status_text_scale", type=float, default=0.18)
+    parser.add_argument("--status_text_offset_x", type=float, default=0.18)
+    parser.add_argument("--status_text_offset_y", type=float, default=0.12)
+    parser.add_argument("--status_text_offset_z", type=float, default=0.35)
     parser.add_argument("--enable_rviz_goal", type=int, default=1)
     parser.add_argument("--rviz_goal_reference_odom_topic", type=str, default="/uav0/sim/odom")
     parser.add_argument("--min_altitude", type=float, default=1.5)
@@ -719,6 +725,12 @@ if __name__ == "__main__":
         "plan_from_reference": bool(args.plan_from_reference),
         "verbose": bool(args.verbose),
         "visualize": bool(args.visualize),
+        "status_text_scale": args.status_text_scale,
+        "status_text_offset": [
+            args.status_text_offset_x,
+            args.status_text_offset_y,
+            args.status_text_offset_z,
+        ],
         "enable_rviz_goal": bool(args.enable_rviz_goal),
         "rviz_goal_reference_odom_topic": args.rviz_goal_reference_odom_topic,
         "min_altitude": args.min_altitude,

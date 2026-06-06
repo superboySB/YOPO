@@ -180,7 +180,6 @@ def read_positive_float(key):
 
 initial_spacing = read_positive_float("swarm_initial_spacing")
 arrive_radius = read_positive_float("swarm_arrive_radius")
-clearance_distance = read_positive_float("target_clearance_distance")
 
 # With centered rows, adjacent rows with different parity are staggered by distance/2,
 # so sqrt(3)/2 * distance gives an equilateral spacing. Same-parity rows need a full
@@ -188,7 +187,7 @@ clearance_distance = read_positive_float("target_clearance_distance")
 has_same_parity_neighbors = any((rows[i] % 2) == (rows[i + 1] % 2) for i in range(len(rows) - 1))
 row_spacing = initial_spacing if has_same_parity_neighbors else (math.sqrt(3.0) * 0.5 * initial_spacing)
 rows_csv = ",".join(str(row) for row in rows)
-print(f"{rows_csv}\t{row_spacing:.6f}\t{initial_spacing:.6f}\t{arrive_radius:.6f}\t{clearance_distance:.6f}")
+print(f"{rows_csv}\t{row_spacing:.6f}\t{initial_spacing:.6f}\t{arrive_radius:.6f}")
 PY
 }
 
@@ -399,9 +398,9 @@ main() {
     exit 1
   fi
 
-  local formation_meta formation_rows_csv formation_row_spacing formation_lateral_spacing config_arrive_radius target_clearance_distance
+  local formation_meta formation_rows_csv formation_row_spacing formation_lateral_spacing config_arrive_radius
   formation_meta="$(validate_formation)"
-  IFS=$'\t' read -r formation_rows_csv formation_row_spacing formation_lateral_spacing config_arrive_radius target_clearance_distance <<<"${formation_meta}"
+  IFS=$'\t' read -r formation_rows_csv formation_row_spacing formation_lateral_spacing config_arrive_radius <<<"${formation_meta}"
   local arrive_radius="${ARRIVE_RADIUS:-${config_arrive_radius}}"
 
   local weights_root_abs
@@ -482,7 +481,7 @@ PY
   tmux bind-key -T root C-c if-shell -F "#{==:#{session_name},${SESSION}}" "kill-session -t ${SESSION}" "send-keys C-c"
   tmux set-hook -t "${SESSION}" session-closed "unbind-key -T root C-c"
 
-  echo "[swarm_tracker] started tmux session='${SESSION}', uav_num=${UAV_NUM}, formation=${FORMATION}, row_spacing=${formation_row_spacing}m, lateral_spacing=${formation_lateral_spacing}m, arrive_radius=${arrive_radius}m, keep_distance=${target_clearance_distance}m, forward=${FORWARD_DISTANCE}m, speed=5m/s, rviz_goal=${ENABLE_RVIZ_GOAL}"
+  echo "[swarm_tracker] started tmux session='${SESSION}', uav_num=${UAV_NUM}, formation=${FORMATION}, row_spacing=${formation_row_spacing}m, lateral_spacing=${formation_lateral_spacing}m, arrive_radius=${arrive_radius}m, target_spacing=${formation_lateral_spacing}m, forward=${FORWARD_DISTANCE}m, speed=5m/s, rviz_goal=${ENABLE_RVIZ_GOAL}"
   echo "[swarm_tracker] tracker checkpoint: ${weight_path}"
   echo "[swarm_tracker] stop with: tools/swarm_tracker_launch.sh --session ${SESSION} --stop"
 

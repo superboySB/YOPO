@@ -65,11 +65,11 @@ python3 train_yopo.py \
   --num-workers 4
 ```
 
-训练配置使用水平 `120 deg`、垂直 `90 deg` 相机模型。状态输入包含本机导航目标向量。训练 score label 由 smoothness、static safety、dynamic safety、goal guidance、acceleration 和 visible-target separation 组成；static safety 保持原版 ESDF 30 点采样，dynamic safety 和 separation 对当前帧所有可见目标用较少采样点，不做速度外推。单机或无可见目标时 dynamic/separation 项为 0。
+训练配置使用水平 `120 deg`、垂直 `90 deg` 相机模型。状态输入包含本机导航目标向量。训练 score label 由 smoothness、static safety、dynamic safety、goal guidance、acceleration 和 visible-target separation 组成；static safety 保持原版 ESDF 30 点采样，dynamic safety 和 separation 对当前帧所有可见目标用 5 个采样点，不做速度外推。单机或无可见目标时 dynamic/separation 项为 0。
 
 ## Tracker Swarm 测试
 
-统一启动脚本：`/workspace/YOPO/tools/swarm_tracker_launch.sh`。它同时覆盖单机和多机；默认 `1` 机、`--formation '1'`。多机时用 `--formation '1|2|3|4'` 这种从后到前的行数描述，脚本会检查各行求和是否等于 `--uav-num`。初始编队最近邻距离读 `swarm_initial_spacing`，到达成功半径读 `swarm_arrive_radius`，separation loss 距离读 `target_clearance_distance`；这三个量都在 `tracker_traj_opt.yaml` 的 Swarm distance knobs 注释块里设置。
+统一启动脚本：`/workspace/YOPO/tools/swarm_tracker_launch.sh`。它同时覆盖单机和多机；默认 `1` 机、`--formation '1'`。多机时用 `--formation '1|2|3|4'` 这种从后到前的行数描述，脚本会检查各行求和是否等于 `--uav-num`。初始编队最近邻距离和 separation loss 距离都读 `swarm_initial_spacing`，到达成功半径读 `swarm_arrive_radius`；这些量都在 `tracker_traj_opt.yaml` 的 Swarm distance knobs 注释块里设置。
 
 单机和少机使用同一入口：
 

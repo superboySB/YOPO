@@ -46,8 +46,10 @@ class YopoTrainer:
         self.image_height = cfg["image_height"]
         self.target_dynamic_max_count = int(cfg.get("target_dynamic_max_count", 3))
         self.target_separation_weight = float(cfg.get("target_separation_weight", 0.0))
-        self.target_clearance_distance = float(cfg["target_clearance_distance"])
-        self.target_separation_eval_points = int(cfg.get("target_separation_eval_points", 30))
+        self.target_separation_distance = float(cfg["swarm_initial_spacing"])
+        self.target_separation_eval_points = int(cfg.get("target_separation_eval_points", 5))
+        if self.target_separation_distance <= 0.0:
+            raise ValueError("swarm_initial_spacing must be positive.")
         if self.target_separation_eval_points <= 0:
             raise ValueError("target_separation_eval_points must be positive.")
 
@@ -258,12 +260,13 @@ class YopoTrainer:
         ).view(1, -1, 1).expand(batch_size, -1, -1)
         traj_pos_w = self.yopo_loss.safety_loss.get_position_from_coeff(coeff, t_list)
 
-        distance = torch.linalg.norm(traj_pos_w[:, :, None, :] - target_w[:, None, :, :], dim=3)
-        clearance_error = torch.relu(self.target_clearance_distance - distance)
         visible = target_visible > 0.5
-        clearance_error = clearance_error.masked_fill(~visible[:, None, :], 0.0)
-        worst_clearance_error = clearance_error.square().amax(dim=(1, 2))
-        return self.target_separation_weight * worst_clearance_error
+        distance = torch.linalg.norm(traj_pos_w[:, :, None, :] - target_w[:, None, :, :], dim=3)
+        distance = distance.masked_fill(~visible[:, None, :], float("inf"))
+        nearest_distance = distance.amin(dim=2)
+        spacing_error = torch.relu(self.target_separation_distance - nearest_distance)
+        worst_spacing_error = spacing_error.square().amax(dim=1)
+        return self.target_separation_weight * worst_spacing_error
 
     def save_model(self):
         if hasattr(self, "epoch_i"):

@@ -23,7 +23,7 @@ class SafetyLoss(nn.Module):
         self._L = L
         self.sgm_time = cfg["sgm_time"]
         self.static_eval_points = int(cfg.get("static_safety_eval_points", 30))
-        self.dynamic_eval_points = int(cfg.get("dynamic_safety_eval_points", 10))
+        self.dynamic_eval_points = int(cfg.get("dynamic_safety_eval_points", 5))
         if self.static_eval_points <= 0 or self.dynamic_eval_points <= 0:
             raise ValueError("static_safety_eval_points and dynamic_safety_eval_points must be positive.")
         self.eval_points = self.static_eval_points

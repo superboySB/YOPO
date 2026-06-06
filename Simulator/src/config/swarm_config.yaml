@@ -86,7 +86,8 @@ target:
   occlusion_margin: 0.3
   mask_dynamic_min_count: 0
   mask_dynamic_max_count: 3
-  min_center_distance: 2.0
+  # Keep aligned with YOPO/config/tracker_traj_opt.yaml swarm_initial_spacing.
+  min_center_distance: 1.0
   mask_min_forward_depth: 0.45
   mask_min_visible_pixels: 4
   mask_min_visible_ratio: 0.03
