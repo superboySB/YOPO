@@ -60,7 +60,7 @@ cd /workspace/YOPO/YOPO
 python3 train_yopo.py \
   --config /workspace/YOPO/YOPO/config/tracker_traj_opt.yaml \
   --save-root saved \
-  --epochs 500 \
+  --epochs 400 \
   --batch-size 32 \
   --num-workers 16
 ```
@@ -78,9 +78,9 @@ TensorBoard 会同时记录 `Train/*` 和 `Eval/*` 的加权 loss 组件，并�
 ```bash
 cd /workspace/YOPO
 
-./tools/swarm_tracker_launch.sh --trial 0 --epoch 200 --rviz 1
-./tools/swarm_tracker_launch.sh --uav-num 5 --formation '2|1|2' --trial 0 --epoch 200 --rviz 1
-./tools/swarm_tracker_launch.sh --uav-num 10 --formation '4|3|2|1' --trial 0 --epoch 200 --rviz 1
+./tools/swarm_tracker_launch.sh --trial 0 --epoch 400 --rviz 1
+./tools/swarm_tracker_launch.sh --uav-num 5 --formation '2|1|2' --trial 0 --epoch 400 --rviz 1
+./tools/swarm_tracker_launch.sh --uav-num 10 --formation '4|3|2|1' --trial 0 --epoch 400 --rviz 1
 
 ./tools/swarm_tracker_launch.sh --stop
 ```
@@ -88,8 +88,8 @@ cd /workspace/YOPO
 默认环境是树林，也就是 `Simulator/src/config/swarm_config.yaml` 里的 `maze_type: 5`；不传 `--env`/`--maze-type` 时，脚本直接使用原始 `swarm_config.yaml`，原来的树林测试命令不变。临时切换环境时不需要手动改 YAML，直接在启动命令后追加参数即可：`--env forest`/`--maze-type 5` 是树林，`--env pillar`/`--maze-type 2` 是柱子，`--env cave`/`--maze-type 1` 是溶洞。例如：
 
 ```bash
-./tools/swarm_tracker_launch.sh --env pillar --uav-num 5 --formation '2|1|2' --trial 0 --epoch 200 --rviz 1
-./tools/swarm_tracker_launch.sh --env cave --uav-num 10 --formation '4|3|2|1' --trial 0 --epoch 200 --rviz 1
+./tools/swarm_tracker_launch.sh --env pillar --uav-num 5 --formation '2|1|2' --trial 0 --epoch 400 --rviz 1
+./tools/swarm_tracker_launch.sh --env cave --uav-num 10 --formation '4|3|2|1' --trial 0 --epoch 400 --rviz 1
 ```
 
 起点和终点附近不生成障碍物的逻辑会随 swarm 启动参数一起复用到这些环境；清障半径默认读取 `swarm.spawn_clear_radius`，也可以用 `--spawn-clear-radius 2.5` 临时调整。

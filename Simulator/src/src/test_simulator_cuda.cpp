@@ -180,6 +180,7 @@ private:
         ros::Time next_lidar_pub_time;
         int collision_counter = 0;
         int uav_collision_counter = 0;
+        bool collision_counter_init = false;
         bool in_static_collision = false;
         bool in_uav_collision = false;
         bool odom_init = false;
@@ -754,20 +755,23 @@ void SensorSimulator::odomCallback(const nav_msgs::Odometry::ConstPtr &msg, size
 
     const bool static_collision = inStaticCollision(robot);
     const bool dynamic_collision = inDynamicCollision(robot_index);
-    if (static_collision && !robot.in_static_collision)
+    if (robot.collision_counter_init && static_collision && !robot.in_static_collision)
     {
         robot.collision_counter += 1;
         collision_counter_total_ += 1;
-        ROS_WARN_THROTTLE(1.0, "[%s] occupied-voxel collision detected. robot_total=%d all_total=%d",
-                          robot.name.c_str(), robot.collision_counter, collision_counter_total_);
+        ROS_WARN_THROTTLE(1.0, "[%s] occupied-voxel collision detected at (%.2f, %.2f, %.2f). robot_total=%d all_total=%d",
+                          robot.name.c_str(), robot.pos.x(), robot.pos.y(), robot.pos.z(),
+                          robot.collision_counter, collision_counter_total_);
     }
-    if (dynamic_collision && !robot.in_uav_collision)
+    if (robot.collision_counter_init && dynamic_collision && !robot.in_uav_collision)
     {
         robot.uav_collision_counter += 1;
         uav_collision_counter_total_ += 1;
-        ROS_WARN_THROTTLE(1.0, "[%s] UAV-UAV collision detected. robot_total=%d all_total=%d",
-                          robot.name.c_str(), robot.uav_collision_counter, uav_collision_counter_total_);
+        ROS_WARN_THROTTLE(1.0, "[%s] UAV-UAV collision detected at (%.2f, %.2f, %.2f). robot_total=%d all_total=%d",
+                          robot.name.c_str(), robot.pos.x(), robot.pos.y(), robot.pos.z(),
+                          robot.uav_collision_counter, uav_collision_counter_total_);
     }
+    robot.collision_counter_init = true;
     robot.in_static_collision = static_collision;
     robot.in_uav_collision = dynamic_collision;
 
