@@ -73,6 +73,7 @@ private:
   double swarm_formation_lateral_spacing{2.0};
   std::string swarm_namespace_prefix{"uav"};
   std::vector<int> swarm_formation_rows;
+  std::vector<Eigen::Vector2f> swarm_clear_positions;
 
   std::uniform_real_distribution<double> dis_window_x, dis_window_z, dis_window_size;
   std::default_random_engine window_eng;

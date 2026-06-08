@@ -3,6 +3,7 @@
     <arg name="init_x" default="0.0"/>
     <arg name="init_y" default="0.0"/>
     <arg name="init_z" default="2.0"/>
+    <arg name="init_yaw" default="0.0"/>
 
     <arg name="odom_topic" default="/sim/odom"/>
     <arg name="imu_topic" default="/sim/imu"/>
@@ -20,6 +21,7 @@
         <param name="simulator/init_state_x" value="$(arg init_x)"/>
         <param name="simulator/init_state_y" value="$(arg init_y)"/>
         <param name="simulator/init_state_z" value="$(arg init_z)"/>
+        <param name="simulator/init_state_yaw" value="$(arg init_yaw)"/>
         <remap from="~odom" to="$(arg odom_topic)"/>
         <remap from="~imu" to="$(arg imu_topic)"/>
         <remap from="~cmd" to="$(arg so3_cmd_topic)"/>

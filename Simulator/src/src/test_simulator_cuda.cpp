@@ -267,7 +267,7 @@ void SensorSimulator::applyRosParamOverrides(YAML::Node &config)
     double formation_start_x = config["swarm"]["formation_start_x"] ? config["swarm"]["formation_start_x"].as<double>() : -30.0;
     double formation_row_spacing = config["swarm"]["formation_row_spacing"] ? config["swarm"]["formation_row_spacing"].as<double>() : 1.7320508;
     double formation_lateral_spacing = config["swarm"]["formation_lateral_spacing"] ? config["swarm"]["formation_lateral_spacing"].as<double>() : 2.0;
-    std::string formation_rows_csv = "4,3,2,1";
+    std::string formation_rows_csv = "";
     if (config["swarm"]["formation_rows"])
     {
         std::ostringstream rows_stream;

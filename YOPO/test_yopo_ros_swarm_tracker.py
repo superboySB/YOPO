@@ -50,6 +50,7 @@ class YopoSwarmTracker:
         self.status_text_scale = float(self.config["status_text_scale"])
         self.status_text_offset = np.asarray(self.config["status_text_offset"], dtype=np.float64)
         self.enable_rviz_goal = bool(self.config["enable_rviz_goal"])
+        self.reject_rviz_goal = bool(self.config["reject_rviz_goal"]) and not self.enable_rviz_goal
         self.rviz_goal_offset = np.asarray(self.config["rviz_goal_offset"], dtype=np.float64)
         self.Rotation_bc = R.from_euler("ZYX", [0, self.config["pitch_angle_deg"], 0], degrees=True).as_matrix()
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -131,7 +132,7 @@ class YopoSwarmTracker:
             queue_size=1,
             tcp_nodelay=True,
         )
-        if self.enable_rviz_goal:
+        if self.enable_rviz_goal or self.reject_rviz_goal:
             self.goal_sub = rospy.Subscriber(
                 self.config["rviz_goal_topic"],
                 PoseStamped,
@@ -206,6 +207,13 @@ class YopoSwarmTracker:
         self.dynamic_collision_count = int(msg.data)
 
     def callback_rviz_goal(self, data):
+        if self.reject_rviz_goal:
+            rospy.logwarn_throttle(
+                2.0,
+                f"[{self.agent_name}] crossover task does not support RViz 2D Nav Goal; ignoring the clicked goal.",
+            )
+            return
+
         if not self.odom_init:
             self.pending_rviz_goal = data
             rospy.loginfo(f"[{self.agent_name}] queued RViz goal until odometry is ready.")
@@ -651,6 +659,7 @@ def parser():
     parser.add_argument("--diagnostic_dir", type=str, default="")
     parser.add_argument("--diagnostic_stride", type=int, default=1)
     parser.add_argument("--enable_rviz_goal", type=int, default=1)
+    parser.add_argument("--reject_rviz_goal", type=int, default=0)
     parser.add_argument("--rviz_goal_offset_x", type=float, default=0.0)
     parser.add_argument("--rviz_goal_offset_y", type=float, default=0.0)
     return parser
@@ -699,6 +708,7 @@ if __name__ == "__main__":
         "diagnostic_dir": args.diagnostic_dir,
         "diagnostic_stride": args.diagnostic_stride,
         "enable_rviz_goal": bool(args.enable_rviz_goal),
+        "reject_rviz_goal": bool(args.reject_rviz_goal),
         "rviz_goal_offset": [args.rviz_goal_offset_x, args.rviz_goal_offset_y],
     }
     YopoSwarmTracker(settings, weight)

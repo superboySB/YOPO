@@ -780,6 +780,18 @@ Maps::setParam(const YAML::Node& config)
     swarm_formation_rows.clear();
     if (config["swarm"]["formation_rows"])
       swarm_formation_rows = config["swarm"]["formation_rows"].as<std::vector<int>>();
+    swarm_clear_positions.clear();
+    if (config["swarm"]["clear_positions"])
+    {
+      const YAML::Node clear_positions = config["swarm"]["clear_positions"];
+      for (std::size_t i = 0; i < clear_positions.size(); ++i)
+      {
+        const YAML::Node position = clear_positions[i];
+        if (!position.IsSequence() || position.size() < 2)
+          continue;
+        swarm_clear_positions.emplace_back(position[0].as<float>(), position[1].as<float>());
+      }
+    }
   }
   else
   {
@@ -789,6 +801,7 @@ Maps::setParam(const YAML::Node& config)
     swarm_spawn_clear_radius = 0.0;
     swarm_namespace_prefix = "uav";
     swarm_formation_rows.clear();
+    swarm_clear_positions.clear();
   }
 }
 
@@ -833,6 +846,9 @@ Maps::getSwarmClearPositions() const
   std::vector<Eigen::Vector2f> positions;
   if (!swarm_enabled || swarm_uav_num <= 0)
     return positions;
+
+  if (!swarm_clear_positions.empty())
+    return swarm_clear_positions;
 
   if (!swarm_formation_rows.empty())
   {

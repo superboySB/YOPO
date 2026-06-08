@@ -228,13 +228,17 @@ main(int argc, char** argv)
                 ros::TransportHints().tcpNoDelay());
 
   QuadrotorSimulator::Quadrotor quad;
-  double                        _init_x, _init_y, _init_z;
+  double                        _init_x, _init_y, _init_z, _init_yaw;
   n.param("simulator/init_state_x", _init_x, 0.0);
   n.param("simulator/init_state_y", _init_y, 0.0);
   n.param("simulator/init_state_z", _init_z, 1.0);
+  n.param("simulator/init_state_yaw", _init_yaw, 0.0);
 
   Eigen::Vector3d position = Eigen::Vector3d(_init_x, _init_y, _init_z);
-  quad.setStatePos(position);
+  QuadrotorSimulator::Quadrotor::State init_state = quad.getState();
+  init_state.x = position;
+  init_state.R = Eigen::AngleAxisd(_init_yaw, Eigen::Vector3d::UnitZ()).toRotationMatrix();
+  quad.setState(init_state);
 
   double simulation_rate;
   n.param("rate/simulation", simulation_rate, 1000.0);

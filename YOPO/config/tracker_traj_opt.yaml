@@ -14,7 +14,7 @@ smoothness_weight: 2.0
 acceleration_weight: 1.0
 static_safety_weight: 5.0
 dynamic_safety_weight: 10.0
-goal_weight: 0.5
+goal_weight: 1.0
 target_separation_weight: 50.0
 
 # Guidance sub-loss knobs.

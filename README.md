@@ -71,35 +71,54 @@ TensorBoard 会同时记录 `Train/*` 和 `Eval/*` 的加权 loss 组件，并�
 
 ## Tracker Swarm 测试
 
-统一启动脚本：`/workspace/YOPO/tools/swarm_tracker_launch.sh`。它同时覆盖单机和多机；默认 `1` 机、`--formation '1'`。多机时用 `--formation '1|2|3|4'` 这种从后到前的行数描述，脚本会检查各行求和是否等于 `--uav-num`。初始编队最近邻距离和 separation loss 距离都读 `swarm_initial_spacing`，到达成功半径读 `swarm_arrive_radius`；这些量都在 `tracker_traj_opt.yaml` 的 Swarm distance knobs 注释块里设置。
+### 任务 Traversal
+Traversal 启动脚本：`/workspace/YOPO/tools/launch_traversal.sh`。它明确支持单机和多机；默认 `1` 机、`--formation '1'`。多机时用 `--formation '1|2|3|4'` 这种从后到前的行数描述，脚本会检查各行求和是否等于 `--uav-num`。初始编队最近邻距离和 separation loss 距离都读 `swarm_initial_spacing`，到达成功半径读 `swarm_arrive_radius`；这些量都在 `tracker_traj_opt.yaml` 的 Swarm distance knobs 注释块里设置。
 
-单机和少机使用同一入口：
+Traversal 单机、少机和多机使用同一入口：
 
 ```bash
 cd /workspace/YOPO
 
-./tools/swarm_tracker_launch.sh --trial 0 --epoch 400 --rviz 1
-./tools/swarm_tracker_launch.sh --uav-num 5 --formation '2|1|2' --trial 0 --epoch 400 --rviz 1
-./tools/swarm_tracker_launch.sh --uav-num 10 --formation '4|3|2|1' --trial 0 --epoch 400 --rviz 1
+./tools/launch_traversal.sh --trial 0 --epoch 400 --rviz 1
+./tools/launch_traversal.sh --uav-num 5 --formation '2|1|2' --trial 0 --epoch 400 --rviz 1
+./tools/launch_traversal.sh --uav-num 10 --formation '4|3|2|1' --trial 0 --epoch 400 --rviz 1
 
-./tools/swarm_tracker_launch.sh --stop
+./tools/launch_traversal.sh --stop
 ```
 
-默认环境是树林，也就是 `Simulator/src/config/swarm_config.yaml` 里的 `maze_type: 5`；不传 `--env`/`--maze-type` 时，脚本直接使用原始 `swarm_config.yaml`，原来的树林测试命令不变。临时切换环境时不需要手动改 YAML，直接在启动命令后追加参数即可：`--env forest`/`--maze-type 5` 是树林，`--env pillar`/`--maze-type 2` 是柱子，`--env cave`/`--maze-type 1` 是溶洞。例如：
+### 任务2 Crossover
+
+Crossover 启动脚本：`/workspace/YOPO/tools/launch_crossover.sh`。这是新的多机相向穿越场景，不支持单机，也不使用 `--formation`。脚本仍然运行同一个 YOPOv2-Tracker 网络；每架飞机均匀放在圆上，相邻飞机的直线距离由 `swarm_initial_spacing` 决定，初始 yaw 指向圆心，默认沿圆心方向飞行 `20m`，也可以用 `--crossover-distance` 临时覆盖。该场景不绑定某一种障碍物环境，`--env`/`--maze-type`、`--spawn-clear-radius`、RViz 和 diagnostic 选项继续复用 traversal 的启动逻辑；起点和终点清障、必要时的地图边界扩展只写入临时 runtime config，不影响数据采集和训练配置。
+
+Crossover 5 机和 10 机示例：
 
 ```bash
-./tools/swarm_tracker_launch.sh --env pillar --uav-num 5 --formation '2|1|2' --trial 0 --epoch 400 --rviz 1
-./tools/swarm_tracker_launch.sh --env cave --uav-num 10 --formation '4|3|2|1' --trial 0 --epoch 400 --rviz 1
+cd /workspace/YOPO
+
+./tools/launch_crossover.sh --uav-num 5 --trial 0 --epoch 400 --rviz 1
+./tools/launch_crossover.sh --uav-num 10 --trial 0 --epoch 400 --rviz 1
+
+./tools/launch_crossover.sh --stop
 ```
 
-起点和终点附近不生成障碍物的逻辑会随 swarm 启动参数一起复用到这些环境；清障半径默认读取 `swarm.spawn_clear_radius`，也可以用 `--spawn-clear-radius 2.5` 临时调整。
+### 注意事项
 
-周围点云可视化默认关闭，以免多机 RViz 太卡。需要打开时，在任一启动命令后追加 `--vis_ply_per_uav 1`，
+1. 默认环境是树林，也就是 `Simulator/src/config/swarm_config.yaml` 里的 `maze_type: 5`。Traversal 不传 `--env`/`--maze-type` 时直接使用原始 `swarm_config.yaml`；Crossover 会从同一份 YAML 派生临时 runtime config，只额外写入本次圆形起点/终点清障点。临时切换环境时不需要手动改 YAML，直接在启动命令后追加参数即可：`--env forest`/`--maze-type 5` 是树林，`--env pillar`/`--maze-type 2` 是柱子，`--env cave`/`--maze-type 1` 是溶洞。例如：
+
+```bash
+./tools/launch_traversal.sh --env cave --uav-num 5 --formation '2|1|2' --trial 0 --epoch 400 --rviz 1
+./tools/launch_traversal.sh --env pillar --uav-num 10 --formation '4|3|2|1' --trial 0 --epoch 400 --rviz 1
+./tools/launch_crossover.sh --env cave --uav-num 10 --trial 0 --epoch 400 --rviz 1
+```
+
+2. 周围点云可视化默认关闭，以免多机 RViz 太卡。需要打开时，在任一启动命令后追加 `--vis_ply_per_uav 1`，
 该功能只发布轻量 per-UAV LiDAR 点云到 `/uavN/lidar_points` 供 RViz decay 累积显示，不使用之前的全局格子/盒子地图，不改变训练数据、深度图、mask、YOPO 网络输入输出或控制指令。
 
-RViz `2D Nav Goal` 的点击位置表示 `uav0` 的目标位置。所有飞机根据 `uav0` 实时位置到点击位置的位移更新各自目标，因此队形按同一位移平移，不会聚集到同一绝对坐标。
+3. 起点和终点附近不生成障碍物的逻辑会随 swarm 启动参数一起复用到这些环境；清障半径默认读取 `swarm.spawn_clear_radius`，也可以用 `--spawn-clear-radius 2.5` 临时调整。
 
-ROS planner 统一入口为 `/workspace/YOPO/YOPO/test_yopo_ros_swarm_tracker.py`,`--uav-num 1` 时没有其它飞机 mask，输入第二通道为空，行为退化为单机 YOPO navigation。
+4. Traversal 中 RViz `2D Nav Goal` 的点击位置表示 `uav0` 的目标位置。所有飞机根据 `uav0` 实时位置到点击位置的位移更新各自目标，因此队形按同一位移平移，不会聚集到同一绝对坐标。Crossover 不支持 RViz 重新设置 goal；如果点击 `2D Nav Goal`，`uav0` planner 会提示该任务不支持并忽略该目标。
+
+5. ROS planner 统一入口为 `/workspace/YOPO/YOPO/test_yopo_ros_swarm_tracker.py`,`--uav-num 1` 时没有其它飞机 mask，输入第二通道为空，行为退化为单机 YOPO navigation。，***不论什么修改都要保持单机静态避障能力**
 
 ## 任务定义，输入各个维度，输出意义，网络结构
 
