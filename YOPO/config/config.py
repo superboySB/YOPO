@@ -9,7 +9,8 @@ class Config:
         self._data = YAML().load(open(os.path.join(base_dir, "traj_opt.yaml"), 'r'))
         self._data["train"] = True
         self._data["goal_length"] = 2.0 * self._data['radio_range']
-        self._data["sgm_time"] = 2 * self._data["radio_range"] / self._data["vel_max_train"]
+        if self._data.get("sgm_time") is None:
+            self._data["sgm_time"] = 2 * self._data["radio_range"] / self._data["vel_max_train"]
         self._data["traj_num"] = self._data['horizon_num'] * self._data['vertical_num'] * self._data["radio_num"]
 
     def __getitem__(self, key):

@@ -10,7 +10,7 @@ Simulator/logs/
 Simulator/.catkin_tools/
 
 YOPO/saved/*
-dataset/
+dataset_omni/
 yopo_sim/
 
 !YOPO/saved/YOPO_1/

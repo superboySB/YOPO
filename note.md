@@ -1,16 +1,27 @@
-# YOPO Docker 速记
+# YOPO-Omni Docker 速记
 
 ## 配置
+在宿主机进入项目根目录：
 ```bash
-cd /home/dzp/projects/YOPO
+cd /workspace/YOPO
+git switch omni-transformer
+```
 
+构建镜像：
+```bash
 docker build -f docker/simulation.dockerfile \
-  -t dzp_yopo:sim-u2004-noetic-py38 \
+  -t dzp_yopo:omni-u2004-noetic-py38 \
   --network=host --progress=plain .
+```
 
+允许容器使用图形界面：
+```bash
 xhost +local:root
+```
 
-docker run --name dzp-yopo -itd --privileged --gpus all --network host \
+启动容器：
+```bash
+docker run --name dzp-yopo-omni -itd --privileged --gpus all --network host \
   --entrypoint bash \
   -e DISPLAY -e QT_X11_NO_MITSHM=1 \
   -e http_proxy=http://127.0.0.1:8889 \
@@ -18,11 +29,13 @@ docker run --name dzp-yopo -itd --privileged --gpus all --network host \
   -v $HOME/.Xauthority:/root/.Xauthority \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
   --shm-size=4g \
-  -v /home/dzp/projects/YOPO:/workspace/YOPO \
-  dzp_yopo:sim-u2004-noetic-py38
+  -v /workspace/YOPO:/workspace/YOPO \
+  dzp_yopo:omni-u2004-noetic-py38
+```
 
-docker exec -it dzp-yopo /bin/bash
-
+进入容器：
+```bash
+docker exec -it dzp-yopo-omni /bin/bash
 cd /workspace/YOPO
 ```
 
@@ -41,104 +54,201 @@ cd /workspace/YOPO/Simulator
 catkin_make
 ```
 
-运行仿真与 YOPO（建议 4 个终端）：
-```bash
-# 终端 1: 控制器/动力学
-cd /workspace/YOPO/Controller
-source devel/setup.bash
-roslaunch so3_quadrotor_simulator simulator_attitude_control.launch
+## 采集 YOPO-Omni 数据
+默认采集 10 张地图，每张地图 10000 个位姿；每个位姿渲染 front/left/right/back 四张深度图，并展开 8 个 desired direction 样本。
 
-# 终端 2: 传感器与环境仿真
-cd /workspace/YOPO/Simulator
-source devel/setup.bash
-rosrun sensor_simulator sensor_simulator_cuda
-
-# 终端 3: YOPO 规划器
-cd /workspace/YOPO/YOPO
-python3 test_yopo_ros.py --trial=1 --epoch=50
-
-# 终端 4: 可视化
-cd /workspace/YOPO/YOPO
-rviz -d yopo.rviz
-```
-
-## 一键启动（容器内）
-先进入容器：
-```bash
-docker exec -it dzp-yopo /bin/bash
-```
-
-然后在容器内执行：
+重新采集前可删除旧数据：
 ```bash
 cd /workspace/YOPO
-./tools/launch_sim.sh --trial 1 --epoch 50
+rm -rf dataset_omni
 ```
 
-说明：
-- 该脚本必须在容器内运行（会检查 `/.dockerenv`）。
-- 该脚本基于 `tmux` 自动开 4 个窗口（controller/simulator/planner/rviz）。
-- 在该 `tmux` 会话里按 `Ctrl+C` 会同时停止 4 个窗口里的进程。
-- 常用参数：
+采集正式数据集：
 ```bash
-# 查看帮助
-./tools/launch_sim.sh -h
-
-# 后台启动（不自动 attach）
-./tools/launch_sim.sh --trial 1 --epoch 50 --detach
-
-# 停止会话及相关进程
-./tools/launch_sim.sh --stop
-
-# 累计碰撞步数（整个运行过程累计）
-rostopic echo /yopo/collision_counter_total
+cd /workspace/YOPO
+python3 tools/run_yopo_omni_pipeline.py \
+  --mode generate \
+  --env-num 10 \
+  --image-num 10000 \
+  --save-path ../dataset_omni
 ```
 
-## 2D Nav Goal 与“是否撞障”判断
-- README 里的 `2D Nav Goal` 只是给目标点（`/move_base_simple/goal`），对应 `README.md` 的测试说明。
-- 在代码中，`YOPO/test_yopo_ros.py` 仅在 `callback_set_goal` 把目标写成 `[x, y, 2]`，并打印 `New Goal`；到达条件是 `距离目标 < 5m` 后打印 `Arrive!`，没有任何“撞障”状态位或回调。
-- 动力学仿真 `Controller/src/so3_quadrotor_simulator` 不读取障碍物地图，`Quadrotor.cpp` 里仅处理“地面约束”（`z<0` 时把 `z,vz` 置零），没有障碍物接触模型。
-- `Simulator/src/src/sensor_simulator.cu` 的障碍占据信息只用于深度/激光射线查询（`mapQuery`），用于生成传感器观测，不会反作用到无人机动力学状态。
+生成结果：
+```text
+dataset_omni/
+  0/img_0_front.png
+  0/img_0_left.png
+  0/img_0_right.png
+  0/img_0_back.png
+  pose-0.csv
+  samples-0.csv
+  guides-0.csv
+  pointcloud-0.ply
+```
 
-结论：
-- 当前这套默认仿真里，没有内置“撞上障碍物就触发 crash”的自动判定。
-- 实操上只能用可视化判断：在 RViz 中看 `Drone`（`/quadrotor_simulator_so3/uav`）是否穿入 `Map`（`/lidar_points`）点云。
-- 已在 `sensor_simulator_cuda` 增加基于原生 `GridMap::mapQuery` 的累计碰撞步数统计（“在占据体素内一步就 +1”）。
-
-
-训练流程：
+## 训练 YOPO-Omni
+训练 50 epoch：
 ```bash
-# 1) 采集数据
-cd /workspace/YOPO/Simulator
-source devel/setup.bash
-rosrun sensor_simulator dataset_generator
+cd /workspace/YOPO
+python3 tools/run_yopo_omni_pipeline.py \
+  --mode train \
+  --python python3 \
+  --dataset-path ../dataset_omni \
+  --train-epoch 50 \
+  --batch-size 16 \
+  --num-workers 4
+```
 
-# 2) 训练策略
-cd /workspace/YOPO/YOPO
-python3 train_yopo.py
+如果想一键采集并训练：
+```bash
+cd /workspace/YOPO
+python3 tools/run_yopo_omni_pipeline.py \
+  --mode all \
+  --python python3 \
+  --env-num 10 \
+  --image-num 10000 \
+  --save-path ../dataset_omni \
+  --train-epoch 50 \
+  --batch-size 16 \
+  --num-workers 4
+```
 
-# 3) 查看日志
+训练输出：
+```text
+YOPO/saved/YOPO_Omni_0/epoch10.pth
+YOPO/saved/YOPO_Omni_0/epoch20.pth
+YOPO/saved/YOPO_Omni_0/epoch30.pth
+YOPO/saved/YOPO_Omni_0/epoch40.pth
+YOPO/saved/YOPO_Omni_0/epoch50.pth
+```
+
+查看 TensorBoard：
+```bash
 cd /workspace/YOPO/YOPO/saved
 tensorboard --logdir=./
 ```
 
-## 代码功能总结（全面但简洁）
-- `Controller/`：SO3 控制器与无人机动力学仿真，接收 `PositionCommand` 并输出姿态/速度响应；支持位置控制和姿态控制两种模式。
-- `Simulator/`：CUDA 深度/点云传感器仿真与随机环境生成。`sensor_simulator_cuda` 用于在线仿真，`dataset_generator` 用于离线生成训练数据（深度图+位姿+点云地图）。
-- `YOPO/`：学习式一阶段规划器主模块（PyTorch）。输入深度图与状态观测，输出每个运动基元的终点状态偏移和代价分数。
-- `YOPO/policy/primitive.py`：生成离散运动基元（lattice anchors），定义规划搜索空间（水平/垂直方向和规划半径）。
-- `YOPO/policy/state_transform.py`：完成 body/world/primitive 坐标转换，负责训练和推理时输入归一化、输出反变换。
-- `YOPO/policy/yopo_network.py`：网络本体（图像 backbone + head），预测终点状态 `p/v/a` 与 `score`。
-- `YOPO/loss/`：损失函数由四部分组成：平滑性（jerk/acc）、安全性（ESDF 距离）、目标引导（朝向目标）和分数监督。
-- `YOPO/loss/safety_loss.py`：从 `dataset/pointcloud-*.ply` 构建 ESDF，训练时对多条候选轨迹做可微距离查询与碰撞惩罚。
-- `YOPO/policy/yopo_dataset.py`：读取深度图与位姿，随机采样速度/加速度/目标方向，构造训练 observation。
-- `YOPO/policy/yopo_trainer.py`：训练主循环。前向后将预测轨迹变换到世界系，按损失计算梯度并写 TensorBoard。
-- `YOPO/test_yopo_ros.py`：在线 ROS 节点。订阅深度与里程计，网络推理后选择最低代价基元，并用五次多项式生成可执行轨迹发布到控制器。
-- `YOPO/yopo_trt_transfer.py`：将 PyTorch 权重导出为 TensorRT，加速机载部署。
-- 关键配置集中在 `YOPO/config/traj_opt.yaml`：飞行速度、基元数量、相机参数、训练采样分布、各项损失权重。
+## 检查模型
+检查 `epoch50.pth` 是否能读取正式数据集并正常推理。这个命令只在终端打印结果，不会打开 RViz 窗口：
+```bash
+cd /workspace/YOPO
+python3 tools/test_yopo_omni_checkpoint.py \
+  --weight YOPO/saved/YOPO_Omni_0/epoch50.pth \
+  --dataset-path ../dataset_omni \
+  --split valid \
+  --batch-size 4 \
+  --num-batches 8 \
+  --device cuda \
+  --strict-depth-range
+```
 
-## 说明
-- 当前 Docker 方案默认 Python=3.8、ROS=noetic，不使用 conda/mamba/uv。
-- 该镜像不包含 PX4，仅用于 YOPO 仿真与训练。
-- 依赖文件已统一放在 `docker/`：
-  - `docker/requirements.txt`（YOPO Python 依赖）
-- 代理配置默认保留在镜像与运行命令中。
+正常输出应包含：
+```text
+Depth normalization check passed
+output endstate=(4, 8, 8, 9), score=(4, 8, 8)
+```
+
+要看 RViz 可视化，请运行下面“仿真测试”里的 `tools/run_yopo_omni_sim.sh`。
+
+## 仿真测试
+启动 roscore、控制器、四向深度传感器、Omni 规划器和 RViz。脚本会按顺序等待各 ROS 节点启动，RViz 图形窗口通常会在命令执行后约 14 秒弹出：
+```bash
+cd /workspace/YOPO
+
+bash tools/run_yopo_omni_sim.sh \
+  --weight /workspace/YOPO/YOPO/saved/YOPO_Omni_0/epoch50.pth \
+  --python python3 \
+  --velocity 6.0 \
+  --rviz-software-gl
+```
+
+进入 tmux：
+```bash
+tmux attach -t yopo_omni_sim
+```
+
+停止仿真：
+```bash
+tmux kill-session -t yopo_omni_sim
+```
+
+## RViz 与状态检查
+`YOPO/yopo_omni.rviz` 已配置四个深度图面板：
+```text
+/depth_image_front
+/depth_image_left
+/depth_image_right
+/depth_image_back
+```
+
+检查四向深度频率：
+```bash
+source /opt/ros/noetic/setup.bash
+rostopic hz /depth_image_front /depth_image_left /depth_image_right /depth_image_back
+```
+
+检查碰撞计数：
+```bash
+rostopic echo /yopo/collision_counter_total
+```
+
+正常运行时可看到：
+```text
+/depth_image_front 约 33 Hz
+/depth_image_left  约 33 Hz
+/depth_image_right 约 33 Hz
+/depth_image_back  约 33 Hz
+/yopo/collision_counter_total: 0
+```
+
+发布新目标点：
+```bash
+rostopic pub /move_base_simple/goal geometry_msgs/PoseStamped "{
+  header: {frame_id: 'world'},
+  pose: {
+    position: {x: 10.0, y: 0.0, z: 2.0},
+    orientation: {w: 1.0}
+  }
+}"
+```
+
+## 常用配置
+数据生成配置：
+```text
+Simulator/src/config/config.yaml
+```
+
+关键项：
+```yaml
+save_path: "../dataset_omni/"
+env_num: 10
+image_num: 10000
+omni:
+  direction_num: 8
+  goal_length: 10.0
+  dijkstra_resolution: 0.5
+  dijkstra_inflation: 0.5
+  astar_local_radius: 16.0
+```
+
+训练配置：
+```text
+YOPO/config/traj_opt.yaml
+```
+
+关键项：
+```yaml
+dataset_path: "../dataset_omni"
+omni_topology_num: 8
+omni_d_model: 128
+omni_num_heads: 4
+omni_decoder_layers: 2
+omni_amp: true
+omni_num_workers: 4
+sgm_time: 1.4
+```
+
+说明：
+- `tools/run_yopo_omni_pipeline.py` 的 `--save-path ../dataset_omni` 会同时覆盖训练用的 `dataset_path`。
+- 不加 `--keep-config` 时，脚本运行结束会恢复原始配置文件。
+- 在线测试订阅四向深度图，输出 8 个 topology 的候选轨迹和 score。

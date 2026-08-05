@@ -3,6 +3,7 @@
 #include <pcl/point_cloud.h>
 #include <pcl/common/common.h>
 #include <pcl/common/eigen.h>
+#include <pcl/filters/voxel_grid.h>
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include <opencv2/opencv.hpp>
@@ -12,6 +13,7 @@
 #include <std_msgs/Int32.h>
 #include <pcl_ros/point_cloud.h>
 #include <cv_bridge/cv_bridge.h>
+#include <array>
 #include <iostream>
 #include <vector>
 #include <yaml-cpp/yaml.h>
@@ -35,8 +37,8 @@ public:
         camera->image_height = config["camera"]["image_height"].as<int>();
         camera->max_depth_dist = config["camera"]["max_depth_dist"].as<float>();
         camera->normalize_depth = config["camera"]["normalize_depth"].as<bool>();
-        float pitch = config["camera"]["pitch"].as<float>() * M_PI / 180.0;
-        quat_bc = Eigen::AngleAxisf(pitch, Eigen::Vector3f::UnitY());
+        camera_pitch_rad = config["camera"]["pitch"].as<float>() * M_PI / 180.0f;
+        quat_bc = Eigen::AngleAxisf(camera_pitch_rad, Eigen::Vector3f::UnitY());
 
         // 读取lidar参数
         lidar = new LidarParams();
@@ -96,10 +98,17 @@ public:
                 PCL_ERROR("Couldn't read PLY file \n");
             }
         }
-        pcl::toROSMsg(*cloud, output);
+        float map_viz_resolution = config["map_viz_resolution"] ? config["map_viz_resolution"].as<float>() : 0.2f;
+        pcl::PointCloud<pcl::PointXYZ>::Ptr viz_cloud(new pcl::PointCloud<pcl::PointXYZ>());
+        pcl::VoxelGrid<pcl::PointXYZ> voxel_filter;
+        voxel_filter.setInputCloud(cloud);
+        voxel_filter.setLeafSize(map_viz_resolution, map_viz_resolution, map_viz_resolution);
+        voxel_filter.filter(*viz_cloud);
+        pcl::toROSMsg(*viz_cloud, output);
         output.header.frame_id = "world";
 
         std::cout<<"Pointloud size:"<<cloud->points.size()<<std::endl;
+        std::cout<<"Map visualization pointcloud size:"<<viz_cloud->points.size()<<std::endl;
         printf("2.Mapping... \n");
         grid_map = new GridMap(cloud, resolution, occupy_threshold);
         
@@ -108,6 +117,9 @@ public:
 
         // ROS
         image_pub_ = nh_.advertise<sensor_msgs::Image>(depth_topic, 1);
+        const std::array<std::string, 4> view_names = {"front", "left", "right", "back"};
+        for (const auto &view_name : view_names)
+            image_pubs_.push_back(nh_.advertise<sensor_msgs::Image>(depth_topic + "_" + view_name, 1));
         point_cloud_pub_ = nh_.advertise<sensor_msgs::PointCloud2>(lidar_topic, 1);
         collision_counter_total_pub_ = nh_.advertise<std_msgs::Int32>("/yopo/collision_counter_total", 1);
         odom_sub_ = nh_.subscribe(odom_topic, 1, &SensorSimulator::odomCallback, this, ros::TransportHints().tcpNoDelay());
@@ -132,6 +144,7 @@ private:
     bool render_lidar{false};
     Eigen::Quaternionf quat;
     Eigen::Quaternionf quat_bc, quat_wc;
+    float camera_pitch_rad{0.0f};
     Eigen::Vector3f pos;
 
     CameraParams* camera;
@@ -141,6 +154,7 @@ private:
     
     ros::NodeHandle nh_;
     ros::Publisher image_pub_, point_cloud_pub_;
+    std::vector<ros::Publisher> image_pubs_;
     ros::Publisher pcl_pub;
     ros::Publisher collision_counter_total_pub_;
     ros::Subscriber odom_sub_;
@@ -162,9 +176,26 @@ void SensorSimulator::renderDepthCallback(const ros::Time stamp) {
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    cudaMat::SE3<float> T_wc(quat_wc.w(), quat_wc.x(), quat_wc.y(), quat_wc.z(), pos.x(), pos.y(), pos.z());
-    cv::Mat depth_image;
-    renderDepthImage(grid_map, camera, T_wc, depth_image);
+    const std::array<float, 4> view_yaws = {0.0f, M_PI / 2.0f, -M_PI / 2.0f, M_PI};
+    for (size_t i = 0; i < view_yaws.size(); ++i) {
+        Eigen::AngleAxisf yaw_view(view_yaws[i], Eigen::Vector3f::UnitZ());
+        Eigen::AngleAxisf pitch_view(camera_pitch_rad, Eigen::Vector3f::UnitY());
+        Eigen::Quaternionf quat_wc_view = quat * Eigen::Quaternionf(yaw_view * pitch_view);
+        cudaMat::SE3<float> T_wc(quat_wc_view.w(), quat_wc_view.x(), quat_wc_view.y(), quat_wc_view.z(),
+                                  pos.x(), pos.y(), pos.z());
+        cv::Mat depth_image;
+        renderDepthImage(grid_map, camera, T_wc, depth_image);
+
+        sensor_msgs::Image ros_image;
+        cv_bridge::CvImage cv_image;
+        cv_image.header.stamp = stamp;
+        cv_image.encoding = sensor_msgs::image_encodings::TYPE_32FC1;
+        cv_image.image = depth_image;
+        cv_image.toImageMsg(ros_image);
+        image_pubs_[i].publish(ros_image);
+        if (i == 0)
+            image_pub_.publish(ros_image);
+    }
     
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
@@ -172,18 +203,13 @@ void SensorSimulator::renderDepthCallback(const ros::Time stamp) {
     depth_count++;
     // std::cout << "生成图像耗时: " << elapsed.count() << " 秒" << std::endl;
 
-    sensor_msgs::Image ros_image;
-    cv_bridge::CvImage cv_image;
-    cv_image.header.stamp = stamp;
-    cv_image.encoding = sensor_msgs::image_encodings::TYPE_32FC1;
-    cv_image.image = depth_image;
-    cv_image.toImageMsg(ros_image);
-    image_pub_.publish(ros_image);
 }
 
 void SensorSimulator::timerMapCallback(const ros::TimerEvent&) {
-    if (pcl_pub.getNumSubscribers() > 0)
+    if (pcl_pub.getNumSubscribers() > 0) {
+        output.header.stamp = ros::Time::now();
         pcl_pub.publish(output);    
+    }
 }
 
 void SensorSimulator::publishCollisionCounterTotal() {
@@ -211,7 +237,7 @@ void SensorSimulator::renderLidarCallback(const ros::Time stamp) {
     sensor_msgs::PointCloud2 output;
     pcl::toROSMsg(lidar_points, output);
     output.header.stamp = stamp;
-    output.header.frame_id = "odom";
+    output.header.frame_id = "world";
     point_cloud_pub_.publish(output);
 }
 

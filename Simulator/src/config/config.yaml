@@ -6,12 +6,13 @@ lidar_topic: "/lidar_points"
 render_depth: true
 depth_fps: 33          # odom 100hz, depth 33hz, 每3帧odom渲染一次
 
-render_lidar: true
+render_lidar: false
 lidar_fps: 10
 
 # 2. 仿真环境参数 =============================================================
 random_map: true       # 使用预先建立的点云地图还是随机地图
 resolution: 0.1        # 地图分辨率
+map_viz_resolution: 0.8 # RViz全局地图点云降采样分辨率
 
 # 2.1 预先建立的点云地图 (此分支已弃用)
 ply_file: "src/pointcloud/forest.ply"
@@ -24,7 +25,7 @@ seed: 3
 x_length: 60           # 真正随机范围(XY更大范围处为其镜像)
 y_length: 60
 z_length: 15
-maze_type: 5           # 1: 溶洞 2: 柱子 3:迷宫 5:森林 6:房间 7:墙面  (当前策略支持1,2,5,7)
+maze_type: 1           # 1: 溶洞 2: 柱子 3:迷宫 5:森林 6:房间 7:墙面  (当前策略支持1,2,5,7)
 # 溶洞
 complexity: 0.02       # 复杂度 0.0-0.5
 fill: 0.1              # 填充率 0.0-0.4
@@ -75,7 +76,7 @@ lidar:
   max_lidar_dist: 20.0
 
 # 4. 数据收集参数 =============================================================
-save_path: "../dataset/"
+save_path: "../dataset_omni/"
 env_num: 10             # 地图数量
 image_num: 10000        # 每个地图收集图像数量
 roll_range: 30          # 采样点的roll角度范围
@@ -85,3 +86,13 @@ y_range: 40             # y方向采样范围 (请小于地图大小y_length并�
 z_range: [0.5, 4]       # z方向采样范围 (请小于地图大小z_length并保留一定边缘间距)
 safe_dist: 0.5          # 安全距离，采样点与障碍的最小距离
 ply_res: 0.1            # 保存点云滤波的体素网格大小
+
+# 5. YOPO-Omni 数据标签参数 ==================================================
+omni:
+  direction_num: 8          # 每个采样点展开为8个desired direction样本
+  goal_length: 10.0         # Dijkstra局部目标距离(m)
+  goal_z_margin: 0.2        # Dijkstra目标高度限制在 z_range 内并保留该边距(m)
+  goal_search_radius: 3.0   # 目标落在障碍时，在该半径内寻找最近free目标(m)
+  dijkstra_resolution: 0.5  # Dijkstra使用的粗栅格分辨率(m)
+  dijkstra_inflation: 0.5   # Dijkstra障碍膨胀半径(m)
+  astar_local_radius: 16.0  # A*局部搜索窗口在start-goal包围盒外扩半径(m)

@@ -4,9 +4,77 @@ import numpy as np
 import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
-import open3d as o3d
 from scipy.ndimage import distance_transform_edt
 from config.config import cfg
+
+
+def read_ply_xyz(path):
+    ply_to_numpy = {
+        "char": "i1",
+        "int8": "i1",
+        "uchar": "u1",
+        "uint8": "u1",
+        "short": "i2",
+        "int16": "i2",
+        "ushort": "u2",
+        "uint16": "u2",
+        "int": "i4",
+        "int32": "i4",
+        "uint": "u4",
+        "uint32": "u4",
+        "float": "f4",
+        "float32": "f4",
+        "double": "f8",
+        "float64": "f8",
+    }
+
+    with open(path, "rb") as file:
+        header = []
+        while True:
+            line = file.readline()
+            if not line:
+                raise ValueError(f"Invalid PLY file without end_header: {path}")
+            decoded = line.decode("ascii").strip()
+            header.append(decoded)
+            if decoded == "end_header":
+                break
+
+        fmt = None
+        vertex_count = None
+        properties = []
+        in_vertex = False
+        for line in header:
+            parts = line.split()
+            if not parts:
+                continue
+            if parts[0] == "format":
+                fmt = parts[1]
+            elif parts[0] == "element":
+                in_vertex = parts[1] == "vertex"
+                if in_vertex:
+                    vertex_count = int(parts[2])
+            elif parts[0] == "property" and in_vertex:
+                if parts[1] == "list":
+                    raise ValueError(f"PLY list properties are not supported for vertices: {path}")
+                properties.append((parts[2], parts[1]))
+
+        if fmt is None or vertex_count is None:
+            raise ValueError(f"Invalid PLY header: {path}")
+        property_names = [name for name, _ in properties]
+        for name in ("x", "y", "z"):
+            if name not in property_names:
+                raise ValueError(f"PLY file missing vertex property '{name}': {path}")
+
+        if fmt == "ascii":
+            data = np.loadtxt(file, max_rows=vertex_count)
+            return data[:, [property_names.index("x"), property_names.index("y"), property_names.index("z")]].astype(np.float32)
+
+        endian = "<" if fmt == "binary_little_endian" else ">" if fmt == "binary_big_endian" else None
+        if endian is None:
+            raise ValueError(f"Unsupported PLY format '{fmt}': {path}")
+        dtype = np.dtype([(name, endian + ply_to_numpy[prop_type]) for name, prop_type in properties])
+        data = np.frombuffer(file.read(dtype.itemsize * vertex_count), dtype=dtype, count=vertex_count)
+        return np.stack([data["x"], data["y"], data["z"]], axis=1).astype(np.float32)
 
 
 class SafetyLoss(nn.Module):
@@ -20,7 +88,7 @@ class SafetyLoss(nn.Module):
 
         self._L = L
         self.sgm_time = cfg["sgm_time"]
-        self.eval_points = 30
+        self.eval_points = cfg["omni_loss_eval_points"]
         self.device = self._L.device
         self.time_integral = True
 
@@ -195,10 +263,9 @@ class SafetyLoss(nn.Module):
 
         # First pass to get all sdf_maps and record shape
         for file in sorted_files:
-            pcd = o3d.io.read_point_cloud(file)
-            min_bound = np.array(pcd.get_min_bound()) - self.map_expand_min
-            max_bound = np.array(pcd.get_max_bound()) + self.map_expand_max
-            points = np.asarray(pcd.points)
+            points = read_ply_xyz(file)
+            min_bound = points.min(axis=0) - self.map_expand_min
+            max_bound = points.max(axis=0) + self.map_expand_max
             print(f"    {os.path.basename(file)}: x=({min_bound[0] + self.map_expand_min[0]:.2f}, {max_bound[0] - self.map_expand_max[0]:.2f}), "
                   f"y=({min_bound[1] + self.map_expand_min[1]:.2f}, {max_bound[1] - self.map_expand_max[1]:.2f}), "
                   f"z=({min_bound[2] + self.map_expand_min[2]:.2f}, {max_bound[2] - self.map_expand_max[2]:.2f})")

@@ -17,12 +17,9 @@ find_package(PCL REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(OpenMP)
 find_package(yaml-cpp REQUIRED)
-find_package(Threads REQUIRED)
 message(WARNING "OpenCV_VERSION: ${OpenCV_VERSION}")
 
 # CUDA
-# Prefer shared cudart to avoid static cudart link issues (pthread/dl/rt).
-set(CUDA_USE_STATIC_CUDA_RUNTIME OFF)
 find_package(CUDA REQUIRED)
 # Query the GPU architecture
 cuda_select_nvcc_arch_flags(ARCH_FLAGS)
@@ -47,7 +44,7 @@ set(CMAKE_CUDA_FLAGS_RELEASE "-O3")
 catkin_package(
         INCLUDE_DIRS include
         LIBRARIES sensor_simulator
-        CATKIN_DEPENDS roscpp nav_msgs std_msgs sensor_msgs cv_bridge
+        CATKIN_DEPENDS roscpp
         DEPENDS OpenCV)
 
 ## Specify additional locations of header files
@@ -65,12 +62,12 @@ target_compile_definitions(sensor_simulator PRIVATE CONFIG_FILE_PATH="${CMAKE_SO
 
 
 cuda_add_library(raycast_cuda src/sensor_simulator.cu)
-target_link_libraries(raycast_cuda ${CUDA_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} Threads::Threads dl rt)
+target_link_libraries(raycast_cuda ${CUDA_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES})
 
 add_executable(sensor_simulator_cuda src/test_simulator_cuda.cpp src/maps.cpp src/perlinnoise.cpp)
-target_link_libraries(sensor_simulator_cuda ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} raycast_cuda yaml-cpp Threads::Threads dl rt)
+target_link_libraries(sensor_simulator_cuda ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} raycast_cuda yaml-cpp)
 target_compile_definitions(sensor_simulator_cuda PRIVATE CONFIG_FILE_PATH="${CMAKE_SOURCE_DIR}/config/config.yaml")
 
 add_executable(dataset_generator src/dataset_generator.cpp src/maps.cpp src/perlinnoise.cpp)
-target_link_libraries(dataset_generator ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} raycast_cuda yaml-cpp Threads::Threads dl rt)
+target_link_libraries(dataset_generator ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} raycast_cuda yaml-cpp)
 target_compile_definitions(dataset_generator PRIVATE CONFIG_FILE_PATH="${CMAKE_SOURCE_DIR}/config/config.yaml")
