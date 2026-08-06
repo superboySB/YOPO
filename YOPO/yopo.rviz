@@ -66,6 +66,18 @@ Visualization Manager:
       Value: true
     - Class: rviz/Image
       Enabled: true
+      Image Topic: /depth_image
+      Max Value: 20
+      Median window: 5
+      Min Value: 0
+      Name: Depth_Debug_Front
+      Normalize Range: true
+      Queue Size: 2
+      Transport Hint: raw
+      Unreliable: false
+      Value: true
+    - Class: rviz/Image
+      Enabled: true
       Image Topic: /depth_image_left
       Max Value: 1
       Median window: 5

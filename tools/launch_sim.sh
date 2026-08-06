@@ -7,7 +7,7 @@ WEIGHT="${ROOT_DIR}/YOPO/saved/YOPO_0/epoch50.pth"
 PYTHON_BIN="python3"
 GPU_ID="0"
 VELOCITY="6.0"
-MAX_DEPTH="20"
+MAX_DEPTH="4"
 ARRIVE_DIST="1.0"
 RADIUS_MIN=""
 RADIUS_MAX=""
@@ -29,7 +29,7 @@ Options:
   --python PATH       Python executable. Default: ${PYTHON_BIN}
   --gpu ID            CUDA_VISIBLE_DEVICES value. Default: ${GPU_ID}
   --velocity VALUE    Desired speed for planner. Default: ${VELOCITY}
-  --max-depth VALUE   Depth normalization max range. Default: ${MAX_DEPTH}
+  --max-depth VALUE   ToF depth normalization max range. Default: ${MAX_DEPTH}
   --arrive-dist VALUE Goal arrival distance threshold in meters. Default: ${ARRIVE_DIST}
   --radius-min VALUE  Override omni_radius_min for checkpoint-consistent decoding.
   --radius-max VALUE  Override omni_radius_max for checkpoint-consistent decoding.

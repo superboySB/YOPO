@@ -406,7 +406,7 @@ def parse_args():
     parser.add_argument("--trial", type=int, default=0, help="Trial number under YOPO/saved/YOPO_{trial}.")
     parser.add_argument("--epoch", type=int, default=30, help="Checkpoint epoch.")
     parser.add_argument("--velocity", type=float, default=float(cfg["velocity"]), help="Desired speed magnitude.")
-    parser.add_argument("--max-depth", type=float, default=20.0, help="Depth max range used for normalization.")
+    parser.add_argument("--max-depth", type=float, default=4.0, help="ToF depth max range used for normalization.")
     parser.add_argument("--arrive-dist", type=float, default=1.0, help="Distance threshold in meters for stopping at the goal.")
     parser.add_argument("--radius-min", type=float, default=None, help="Override omni_radius_min for checkpoint-consistent decoding.")
     parser.add_argument("--radius-max", type=float, default=None, help="Override omni_radius_max for checkpoint-consistent decoding.")

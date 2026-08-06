@@ -5,20 +5,22 @@ import torch.nn.functional as F
 from torch import nn
 
 from config.config import cfg
-from policy.models.backbone import YopoBackbone
 
 
-class OmniDepthBackbone(nn.Module):
+class ToFTokenEncoder(nn.Module):
     def __init__(self, d_model):
         super().__init__()
-        self.net = YopoBackbone(d_model)
-        # Keep the original YOPO ResNet18 capacity, but stop the last stage from
-        # downsampling so each 96x160 view yields about 6x10 tokens instead of 3x5.
-        self.net.cnn.layer4[0].conv1.stride = (1, 1)
-        self.net.cnn.layer4[0].downsample[0].stride = (1, 1)
+        self.net = nn.Sequential(
+            nn.Linear(4, d_model),
+            nn.LayerNorm(d_model),
+            nn.SiLU(),
+            nn.Linear(d_model, d_model),
+            nn.LayerNorm(d_model),
+            nn.SiLU(),
+        )
 
-    def forward(self, depth):
-        return self.net(depth)
+    def forward(self, depth_and_ray):
+        return self.net(depth_and_ray)
 
 
 class YOPOOmniNetwork(nn.Module):
@@ -31,14 +33,11 @@ class YOPOOmniNetwork(nn.Module):
         self.radius_min = float(cfg["omni_radius_min"])
         self.radius_max = float(cfg["omni_radius_max"])
         self.pitch_max = math.radians(float(cfg["omni_pitch_max_deg"]))
+        self.tof_half_width = math.tan(math.radians(float(cfg["tof_horizontal_fov_deg"])) / 2.0)
+        self.tof_half_height = math.tan(math.radians(float(cfg["tof_vertical_fov_deg"])) / 2.0)
 
-        self.depth_backbone = OmniDepthBackbone(self.d_model)
+        self.tof_token_encoder = ToFTokenEncoder(self.d_model)
         self.view_embedding = nn.Embedding(4, self.d_model)
-        self.ray_mlp = nn.Sequential(
-            nn.Linear(3, self.d_model),
-            nn.SiLU(),
-            nn.Linear(self.d_model, self.d_model),
-        )
         self.state_encoder = nn.Sequential(
             nn.Linear(9, self.d_model),
             nn.LayerNorm(self.d_model),
@@ -105,19 +104,20 @@ class YOPOOmniNetwork(nn.Module):
 
     def encode_depth(self, depth):
         B, V, C, H, W = depth.shape
-        feature = self.depth_backbone(depth.reshape(B * V, C, H, W))
-        _, D, h, w = feature.shape
-        tokens = feature.flatten(2).transpose(1, 2).reshape(B, V, h * w, D)
+        if C != 1:
+            raise ValueError(f"YOPO ToF input expects one depth channel, got {C}")
 
+        depth_token = depth.reshape(B, V, H * W, 1)
+        ray_token = self.build_ray_grid(H, W, depth.device)[None, :, :, :].expand(B, -1, -1, -1)
+        tokens = self.tof_token_encoder(torch.cat([depth_token, ray_token], dim=-1))
         view_ids = torch.arange(V, device=depth.device)
         view_embed = self.view_embedding(view_ids)[None, :, None, :]
-        ray_embed = self.ray_mlp(self.build_ray_grid(h, w, depth.device))[None, :, :, :]
-        tokens = tokens + view_embed + ray_embed
-        return tokens.reshape(B, V * h * w, D)
+        tokens = tokens + view_embed
+        return tokens.reshape(B, V * H * W, self.d_model)
 
     def build_ray_grid(self, h, w, device):
-        ys = torch.linspace(-1.0, 1.0, h, device=device)
-        xs = torch.linspace(-1.0, 1.0, w, device=device)
+        ys = torch.linspace(-self.tof_half_height, self.tof_half_height, h, device=device)
+        xs = torch.linspace(-self.tof_half_width, self.tof_half_width, w, device=device)
         grid_y, grid_x = torch.meshgrid(ys, xs, indexing="ij")
         cam_ray = torch.stack(
             [

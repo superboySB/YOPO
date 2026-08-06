@@ -55,12 +55,15 @@ catkin_make
 ```
 
 ## 采集 YOPO-Omni 数据
-默认采集 10 张地图，每张地图 10000 个位姿；每个位姿渲染 front/left/right/back 四张深度图，并展开 8 个 desired direction 样本。
+默认采集 10 张地图，每张地图 10000 个位姿；每个位姿渲染 front/left/right/back 四个 TOFSense-M 等效 ToF 深度图，并展开 8 个 desired direction 样本。
 
-重新采集前可删除旧数据：
+ToF 输入为 8x8 pixels、水平/垂直 45 度 FoV、65 度对角 FoV、1.5cm 到 4m 量程；前向高清 debug 图只用于观察，不参与训练。
+
+重新采集前删除旧数据和旧模型：
 ```bash
 cd /workspace/YOPO
 rm -rf dataset_omni
+rm -rf YOPO/saved/YOPO_0
 ```
 
 采集正式数据集：
@@ -80,11 +83,16 @@ dataset_omni/
   0/img_0_left.png
   0/img_0_right.png
   0/img_0_back.png
+  0/img_0_debug_front.png
   pose-0.csv
   samples-0.csv
   guides-0.csv
   pointcloud-0.ply
 ```
+
+`img_*_front/left/right/back.png` 是 8x8 TOFSense-M 深度图。每个 pixel 内部用多条子射线做小视锥聚合，再按 4m 量程截断并保存为 16-bit PNG，读取时归一化到 `[0, 1]`。
+
+`img_*_debug_front.png` 是 160x90 前向高清深度图，只用于人工检查采集场景，训练代码不会读取它。
 
 ## 训练 YOPO-Omni
 训练 50 epoch：
@@ -94,32 +102,9 @@ python3 tools/run_yopo_pipeline.py \
   --mode train \
   --python python3 \
   --dataset-path ../dataset_omni \
-  --train-epoch 50 \
+  --train-epoch 100 \
   --batch-size 16 \
   --num-workers 4
-```
-
-如果想一键采集并训练：
-```bash
-cd /workspace/YOPO
-python3 tools/run_yopo_pipeline.py \
-  --mode all \
-  --python python3 \
-  --env-num 10 \
-  --image-num 10000 \
-  --save-path ../dataset_omni \
-  --train-epoch 50 \
-  --batch-size 16 \
-  --num-workers 4
-```
-
-训练输出：
-```text
-YOPO/saved/YOPO_0/epoch10.pth
-YOPO/saved/YOPO_0/epoch20.pth
-YOPO/saved/YOPO_0/epoch30.pth
-YOPO/saved/YOPO_0/epoch40.pth
-YOPO/saved/YOPO_0/epoch50.pth
 ```
 
 查看 TensorBoard：
@@ -133,7 +118,7 @@ tensorboard --logdir=./
 ```bash
 cd /workspace/YOPO
 python3 tools/test_yopo_checkpoint.py \
-  --weight YOPO/saved/YOPO_0/epoch50.pth \
+  --weight YOPO/saved/YOPO_0/epoch100.pth \
   --dataset-path ../dataset_omni \
   --split valid \
   --batch-size 4 \
@@ -159,6 +144,7 @@ bash tools/launch_sim.sh \
   --weight /workspace/YOPO/YOPO/saved/YOPO_0/epoch50.pth \
   --python python3 \
   --velocity 6.0 \
+  --max-depth 4.0 \
   --rviz-software-gl
 ```
 
@@ -173,18 +159,25 @@ tmux kill-session -t yopo_sim
 ```
 
 ## RViz 与状态检查
-`YOPO/yopo.rviz` 已配置四个深度图面板：
+`YOPO/yopo.rviz` 已配置四个 ToF 深度图面板和一个前向高清 debug 面板：
 ```text
-/depth_image_front
-/depth_image_left
-/depth_image_right
-/depth_image_back
+/depth_image_front   # 8x8 ToF
+/depth_image_left    # 8x8 ToF
+/depth_image_right   # 8x8 ToF
+/depth_image_back    # 8x8 ToF
+/depth_image         # 160x90 front debug，只用于观察
 ```
 
-检查四向深度频率：
+检查四向 ToF 频率：
 ```bash
 source /opt/ros/noetic/setup.bash
 rostopic hz /depth_image_front /depth_image_left /depth_image_right /depth_image_back
+```
+
+检查图像尺寸：
+```bash
+rostopic echo -n 1 /depth_image_front | grep -E "height|width|encoding"
+rostopic echo -n 1 /depth_image | grep -E "height|width|encoding"
 ```
 
 检查碰撞计数：
@@ -194,10 +187,12 @@ rostopic echo /yopo/collision_counter_total
 
 正常运行时可看到：
 ```text
-/depth_image_front 约 33 Hz
-/depth_image_left  约 33 Hz
-/depth_image_right 约 33 Hz
-/depth_image_back  约 33 Hz
+/depth_image_front 约 15 Hz
+/depth_image_left  约 15 Hz
+/depth_image_right 约 15 Hz
+/depth_image_back  约 15 Hz
+/depth_image_front height=8,width=8
+/depth_image       height=90,width=160
 /yopo/collision_counter_total: 0
 ```
 
@@ -223,6 +218,25 @@ Simulator/src/config/config.yaml
 save_path: "../dataset_omni/"
 env_num: 10
 image_num: 10000
+depth_fps: 15
+tof:
+  model: "tofsense_m"
+  image_width: 8
+  image_height: 8
+  horizontal_fov_deg: 45.0
+  vertical_fov_deg: 45.0
+  diagonal_fov_deg: 65.0
+  fx: 9.656854
+  fy: 9.656854
+  cx: 3.5
+  cy: 3.5
+  zone_subsample: 4
+  depth_quantile: 0.35
+  noise_std: 0.015
+  far_noise_std: 0.08
+  signal_floor: 0.08
+  max_depth_dist: 4.0
+  min_depth_dist: 0.015
 omni:
   direction_num: 8
   goal_length: 10.0
@@ -239,6 +253,10 @@ YOPO/config/traj_opt.yaml
 关键项：
 ```yaml
 dataset_path: "../dataset_omni"
+image_height: 8
+image_width: 8
+tof_horizontal_fov_deg: 45.0
+tof_vertical_fov_deg: 45.0
 omni_topology_num: 8
 omni_d_model: 128
 omni_num_heads: 4

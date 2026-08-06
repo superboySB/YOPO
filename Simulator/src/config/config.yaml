@@ -4,7 +4,7 @@ depth_topic: "/depth_image"
 lidar_topic: "/lidar_points"
 
 render_depth: true
-depth_fps: 33          # odom 100hz, depth 33hz, 每3帧odom渲染一次
+depth_fps: 15          # TOFSense-M 8x8 mode outputs at 15Hz
 
 render_lidar: false
 lidar_fps: 10
@@ -56,7 +56,7 @@ wall_number: 100       # 墙面数量
 wall_ceiling: 1        # 是否添加天花板
 
 # 3. 传感器参数 ==============================================================
-camera:
+camera:                # 前向高清debug深度图，仅用于RViz观察，不作为网络输入
   fx: 80.0             # focal length x
   fy: 80.0             # focal length y
   cx: 80.0             # principal point x (image center)
@@ -66,6 +66,27 @@ camera:
   max_depth_dist: 20.0
   normalize_depth: false
   pitch: -0.0           # 相机相对机体的俯仰角 (仰为负, cpu版尚未添加)
+
+tof:                   # Nooploop TOFSense-M: 8x8 pixels, 45deg x 45deg FoV, 1.5cm~4m range
+  model: "tofsense_m"
+  fx: 9.656854         # edge-based pinhole equivalent: 4 / tan(45deg/2)
+  fy: 9.656854
+  cx: 3.5
+  cy: 3.5
+  image_width: 8
+  image_height: 8
+  horizontal_fov_deg: 45.0
+  vertical_fov_deg: 45.0
+  diagonal_fov_deg: 65.0
+  zone_subsample: 4
+  depth_quantile: 0.35
+  noise_std: 0.015
+  far_noise_std: 0.08
+  signal_floor: 0.08
+  max_depth_dist: 4.0
+  min_depth_dist: 0.015
+  normalize_depth: false
+  pitch: -0.0
 
 lidar:
   vertical_lines: 16             # 纵向16线

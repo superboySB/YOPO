@@ -15,8 +15,10 @@ wi: 2.0    # desired velocity intent
 
 # dataset: set image_size = primitive_num × downsampling_factor (×32 for ResNet-18) in each axis
 dataset_path: "../dataset_omni"
-image_height: 96
-image_width: 160
+image_height: 8
+image_width: 8
+tof_horizontal_fov_deg: 45.0
+tof_vertical_fov_deg: 45.0
 
 # YOPO-Omni params
 omni_topology_num: 8
