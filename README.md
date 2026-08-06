@@ -78,7 +78,7 @@ catkin_make
 
 ## Test the Policy
 
-You can test the policy using pre-trained weights we provide at `YOPO/saved/YOPO_1/epoch50.pth`. 
+You can test the policy using the trained weights at `YOPO/saved/YOPO_0/epoch50.pth`. 
 
 **1. Start the Controller and Dynamics Simulator** 
 
@@ -106,7 +106,7 @@ You can refer to [traj_opt.yaml](YOPO/config/traj_opt.yaml) for modification of 
 ```
 cd YOPO
 conda activate yopo
-python test_yopo_ros.py --trial=1 --epoch=50
+python test_yopo_ros.py --trial=0 --epoch=50
 ```
 
 **4. Visualization**

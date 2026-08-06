@@ -66,7 +66,7 @@ rm -rf dataset_omni
 采集正式数据集：
 ```bash
 cd /workspace/YOPO
-python3 tools/run_yopo_omni_pipeline.py \
+python3 tools/run_yopo_pipeline.py \
   --mode generate \
   --env-num 10 \
   --image-num 10000 \
@@ -90,7 +90,7 @@ dataset_omni/
 训练 50 epoch：
 ```bash
 cd /workspace/YOPO
-python3 tools/run_yopo_omni_pipeline.py \
+python3 tools/run_yopo_pipeline.py \
   --mode train \
   --python python3 \
   --dataset-path ../dataset_omni \
@@ -102,7 +102,7 @@ python3 tools/run_yopo_omni_pipeline.py \
 如果想一键采集并训练：
 ```bash
 cd /workspace/YOPO
-python3 tools/run_yopo_omni_pipeline.py \
+python3 tools/run_yopo_pipeline.py \
   --mode all \
   --python python3 \
   --env-num 10 \
@@ -115,11 +115,11 @@ python3 tools/run_yopo_omni_pipeline.py \
 
 训练输出：
 ```text
-YOPO/saved/YOPO_Omni_0/epoch10.pth
-YOPO/saved/YOPO_Omni_0/epoch20.pth
-YOPO/saved/YOPO_Omni_0/epoch30.pth
-YOPO/saved/YOPO_Omni_0/epoch40.pth
-YOPO/saved/YOPO_Omni_0/epoch50.pth
+YOPO/saved/YOPO_0/epoch10.pth
+YOPO/saved/YOPO_0/epoch20.pth
+YOPO/saved/YOPO_0/epoch30.pth
+YOPO/saved/YOPO_0/epoch40.pth
+YOPO/saved/YOPO_0/epoch50.pth
 ```
 
 查看 TensorBoard：
@@ -132,8 +132,8 @@ tensorboard --logdir=./
 检查 `epoch50.pth` 是否能读取正式数据集并正常推理。这个命令只在终端打印结果，不会打开 RViz 窗口：
 ```bash
 cd /workspace/YOPO
-python3 tools/test_yopo_omni_checkpoint.py \
-  --weight YOPO/saved/YOPO_Omni_0/epoch50.pth \
+python3 tools/test_yopo_checkpoint.py \
+  --weight YOPO/saved/YOPO_0/epoch50.pth \
   --dataset-path ../dataset_omni \
   --split valid \
   --batch-size 4 \
@@ -148,15 +148,15 @@ Depth normalization check passed
 output endstate=(4, 8, 8, 9), score=(4, 8, 8)
 ```
 
-要看 RViz 可视化，请运行下面“仿真测试”里的 `tools/run_yopo_omni_sim.sh`。
+要看 RViz 可视化，请运行下面“仿真测试”里的 `tools/launch_sim.sh`。
 
 ## 仿真测试
 启动 roscore、控制器、四向深度传感器、Omni 规划器和 RViz。脚本会按顺序等待各 ROS 节点启动，RViz 图形窗口通常会在命令执行后约 14 秒弹出：
 ```bash
 cd /workspace/YOPO
 
-bash tools/run_yopo_omni_sim.sh \
-  --weight /workspace/YOPO/YOPO/saved/YOPO_Omni_0/epoch50.pth \
+bash tools/launch_sim.sh \
+  --weight /workspace/YOPO/YOPO/saved/YOPO_0/epoch50.pth \
   --python python3 \
   --velocity 6.0 \
   --rviz-software-gl
@@ -164,16 +164,16 @@ bash tools/run_yopo_omni_sim.sh \
 
 进入 tmux：
 ```bash
-tmux attach -t yopo_omni_sim
+tmux attach -t yopo_sim
 ```
 
 停止仿真：
 ```bash
-tmux kill-session -t yopo_omni_sim
+tmux kill-session -t yopo_sim
 ```
 
 ## RViz 与状态检查
-`YOPO/yopo_omni.rviz` 已配置四个深度图面板：
+`YOPO/yopo.rviz` 已配置四个深度图面板：
 ```text
 /depth_image_front
 /depth_image_left
@@ -249,6 +249,6 @@ sgm_time: 1.4
 ```
 
 说明：
-- `tools/run_yopo_omni_pipeline.py` 的 `--save-path ../dataset_omni` 会同时覆盖训练用的 `dataset_path`。
+- `tools/run_yopo_pipeline.py` 的 `--save-path ../dataset_omni` 会同时覆盖训练用的 `dataset_path`。
 - 不加 `--keep-config` 时，脚本运行结束会恢复原始配置文件。
 - 在线测试订阅四向深度图，输出 8 个 topology 的候选轨迹和 score。
