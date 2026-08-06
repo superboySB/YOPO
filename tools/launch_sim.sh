@@ -212,6 +212,9 @@ Depth topics:
   /depth_image_left
   /depth_image_right
   /depth_image_back
+
+Lidar point cloud:
+  /lidar_points
 EOF
 
 if [[ "${START_RVIZ}" == "1" ]]; then

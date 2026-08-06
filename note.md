@@ -141,7 +141,7 @@ output endstate=(4, 8, 8, 9), score=(4, 8, 8)
 cd /workspace/YOPO
 
 bash tools/launch_sim.sh \
-  --weight /workspace/YOPO/YOPO/saved/YOPO_0/epoch50.pth \
+  --weight /workspace/YOPO/YOPO/saved/YOPO_0/epoch100.pth \
   --python python3 \
   --velocity 6.0 \
   --max-depth 4.0 \

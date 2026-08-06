@@ -6,7 +6,7 @@ lidar_topic: "/lidar_points"
 render_depth: true
 depth_fps: 15          # TOFSense-M 8x8 mode outputs at 15Hz
 
-render_lidar: false
+render_lidar: true
 lidar_fps: 10
 
 # 2. 仿真环境参数 =============================================================
