@@ -28,6 +28,7 @@ docker run --name dzp-yopo-omni -itd --privileged --gpus all --network host \
   -e https_proxy=http://127.0.0.1:8889 \
   -v $HOME/.Xauthority:/root/.Xauthority \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
+  -v /dev/input:/dev/input \
   --shm-size=4g \
   -v /workspace/YOPO:/workspace/YOPO \
   dzp_yopo:omni-u2004-noetic-py38
