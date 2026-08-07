@@ -4,7 +4,7 @@ depth_topic: "/depth_image"
 lidar_topic: "/lidar_points"
 
 render_depth: true
-depth_fps: 15          # TOFSense-M 8x8 mode outputs at 15Hz
+depth_fps: 15          # TOFSense-M 8x8 max update rate
 
 render_lidar: true
 lidar_fps: 10
@@ -67,23 +67,23 @@ camera:                # 前向高清debug深度图，仅用于RViz观察，不�
   normalize_depth: false
   pitch: -0.0           # 相机相对机体的俯仰角 (仰为负, cpu版尚未添加)
 
-tof:                   # Nooploop TOFSense-M: 8x8 pixels, 45deg x 45deg FoV, 1.5cm~4m range
+tof:                   # Nooploop TOFSense-M equivalent model
   model: "tofsense_m"
-  fx: 9.656854         # edge-based pinhole equivalent: 4 / tan(45deg/2)
-  fy: 9.656854
-  cx: 3.5
-  cy: 3.5
-  image_width: 8
+  image_width: 8       # 64-zone matrix output
   image_height: 8
-  horizontal_fov_deg: 45.0
-  vertical_fov_deg: 45.0
-  diagonal_fov_deg: 65.0
-  zone_subsample: 4
+  horizontal_fov_deg: 45.0 # official horizontal coverage
+  vertical_fov_deg: 45.0   # official vertical coverage
+  diagonal_fov_deg: 65.0   # official max diagonal coverage; documented reference for this pinhole approximation
+  update_rate_8x8_hz: 15
+  distance_resolution_m: 0.001
+  typical_accuracy_m: 0.015
+  typical_std_m: 0.01
+  zone_subsample: 4    # raycast sub-rays per ToF zone edge
   depth_quantile: 0.35
-  noise_std: 0.015
-  far_noise_std: 0.08
+  noise_std: 0.01
+  far_noise_std: 0.0
   signal_floor: 0.08
-  max_depth_dist: 4.0
+  max_depth_dist: 4.0  # indoor range under moderate ambient light
   min_depth_dist: 0.015
   normalize_depth: false
   pitch: -0.0

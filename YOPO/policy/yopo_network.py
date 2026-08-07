@@ -116,8 +116,8 @@ class YOPOOmniNetwork(nn.Module):
         return tokens.reshape(B, V * H * W, self.d_model)
 
     def build_ray_grid(self, h, w, device):
-        ys = torch.linspace(-self.tof_half_height, self.tof_half_height, h, device=device)
-        xs = torch.linspace(-self.tof_half_width, self.tof_half_width, w, device=device)
+        ys = ((torch.arange(h, device=device, dtype=torch.float32) + 0.5) / h * 2.0 - 1.0) * self.tof_half_height
+        xs = ((torch.arange(w, device=device, dtype=torch.float32) + 0.5) / w * 2.0 - 1.0) * self.tof_half_width
         grid_y, grid_x = torch.meshgrid(ys, xs, indexing="ij")
         cam_ray = torch.stack(
             [

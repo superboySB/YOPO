@@ -13,7 +13,7 @@ wa: 1.2    # acceleration (smaller acceleration)
 wc: 1.4    # collision    (distance to obstacle)
 wi: 2.0    # desired velocity intent
 
-# dataset: set image_size = primitive_num × downsampling_factor (×32 for ResNet-18) in each axis
+# dataset: four 8x8 TOFSense-M-equivalent depth grids
 dataset_path: "../dataset_omni"
 image_height: 8
 image_width: 8

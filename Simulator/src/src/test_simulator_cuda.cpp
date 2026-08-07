@@ -26,6 +26,27 @@
 
 using namespace raycast;
 
+float edgeFocalLengthPx(int pixels, float fov_deg)
+{
+    return (0.5f * static_cast<float>(pixels)) / std::tan(0.5f * fov_deg * M_PI / 180.0f);
+}
+
+CameraParams loadCameraParams(const YAML::Node &config)
+{
+    CameraParams camera;
+    camera.image_width = config["image_width"].as<int>();
+    camera.image_height = config["image_height"].as<int>();
+    camera.cx = config["cx"] ? config["cx"].as<float>() : 0.5f * (camera.image_width - 1);
+    camera.cy = config["cy"] ? config["cy"].as<float>() : 0.5f * (camera.image_height - 1);
+    camera.fx = config["horizontal_fov_deg"] ? edgeFocalLengthPx(camera.image_width, config["horizontal_fov_deg"].as<float>())
+                                             : config["fx"].as<float>();
+    camera.fy = config["vertical_fov_deg"] ? edgeFocalLengthPx(camera.image_height, config["vertical_fov_deg"].as<float>())
+                                           : config["fy"].as<float>();
+    camera.max_depth_dist = config["max_depth_dist"].as<float>();
+    camera.normalize_depth = config["normalize_depth"].as<bool>();
+    return camera;
+}
+
 float weightedQuantileDepth(std::vector<std::pair<float, float>> depth_weights, float quantile)
 {
     if (depth_weights.empty())
@@ -116,27 +137,13 @@ public:
         YAML::Node config = YAML::LoadFile(CONFIG_FILE_PATH);
         // 读取前向高清debug相机参数
         debug_camera = new CameraParams();
-        debug_camera->fx = config["camera"]["fx"].as<float>();
-        debug_camera->fy = config["camera"]["fy"].as<float>();
-        debug_camera->cx = config["camera"]["cx"].as<float>();
-        debug_camera->cy = config["camera"]["cy"].as<float>();
-        debug_camera->image_width = config["camera"]["image_width"].as<int>();
-        debug_camera->image_height = config["camera"]["image_height"].as<int>();
-        debug_camera->max_depth_dist = config["camera"]["max_depth_dist"].as<float>();
-        debug_camera->normalize_depth = config["camera"]["normalize_depth"].as<bool>();
+        *debug_camera = loadCameraParams(config["camera"]);
         debug_camera_pitch_rad = config["camera"]["pitch"].as<float>() * M_PI / 180.0f;
 
         // 读取Nooploop TOFSense-M等效ToF参数，四向8x8 depth pixels作为网络输入
         YAML::Node tof_config = config["tof"] ? config["tof"] : config["camera"];
         tof_camera = new CameraParams();
-        tof_camera->fx = tof_config["fx"].as<float>();
-        tof_camera->fy = tof_config["fy"].as<float>();
-        tof_camera->cx = tof_config["cx"].as<float>();
-        tof_camera->cy = tof_config["cy"].as<float>();
-        tof_camera->image_width = tof_config["image_width"].as<int>();
-        tof_camera->image_height = tof_config["image_height"].as<int>();
-        tof_camera->max_depth_dist = tof_config["max_depth_dist"].as<float>();
-        tof_camera->normalize_depth = tof_config["normalize_depth"].as<bool>();
+        *tof_camera = loadCameraParams(tof_config);
         tof_pitch_rad = tof_config["pitch"].as<float>() * M_PI / 180.0f;
         tof_zone_subsample_ = tof_config["zone_subsample"] ? tof_config["zone_subsample"].as<int>() : 4;
         tof_depth_quantile_ = tof_config["depth_quantile"] ? tof_config["depth_quantile"].as<float>() : 0.35f;
@@ -144,6 +151,12 @@ public:
         tof_far_noise_std_ = tof_config["far_noise_std"] ? tof_config["far_noise_std"].as<float>() : 0.08f;
         tof_signal_floor_ = tof_config["signal_floor"] ? tof_config["signal_floor"].as<float>() : 0.08f;
         tof_min_depth_ = tof_config["min_depth_dist"] ? tof_config["min_depth_dist"].as<float>() : 0.015f;
+        std::cout << "ToF model: " << (tof_config["model"] ? tof_config["model"].as<std::string>() : "pinhole")
+                  << ", " << tof_camera->image_width << "x" << tof_camera->image_height
+                  << ", FOV " << (tof_config["horizontal_fov_deg"] ? tof_config["horizontal_fov_deg"].as<float>() : 0.0f)
+                  << "x" << (tof_config["vertical_fov_deg"] ? tof_config["vertical_fov_deg"].as<float>() : 0.0f)
+                  << " deg, range [" << tof_min_depth_ << ", " << tof_camera->max_depth_dist
+                  << "] m" << std::endl;
 
         // 读取lidar参数
         lidar = new LidarParams();

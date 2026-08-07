@@ -102,7 +102,7 @@ python3 tools/run_yopo_pipeline.py \
   --mode train \
   --python python3 \
   --dataset-path ../dataset_omni \
-  --train-epoch 100 \
+  --train-epoch 200 \
   --batch-size 16 \
   --num-workers 4
 ```
@@ -113,35 +113,13 @@ cd /workspace/YOPO/YOPO/saved
 tensorboard --logdir=./
 ```
 
-## 检查模型
-检查 `epoch50.pth` 是否能读取正式数据集并正常推理。这个命令只在终端打印结果，不会打开 RViz 窗口：
-```bash
-cd /workspace/YOPO
-python3 tools/test_yopo_checkpoint.py \
-  --weight YOPO/saved/YOPO_0/epoch100.pth \
-  --dataset-path ../dataset_omni \
-  --split valid \
-  --batch-size 4 \
-  --num-batches 8 \
-  --device cuda \
-  --strict-depth-range
-```
-
-正常输出应包含：
-```text
-Depth normalization check passed
-output endstate=(4, 8, 8, 9), score=(4, 8, 8)
-```
-
-要看 RViz 可视化，请运行下面“仿真测试”里的 `tools/launch_sim.sh`。
-
 ## 仿真测试
 启动 roscore、控制器、四向深度传感器、Omni 规划器和 RViz。脚本会按顺序等待各 ROS 节点启动，RViz 图形窗口通常会在命令执行后约 14 秒弹出：
 ```bash
 cd /workspace/YOPO
 
 bash tools/launch_sim.sh \
-  --weight /workspace/YOPO/YOPO/saved/YOPO_0/epoch100.pth \
+  --weight /workspace/YOPO/YOPO/saved/YOPO_0/epoch200.pth \
   --python python3 \
   --velocity 6.0 \
   --max-depth 4.0 \
