@@ -20,7 +20,10 @@
 #include <fstream>
 #include <thread>
 #include <mutex>
-#include <algorithm> 
+#include <atomic>
+#include <algorithm>
+#include <cmath>
+#include <exception>
 
 #define ONE_G 9.81
 
@@ -42,7 +45,29 @@ public:
         nh_.param("kv_z", kv_z, 4.0);
         nh_.param("record_log", record_log_, false);
         nh_.param("logger_file_name", logger_file_name, std::string("/home/lu/"));
+        nh_.param("position_cmd_timeout", position_cmd_timeout_, 0.30);
+        nh_.param("simulation_takeoff_altitude", simulation_takeoff_altitude_, 2.0);
+        nh_.param("takeoff_timeout", takeoff_timeout_, 8.0);
+        nh_.param("takeoff_position_tolerance", takeoff_position_tolerance_, 0.15);
+        nh_.param("takeoff_velocity_tolerance", takeoff_velocity_tolerance_, 0.20);
+        nh_.param("takeoff_stable_time", takeoff_stable_time_, 0.20);
+        if (!std::isfinite(position_cmd_timeout_) || position_cmd_timeout_ <= 0.0) {
+            ROS_WARN("position_cmd_timeout must be positive; using 0.30 s");
+            position_cmd_timeout_ = 0.30;
+        }
+        if (!std::isfinite(simulation_takeoff_altitude_)) {
+            ROS_WARN("simulation_takeoff_altitude must be finite; using 2.0 m");
+            simulation_takeoff_altitude_ = 2.0;
+        }
+        if (!std::isfinite(takeoff_timeout_) || takeoff_timeout_ <= 0.0) {
+            ROS_WARN("takeoff_timeout must be positive; using 8.0 s");
+            takeoff_timeout_ = 8.0;
+        }
+        takeoff_position_tolerance_ = std::max(0.01, takeoff_position_tolerance_);
+        takeoff_velocity_tolerance_ = std::max(0.01, takeoff_velocity_tolerance_);
+        takeoff_stable_time_ = std::max(control_dt_, takeoff_stable_time_);
         printf("kx: (%f, %f, %f), kv: (%f, %f, %f) \n", kx_xy, kx_xy, kx_z, kv_xy, kv_xy, kv_z);
+        ROS_INFO("PositionCommand watchdog timeout: %.3f s", position_cmd_timeout_);
 
         so3_command_pub_ = nh_.advertise<quadrotor_msgs::SO3Command>("so3_cmd", 10);
         position_cmd_sub_ = nh_.subscribe("position_cmd", 1, &NetworkControl::network_cmd_callback, this, ros::TransportHints().tcpNoDelay());
@@ -54,13 +79,12 @@ public:
         takeoff_land_srv = nh_.advertiseService("takeoff_land", &NetworkControl::takeoff_land_srv_handle, this);
 
         if (is_simulation_) {
-            ros::Duration(2.0).sleep();
-            std::thread(&NetworkControl::simulateTakeoff, this).detach();
+            ROS_INFO("Automatic simulation takeoff will start once odometry is received");
         }
         
     };
 
-    ~NetworkControl(){};
+    ~NetworkControl();
 
 private:
     ros::NodeHandle nh_;
@@ -69,11 +93,20 @@ private:
     ros::ServiceServer takeoff_land_srv;
     ros::Timer takeoff_land_control_timer;
     std::mutex mutex_;
+    std::mutex logger_mutex_;
+    std::mutex flight_task_mutex_;
+    std::thread flight_task_thread_;
 
     double mass_ = 0.98;
     double control_dt_ = 0.02;
     double hover_thrust_ = 0.4;
     double kx_xy, kx_z, kv_xy, kv_z;
+    double position_cmd_timeout_ = 0.30;
+    double simulation_takeoff_altitude_ = 2.0;
+    double takeoff_timeout_ = 8.0;
+    double takeoff_position_tolerance_ = 0.15;
+    double takeoff_velocity_tolerance_ = 0.20;
+    double takeoff_stable_time_ = 0.20;
     
     double cur_yaw_ = 0;
     Eigen::Vector3d cur_pos_ = Eigen::Vector3d(0, 0, 0);
@@ -91,13 +124,19 @@ private:
     double des_yaw_dot_ = 0;
 
     bool is_simulation_ = false;
-    bool state_init_ = false;
-    bool ref_valid_ = false;
-    bool ctrl_valid_ = false;
-    bool position_cmd_init_ = false;
+    std::atomic<bool> state_init_{false};
+    std::atomic<bool> ref_valid_{false};
+    std::atomic<bool> ctrl_valid_{false};
+    std::atomic<bool> position_cmd_init_{false};
+    std::atomic<bool> flight_task_running_{false};
+    std::atomic<bool> shutdown_requested_{false};
     bool takeoff_cmd_init_ = false;
     bool use_disturbance_observer_ = false;
     bool record_log_ = false;
+    bool watchdog_active_ = false;
+    bool auto_takeoff_attempted_ = false;
+    ros::WallTime last_position_cmd_time_;
+    ros::WallTime last_odom_time_;
     
     SO3Control so3_controller_;
     HGDO disturbance_observer_;
@@ -128,29 +167,16 @@ private:
 
     // mavros interface
     bool takeoff_land_srv_handle(quadrotor_msgs::SetTakeoffLand::Request &req,
-                                 quadrotor_msgs::SetTakeoffLand::Response &res){
-        std::thread t(&NetworkControl::takeoff_land_thread, this, std::ref(req));
-        t.detach();
-        res.res = true;
-        return true;
-    }
+                                 quadrotor_msgs::SetTakeoffLand::Response &res);
 
     bool arm_disarm_vehicle(bool arm);
 
-    void takeoff_land_thread(quadrotor_msgs::SetTakeoffLand::Request &req);
+    bool start_flight_task(quadrotor_msgs::SetTakeoffLand::Request request,
+                           const std::string &source);
 
-    void simulateTakeoff() {
-        ros::ServiceClient client = nh_.serviceClient<quadrotor_msgs::SetTakeoffLand>("takeoff_land");
-        quadrotor_msgs::SetTakeoffLand srv;
-        srv.request.takeoff = true;
-        srv.request.takeoff_altitude = 2.0;
-    
-        if (client.call(srv)) {
-            ROS_INFO("Takeoff called successfully");
-        } else {
-            ROS_ERROR("Failed to call takeoff service");
-        }
-    }
+    void maybe_start_simulation_takeoff();
+
+    void takeoff_land_thread(quadrotor_msgs::SetTakeoffLand::Request request);
 };
 
 #endif

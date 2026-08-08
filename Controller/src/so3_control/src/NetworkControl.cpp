@@ -1,7 +1,16 @@
 #include "so3_control/NetworkControl.h"
 
+NetworkControl::~NetworkControl()
+{
+    shutdown_requested_.store(true);
+    std::lock_guard<std::mutex> task_lock(flight_task_mutex_);
+    if (flight_task_thread_.joinable())
+        flight_task_thread_.join();
+}
+
 void NetworkControl::initLogRecorder()
-{   
+{
+    std::lock_guard<std::mutex> logger_lock(logger_mutex_);
     // Use file count as name to avoid date confusion
     std::cout << "logger_file_name: " << logger_file_name << std::endl;
     int max_number = -1;
@@ -74,24 +83,35 @@ void NetworkControl::initLogRecorder()
 
 void NetworkControl::recordLog(Eigen::Vector3d &cur_v, Eigen::Vector3d &cur_a, Eigen::Vector3d &des_a, Eigen::Vector3d &dis_a, double cur_yaw, double des_yaw)
 {
+    Eigen::Vector3d current_position;
+    Eigen::Vector3d desired_position;
+    Eigen::Vector3d desired_velocity;
+    {
+        std::lock_guard<std::mutex> state_lock(mutex_);
+        current_position = cur_pos_;
+        desired_position = des_pos_;
+        desired_velocity = des_vel_;
+    }
+
+    std::lock_guard<std::mutex> logger_lock(logger_mutex_);
     if (logger.is_open())
     {
         logger << ros::Time::now().toNSec() << ',';
-        logger << cur_pos_(0) << ',';
-        logger << cur_pos_(1) << ',';
-        logger << cur_pos_(2) << ',';
+        logger << current_position(0) << ',';
+        logger << current_position(1) << ',';
+        logger << current_position(2) << ',';
         logger << cur_v(0) << ',';
         logger << cur_v(1) << ',';
         logger << cur_v(2) << ',';
         logger << cur_a(0) << ',';
         logger << cur_a(1) << ',';
         logger << cur_a(2) << ',';
-        logger << des_pos_(0) << ',';
-        logger << des_pos_(1) << ',';
-        logger << des_pos_(2) << ',';
-        logger << des_vel_(0) << ',';
-        logger << des_vel_(1) << ',';
-        logger << des_vel_(2) << ',';
+        logger << desired_position(0) << ',';
+        logger << desired_position(1) << ',';
+        logger << desired_position(2) << ',';
+        logger << desired_velocity(0) << ',';
+        logger << desired_velocity(1) << ',';
+        logger << desired_velocity(2) << ',';
         logger << des_a(0) << ',';
         logger << des_a(1) << ',';
         logger << des_a(2) << ',';
@@ -233,7 +253,7 @@ void NetworkControl::limite_acc(Eigen::Vector3d &acc){
 
 void NetworkControl::network_cmd_callback(const quadrotor_msgs::PositionCommand::ConstPtr &cmd)
 {
-    if (!ctrl_valid_)
+    if (!ctrl_valid_.load())
         return;
 
     bool arm_state = false;
@@ -242,10 +262,19 @@ void NetworkControl::network_cmd_callback(const quadrotor_msgs::PositionCommand:
     if (!arm_state || !ofb_enable)
         return;
 
-    position_cmd_init_ = true;
+    bool recovered_from_watchdog = false;
+    {
+        std::lock_guard<std::mutex> state_lock(mutex_);
+        recovered_from_watchdog = watchdog_active_;
+        watchdog_active_ = false;
+        last_position_cmd_time_ = ros::WallTime::now();
+        des_pos_ = Eigen::Vector3d(cmd->position.x, cmd->position.y, cmd->position.z);
+        des_vel_ = Eigen::Vector3d(cmd->velocity.x, cmd->velocity.y, cmd->velocity.z);
+    }
+    position_cmd_init_.store(true);
+    if (recovered_from_watchdog)
+        ROS_INFO("PositionCommand stream recovered; planner control resumed");
 
-    des_pos_ = Eigen::Vector3d(cmd->position.x, cmd->position.y, cmd->position.z);
-    des_vel_ = Eigen::Vector3d(cmd->velocity.x, cmd->velocity.y, cmd->velocity.z);
     Eigen::Vector3d des_acc = Eigen::Vector3d(cmd->acceleration.x, cmd->acceleration.y, cmd->acceleration.z);
     limite_acc(des_acc);
 
@@ -280,23 +309,26 @@ void NetworkControl::network_cmd_callback(const quadrotor_msgs::PositionCommand:
 
 void NetworkControl::odom_callback(const nav_msgs::Odometry::ConstPtr &odom)
 {
-    cur_yaw_ = tf::getYaw(odom->pose.pose.orientation);
-    cur_vel_ = Eigen::Vector3d(odom->twist.twist.linear.x, odom->twist.twist.linear.y, odom->twist.twist.linear.z);
+    {
+        std::lock_guard<std::mutex> state_lock(mutex_);
+        cur_yaw_ = tf::getYaw(odom->pose.pose.orientation);
+        cur_vel_ = Eigen::Vector3d(odom->twist.twist.linear.x, odom->twist.twist.linear.y, odom->twist.twist.linear.z);
 
-    cur_pos_ = Eigen::Vector3d(odom->pose.pose.position.x, odom->pose.pose.position.y, odom->pose.pose.position.z);
-    cur_att_.w() = odom->pose.pose.orientation.w;
-    cur_att_.x() = odom->pose.pose.orientation.x;
-    cur_att_.y() = odom->pose.pose.orientation.y;
-    cur_att_.z() = odom->pose.pose.orientation.z;
+        cur_pos_ = Eigen::Vector3d(odom->pose.pose.position.x, odom->pose.pose.position.y, odom->pose.pose.position.z);
+        cur_att_.w() = odom->pose.pose.orientation.w;
+        cur_att_.x() = odom->pose.pose.orientation.x;
+        cur_att_.y() = odom->pose.pose.orientation.y;
+        cur_att_.z() = odom->pose.pose.orientation.z;
+        last_odom_time_ = ros::WallTime::now();
+    }
 
     // if(!is_simulation_)
     //     cur_acc_ = Eigen::Vector3d(odom->twist.twist.angular.x, odom->twist.twist.angular.y, odom->twist.twist.angular.z);
 
     so3_controller_.setPosition(cur_pos_);
     so3_controller_.setVelocity(cur_vel_);
-    if (!state_init_)
+    if (!state_init_.exchange(true))
         ROS_INFO("Odom Recived! Ready to TakeOff...");
-    state_init_ = true;
 }
 
 void NetworkControl::imu_callback(const sensor_msgs::Imu &imu)
@@ -320,16 +352,51 @@ void NetworkControl::imu_callback(const sensor_msgs::Imu &imu)
 
 void NetworkControl::timerCallback(const ros::TimerEvent &)
 {
-    if (!state_init_ || !ref_valid_)
-        return;
-    if (position_cmd_init_ && ctrl_valid_)
+    maybe_start_simulation_takeoff();
+
+    if (!state_init_.load() || !ref_valid_.load())
         return;
 
-    mutex_.lock();
-    Eigen::Vector3d des_pos_temp = des_pos_;
-    mutex_.unlock();
+    bool watchdog_just_triggered = false;
+    double command_age = 0.0;
+    Eigen::Vector3d des_pos_temp;
+    Eigen::Vector3d des_vel_temp;
+    Eigen::Vector3d des_acc_temp;
+    double des_yaw_temp = 0.0;
+    double des_yaw_dot_temp = 0.0;
+    {
+        std::lock_guard<std::mutex> state_lock(mutex_);
+        if (position_cmd_init_.load() && ctrl_valid_.load() && !watchdog_active_)
+        {
+            command_age = (ros::WallTime::now() - last_position_cmd_time_).toSec();
+            if (command_age <= position_cmd_timeout_)
+                return;
 
-    Eigen::Vector3d att_acc = publishHoverSO3Command(des_pos_temp, des_vel_, des_acc_, des_yaw_, des_yaw_dot_);
+            des_pos_ = cur_pos_;
+            des_vel_.setZero();
+            des_acc_.setZero();
+            des_yaw_ = cur_yaw_;
+            des_yaw_dot_ = 0.0;
+            watchdog_active_ = true;
+            watchdog_just_triggered = true;
+        }
+
+        des_pos_temp = des_pos_;
+        des_vel_temp = des_vel_;
+        des_acc_temp = des_acc_;
+        des_yaw_temp = des_yaw_;
+        des_yaw_dot_temp = des_yaw_dot_;
+    }
+
+    if (watchdog_just_triggered)
+    {
+        ROS_ERROR("PositionCommand watchdog timeout after %.3f s; holding world position "
+                  "(%.3f, %.3f, %.3f)",
+                  command_age, des_pos_temp.x(), des_pos_temp.y(), des_pos_temp.z());
+    }
+
+    Eigen::Vector3d att_acc = publishHoverSO3Command(des_pos_temp, des_vel_temp, des_acc_temp,
+                                                     des_yaw_temp, des_yaw_dot_temp);
 
     if (takeoff_cmd_init_)
     {
@@ -343,62 +410,184 @@ void NetworkControl::timerCallback(const ros::TimerEvent &)
     takeoff_cmd_init_ = true;
 }
 
-void NetworkControl::takeoff_land_thread(quadrotor_msgs::SetTakeoffLand::Request &req)
+bool NetworkControl::takeoff_land_srv_handle(quadrotor_msgs::SetTakeoffLand::Request &req,
+                                              quadrotor_msgs::SetTakeoffLand::Response &res)
 {
-    mutex_.lock();
-    float takeoff_altitude = req.takeoff_altitude;
-    des_pos_ = cur_pos_;
-    des_pos_(2) -= 0.2;
-    des_vel_ = Eigen::Vector3d(0, 0, 0);
-    des_yaw_ = cur_yaw_;
-    mutex_.unlock();
-    ref_valid_ = true;
+    if (!state_init_.load())
+    {
+        ROS_WARN("Rejecting takeoff/land request before first odometry");
+        res.res = false;
+        return true;
+    }
 
-    if (req.takeoff)
+    if (req.takeoff && !std::isfinite(req.takeoff_altitude))
+    {
+        ROS_WARN("Rejecting takeoff request with a non-finite target altitude");
+        res.res = false;
+        return true;
+    }
+
+    if (is_simulation_)
+        auto_takeoff_attempted_ = true;
+
+    // Copy the callback-local request into the worker. The service response only
+    // reports whether the asynchronous task was accepted, not flight completion.
+    res.res = start_flight_task(req, "service");
+    return true;
+}
+
+bool NetworkControl::start_flight_task(quadrotor_msgs::SetTakeoffLand::Request request,
+                                       const std::string &source)
+{
+    std::lock_guard<std::mutex> task_lock(flight_task_mutex_);
+    if (flight_task_running_.load())
+    {
+        ROS_WARN("Rejecting %s takeoff/land request: another flight task is running", source.c_str());
+        return false;
+    }
+
+    if (flight_task_thread_.joinable())
+        flight_task_thread_.join();
+
+    flight_task_running_.store(true);
+    try
+    {
+        flight_task_thread_ = std::thread(&NetworkControl::takeoff_land_thread, this, request);
+    }
+    catch (const std::exception &error)
+    {
+        flight_task_running_.store(false);
+        ROS_ERROR("Failed to start %s takeoff/land task: %s", source.c_str(), error.what());
+        return false;
+    }
+
+    ROS_INFO("Accepted %s %s task", source.c_str(), request.takeoff ? "takeoff" : "landing");
+    return true;
+}
+
+void NetworkControl::maybe_start_simulation_takeoff()
+{
+    if (!is_simulation_ || auto_takeoff_attempted_ || !state_init_.load())
+        return;
+
+    auto_takeoff_attempted_ = true;
+    quadrotor_msgs::SetTakeoffLand::Request request;
+    request.takeoff = true;
+    request.takeoff_altitude = simulation_takeoff_altitude_;
+    if (!start_flight_task(request, "automatic simulation"))
+        ROS_ERROR("Automatic simulation takeoff could not be started");
+}
+
+void NetworkControl::takeoff_land_thread(quadrotor_msgs::SetTakeoffLand::Request request)
+{
+    const double target_altitude = request.takeoff_altitude;
+    {
+        std::lock_guard<std::mutex> state_lock(mutex_);
+        des_pos_ = cur_pos_;
+        des_vel_.setZero();
+        des_acc_.setZero();
+        des_yaw_ = cur_yaw_;
+        des_yaw_dot_ = 0.0;
+        watchdog_active_ = false;
+    }
+    position_cmd_init_.store(false);
+    ctrl_valid_.store(false);
+    ref_valid_.store(true);
+
+    if (request.takeoff)
     {
         std::cout << "takeoff process start" << std::endl;
         if (!arm_disarm_vehicle(true))
         {
             std::cout << "Service failed because cannot Arm!" << std::endl;
+            flight_task_running_.store(false);
             return;
         }
-        sleep(1);
+        ros::WallDuration(1.0).sleep();
 
-        double takeoff_vel = 0.8;
-        double takeoff_ddz = takeoff_vel * control_dt_;
-        ros::Rate takeoff_loop(1 / control_dt_);
-        std::cout << "takeoff altitude: " << takeoff_altitude << " m" << std::endl;
+        const double takeoff_vel = 0.8;
+        const double takeoff_dz = takeoff_vel * control_dt_;
+        const int required_stable_cycles = std::max(
+            1, static_cast<int>(std::ceil(takeoff_stable_time_ / control_dt_)));
+        int stable_cycles = 0;
+        bool takeoff_succeeded = false;
+        ros::WallRate takeoff_loop(1.0 / control_dt_);
+        std::cout << "takeoff altitude: " << target_altitude << " m" << std::endl;
         std::cout << "takeoff velocity: " << takeoff_vel << " m/s" << std::endl;
-        ros::Time start_takeoff_task_time = ros::Time::now();
-        while (ros::ok() && ros::Time::now() - start_takeoff_task_time < ros::Duration(8.0))
-        {       
-            mutex_.lock();
-            des_pos_(2) += takeoff_ddz;
-            mutex_.unlock();
-
-            if (des_pos_(2) > takeoff_altitude)
+        const ros::WallTime start_takeoff_task_time = ros::WallTime::now();
+        while (ros::ok() && !shutdown_requested_.load() &&
+               (ros::WallTime::now() - start_takeoff_task_time).toSec() < takeoff_timeout_)
+        {
+            double actual_z = 0.0;
+            double actual_vz = 0.0;
+            double desired_z = 0.0;
+            bool odom_fresh = false;
             {
-                ROS_INFO("TakeOff Done! Ready to Flight...");
-                ctrl_valid_ = true;
+                std::lock_guard<std::mutex> state_lock(mutex_);
+                const double altitude_error = target_altitude - des_pos_(2);
+                if (fabs(altitude_error) <= takeoff_dz)
+                    des_pos_(2) = target_altitude;
+                else
+                    des_pos_(2) += altitude_error > 0.0 ? takeoff_dz : -takeoff_dz;
+
+                desired_z = des_pos_(2);
+                actual_z = cur_pos_(2);
+                actual_vz = cur_vel_(2);
+                odom_fresh = !last_odom_time_.isZero() &&
+                             (ros::WallTime::now() - last_odom_time_).toSec() <= 0.5;
+            }
+
+            const bool desired_at_target = fabs(desired_z - target_altitude) <= 1e-6;
+            const bool actual_settled = fabs(actual_z - target_altitude) <= takeoff_position_tolerance_ &&
+                                        fabs(actual_vz) <= takeoff_velocity_tolerance_;
+            stable_cycles = desired_at_target && actual_settled && odom_fresh ? stable_cycles + 1 : 0;
+            if (stable_cycles >= required_stable_cycles)
+            {
+                ROS_INFO("TakeOff Done! Ready to Flight... actual_z=%.3f m, vz=%.3f m/s",
+                         actual_z, actual_vz);
+                ctrl_valid_.store(true);
+                takeoff_succeeded = true;
                 break;
             }
+
             takeoff_loop.sleep();
+        }
+
+        if (!takeoff_succeeded)
+        {
+            double actual_z = 0.0;
+            double actual_vz = 0.0;
+            {
+                std::lock_guard<std::mutex> state_lock(mutex_);
+                actual_z = cur_pos_(2);
+                actual_vz = cur_vel_(2);
+            }
+            ctrl_valid_.store(false);
+            ROS_ERROR("Takeoff failed to settle within %.1f s: target_z=%.3f m, actual_z=%.3f m, "
+                      "vz=%.3f m/s; external PositionCommand remains disabled",
+                      takeoff_timeout_, target_altitude, actual_z, actual_vz);
         }
     }
     else
     {
-        ctrl_valid_ = false;
-        double land_vel = -0.4;
-        double land_ddz = land_vel * control_dt_;
-        ros::Rate land_loop(1 / control_dt_);
-        ros::Time start_land_task_time = ros::Time::now();
-        while (ros::ok() && ros::Time::now() - start_land_task_time < ros::Duration(8.0))
+        ctrl_valid_.store(false);
+        const double land_vel = -0.4;
+        const double land_ddz = land_vel * control_dt_;
+        ros::WallRate land_loop(1.0 / control_dt_);
+        const ros::WallTime start_land_task_time = ros::WallTime::now();
+        while (ros::ok() && !shutdown_requested_.load() &&
+               (ros::WallTime::now() - start_land_task_time).toSec() < 8.0)
         {
-            mutex_.lock();
-            des_pos_(2) += land_ddz;
-            mutex_.unlock();
+            double actual_z = 0.0;
+            double actual_vz = 0.0;
+            {
+                std::lock_guard<std::mutex> state_lock(mutex_);
+                des_pos_(2) += land_ddz;
+                actual_z = cur_pos_(2);
+                actual_vz = cur_vel_(2);
+            }
 
-            if (fabs(cur_pos_(2)) < 0.1f && fabs(cur_vel_(2)) < 1.0f)
+            if (fabs(actual_z) < 0.1f && fabs(actual_vz) < 1.0f)
             {
                 ROS_INFO("detect land: disarm");
                 arm_disarm_vehicle(false);
@@ -408,6 +597,7 @@ void NetworkControl::takeoff_land_thread(quadrotor_msgs::SetTakeoffLand::Request
         }
     }
     ROS_INFO("take off thread out");
+    flight_task_running_.store(false);
     return;
 }
 
@@ -415,7 +605,7 @@ bool NetworkControl::arm_disarm_vehicle(bool arm)
 {
     if (arm)
     {   
-        if (!state_init_){
+        if (!state_init_.load()){
             ROS_WARN("State timeout, will not arm!");
             return false;
         }
@@ -444,7 +634,10 @@ bool NetworkControl::arm_disarm_vehicle(bool arm)
             return false;
         }
         if (record_log_)
+        {
+            std::lock_guard<std::mutex> logger_lock(logger_mutex_);
             logger.close();
+        }
     }
     return true;
 }

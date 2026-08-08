@@ -3,11 +3,12 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SESSION="yopo_sim"
-WEIGHT="${ROOT_DIR}/YOPO/saved/YOPO_0/epoch50.pth"
+WEIGHT="${ROOT_DIR}/YOPO/saved/YOPO_0/epoch200.pth"
 PYTHON_BIN="python3"
 GPU_ID="0"
 VELOCITY="6.0"
 MAX_DEPTH="4"
+DEPTH_NORMALIZED="0"
 ARRIVE_DIST="1.0"
 RADIUS_MIN=""
 RADIUS_MAX=""
@@ -19,17 +20,40 @@ RVIZ_SOFTWARE_GL="0"
 RVIZ_OPENGL="210"
 FIXED_YAW="0"
 FIXED_YAW_VALUE=""
+JOYSTICK_DEVICE="/dev/input/js0"
+JOYSTICK_AUTO="1"
+JOYSTICK_AXIS_X="0"
+JOYSTICK_AXIS_Y="1"
+JOYSTICK_AXIS_MAX="32767"
+JOYSTICK_DEADZONE="0.08"
+JOYSTICK_INVERT_X="1"
+JOYSTICK_INVERT_Y="0"
+JOYSTICK_SWAP_XY="1"
+JOYSTICK_CALIBRATE="0"
+JOYSTICK_SPEED_KP="1.5"
+JOYSTICK_SPEED_ACCEL_MAX="4.0"
+JOYSTICK_MIN_TRAJ_TIME="1.0"
+JOYSTICK_DEPTH_TIMEOUT="0.20"
+JOYSTICK_ALTITUDE_SAFETY="1"
+JOYSTICK_REWRITE_THRESHOLD="0.20"
+JOYSTICK_VEHICLE_RADIUS="0.30"
+JOYSTICK_SAFETY_MARGIN="0.15"
+JOYSTICK_STRICT_FOOTPRINT="0"
+CONTROL_MODE="nav_goal"
+CONTROL_HINT=""
+START_SENSOR="1"
 
 usage() {
   cat <<EOF
 Usage: $0 [options]
 
 Options:
-  --weight PATH       YOPO-Omni checkpoint path.
+  --weight PATH       YOPO-Omni checkpoint path. Default: ${WEIGHT}
   --python PATH       Python executable. Default: ${PYTHON_BIN}
   --gpu ID            CUDA_VISIBLE_DEVICES value. Default: ${GPU_ID}
   --velocity VALUE    Desired speed for planner. Default: ${VELOCITY}
   --max-depth VALUE   ToF depth normalization max range. Default: ${MAX_DEPTH}
+  --depth-normalized  Treat 32FC1 depth as already normalized [0,1] instead of meters.
   --arrive-dist VALUE Goal arrival distance threshold in meters. Default: ${ARRIVE_DIST}
   --radius-min VALUE  Override omni_radius_min for checkpoint-consistent decoding.
   --radius-max VALUE  Override omni_radius_max for checkpoint-consistent decoding.
@@ -37,6 +61,26 @@ Options:
   --sgm-time VALUE    Override trajectory segment time. Must match training for fair tests.
   --fixed-yaw         Keep yaw fixed instead of turning toward the goal.
   --fixed-yaw-value R Fixed yaw in radians. If omitted with --fixed-yaw, lock to initial odometry yaw.
+  --joystick-device P Linux joystick device for auto manual-assist mode. Default: ${JOYSTICK_DEVICE}
+  --joystick-axis-x N Right-stick horizontal axis. Default: ${JOYSTICK_AXIS_X}
+  --joystick-axis-y N Right-stick vertical axis. Default: ${JOYSTICK_AXIS_Y}
+  --joystick-axis-max V Absolute raw axis maximum. Default: ${JOYSTICK_AXIS_MAX}
+  --joystick-deadzone V Radial deadzone in [0,1). Default: ${JOYSTICK_DEADZONE}
+  --joystick-invert-x 0|1 Invert horizontal axis. Default: ${JOYSTICK_INVERT_X}
+  --joystick-invert-y 0|1 Invert vertical axis. Default: ${JOYSTICK_INVERT_Y}
+  --joystick-swap-xy 0|1 Map vertical/horizontal to body x/y. Default: ${JOYSTICK_SWAP_XY}
+  --joystick-calibrate Print raw axes and mapped body velocity while running.
+  --joystick-speed-kp V Velocity-error feedback gain in 1/s. Default: ${JOYSTICK_SPEED_KP}
+  --joystick-speed-accel-max V Horizontal acceleration target/check in m/s^2. Default: ${JOYSTICK_SPEED_ACCEL_MAX}
+  --joystick-min-traj-time V Minimum bounded plan horizon in seconds. Default: ${JOYSTICK_MIN_TRAJ_TIME}
+  --joystick-depth-timeout V Hold if no current-intent plan commits in this many seconds. Default: ${JOYSTICK_DEPTH_TIMEOUT}
+  --joystick-altitude-safety 0|1 Check lock-height rewrites against raw metric depth. Default: ${JOYSTICK_ALTITUDE_SAFETY}
+  --joystick-rewrite-threshold V Trust original YOPO score below this rewrite distance. Default: ${JOYSTICK_REWRITE_THRESHOLD}
+  --joystick-vehicle-radius V Vehicle sphere radius for rewrite checks. Default: ${JOYSTICK_VEHICLE_RADIUS}
+  --joystick-safety-margin V Extra rewrite-check obstacle margin. Default: ${JOYSTICK_SAFETY_MARGIN}
+  --joystick-strict-footprint 0|1 Require the full vehicle sphere inside camera FoV. Default: ${JOYSTICK_STRICT_FOOTPRINT}
+  --no-joystick       Disable joystick auto-detection and keep RViz 2D Nav Goal control.
+  --no-sensor         Do not start sensor_simulator_cuda (for deterministic clear-depth E2E).
   --no-rviz           Do not start RViz.
   --rviz-software-gl  Start RViz with Mesa llvmpipe software OpenGL.
   --rviz-opengl VER   RViz OpenGL version. Default: ${RVIZ_OPENGL}; use 120 or 210 for compatibility.
@@ -67,6 +111,10 @@ while [[ $# -gt 0 ]]; do
       MAX_DEPTH="$2"
       shift 2
       ;;
+    --depth-normalized)
+      DEPTH_NORMALIZED="1"
+      shift
+      ;;
     --arrive-dist)
       ARRIVE_DIST="$2"
       shift 2
@@ -95,6 +143,86 @@ while [[ $# -gt 0 ]]; do
       FIXED_YAW="1"
       FIXED_YAW_VALUE="$2"
       shift 2
+      ;;
+    --joystick-device)
+      JOYSTICK_DEVICE="$2"
+      shift 2
+      ;;
+    --joystick-axis-x)
+      JOYSTICK_AXIS_X="$2"
+      shift 2
+      ;;
+    --joystick-axis-y)
+      JOYSTICK_AXIS_Y="$2"
+      shift 2
+      ;;
+    --joystick-axis-max)
+      JOYSTICK_AXIS_MAX="$2"
+      shift 2
+      ;;
+    --joystick-deadzone)
+      JOYSTICK_DEADZONE="$2"
+      shift 2
+      ;;
+    --joystick-invert-x)
+      JOYSTICK_INVERT_X="$2"
+      shift 2
+      ;;
+    --joystick-invert-y)
+      JOYSTICK_INVERT_Y="$2"
+      shift 2
+      ;;
+    --joystick-swap-xy)
+      JOYSTICK_SWAP_XY="$2"
+      shift 2
+      ;;
+    --joystick-calibrate)
+      JOYSTICK_CALIBRATE="1"
+      shift
+      ;;
+    --joystick-speed-kp)
+      JOYSTICK_SPEED_KP="$2"
+      shift 2
+      ;;
+    --joystick-speed-accel-max)
+      JOYSTICK_SPEED_ACCEL_MAX="$2"
+      shift 2
+      ;;
+    --joystick-min-traj-time)
+      JOYSTICK_MIN_TRAJ_TIME="$2"
+      shift 2
+      ;;
+    --joystick-depth-timeout)
+      JOYSTICK_DEPTH_TIMEOUT="$2"
+      shift 2
+      ;;
+    --joystick-altitude-safety)
+      JOYSTICK_ALTITUDE_SAFETY="$2"
+      shift 2
+      ;;
+    --joystick-rewrite-threshold)
+      JOYSTICK_REWRITE_THRESHOLD="$2"
+      shift 2
+      ;;
+    --joystick-vehicle-radius)
+      JOYSTICK_VEHICLE_RADIUS="$2"
+      shift 2
+      ;;
+    --joystick-safety-margin)
+      JOYSTICK_SAFETY_MARGIN="$2"
+      shift 2
+      ;;
+    --joystick-strict-footprint)
+      JOYSTICK_STRICT_FOOTPRINT="$2"
+      shift 2
+      ;;
+    --no-joystick)
+      JOYSTICK_AUTO="0"
+      shift
+      ;;
+    --no-sensor)
+      START_SENSOR="0"
+      shift
       ;;
     --no-rviz)
       START_RVIZ="0"
@@ -144,6 +272,19 @@ if [[ ! -f "${WEIGHT}" ]]; then
   exit 1
 fi
 
+if [[ "${JOYSTICK_AUTO}" == "1" ]]; then
+  if [[ ! -e "${JOYSTICK_DEVICE}" ]]; then
+    echo "Joystick is required but was not found: ${JOYSTICK_DEVICE}" >&2
+    echo "Connect the joystick, choose another path with --joystick-device, or explicitly use --no-joystick for RViz goal mode." >&2
+    exit 1
+  fi
+  CONTROL_MODE="joystick"
+  CONTROL_HINT="[control] ${JOYSTICK_DEVICE} detected: right stick axes ${JOYSTICK_AXIS_X}/${JOYSTICK_AXIS_Y}, proportional heading-frame velocity, closed-loop centered hold, fixed yaw. Center the stick once to arm input."
+else
+  CONTROL_MODE="nav_goal"
+  CONTROL_HINT="[control] joystick disabled explicitly: using original RViz 2D Nav Goal control."
+fi
+
 if tmux has-session -t "${SESSION}" 2>/dev/null; then
   echo "tmux session already exists: ${SESSION}" >&2
   echo "Attach with: tmux attach -t ${SESSION}" >&2
@@ -160,6 +301,12 @@ ROSCORE_CMD="${ROS_SETUP} && roscore"
 CTRL_CMD="cd ${ROOT_DIR}/Controller && ${ROS_SETUP} && ${CTRL_SETUP} && roslaunch so3_quadrotor_simulator simulator_attitude_control.launch"
 SIM_CMD="cd ${ROOT_DIR}/Simulator && ${ROS_SETUP} && ${SIM_SETUP} && rosrun sensor_simulator sensor_simulator_cuda"
 PLANNER_CMD="cd ${ROOT_DIR} && ${ROS_SETUP} && ${CTRL_SETUP} && ${SIM_SETUP} && PYTHONPATH=${YOPO_PYTHONPATH} CUDA_VISIBLE_DEVICES=${GPU_ID} ${PYTHON_BIN} YOPO/test_yopo_ros.py --weight ${WEIGHT} --velocity ${VELOCITY} --max-depth ${MAX_DEPTH} --arrive-dist ${ARRIVE_DIST} --visualize ${VISUALIZE}"
+if [[ "${DEPTH_NORMALIZED}" == "1" ]]; then
+  PLANNER_CMD="${PLANNER_CMD} --depth-normalized"
+fi
+if [[ "${CONTROL_MODE}" == "joystick" ]]; then
+  PLANNER_CMD="${PLANNER_CMD} --control-mode joystick --joystick-device ${JOYSTICK_DEVICE} --joystick-axis-x ${JOYSTICK_AXIS_X} --joystick-axis-y ${JOYSTICK_AXIS_Y} --joystick-axis-max ${JOYSTICK_AXIS_MAX} --joystick-deadzone ${JOYSTICK_DEADZONE} --joystick-invert-x ${JOYSTICK_INVERT_X} --joystick-invert-y ${JOYSTICK_INVERT_Y} --joystick-swap-xy ${JOYSTICK_SWAP_XY} --joystick-calibrate ${JOYSTICK_CALIBRATE} --joystick-speed-kp ${JOYSTICK_SPEED_KP} --joystick-speed-accel-max ${JOYSTICK_SPEED_ACCEL_MAX} --joystick-min-traj-time ${JOYSTICK_MIN_TRAJ_TIME} --joystick-depth-timeout ${JOYSTICK_DEPTH_TIMEOUT} --joystick-altitude-safety ${JOYSTICK_ALTITUDE_SAFETY} --joystick-rewrite-threshold ${JOYSTICK_REWRITE_THRESHOLD} --joystick-vehicle-radius ${JOYSTICK_VEHICLE_RADIUS} --joystick-safety-margin ${JOYSTICK_SAFETY_MARGIN} --joystick-strict-footprint ${JOYSTICK_STRICT_FOOTPRINT}"
+fi
 if [[ -n "${RADIUS_MIN}" ]]; then
   PLANNER_CMD="${PLANNER_CMD} --radius-min ${RADIUS_MIN}"
 fi
@@ -186,8 +333,10 @@ RVIZ_CMD="cd ${ROOT_DIR} && ${ROS_SETUP} && export DISPLAY=${DISPLAY:-:0} && ${R
 
 tmux new-session -d -s "${SESSION}" -n roscore "bash -lc '${ROSCORE_CMD}'"
 tmux new-window -t "${SESSION}" -n controller "bash -lc 'sleep 3; ${CTRL_CMD}'"
-tmux new-window -t "${SESSION}" -n sensor "bash -lc 'sleep 7; ${SIM_CMD}'"
-tmux new-window -t "${SESSION}" -n planner "bash -lc 'sleep 11; ${PLANNER_CMD}'"
+if [[ "${START_SENSOR}" == "1" ]]; then
+  tmux new-window -t "${SESSION}" -n sensor "bash -lc 'sleep 7; ${SIM_CMD}'"
+fi
+tmux new-window -t "${SESSION}" -n planner "bash -lc 'sleep 11; echo \"${CONTROL_HINT}\"; ${PLANNER_CMD}'"
 
 if [[ "${START_RVIZ}" == "1" ]]; then
   tmux new-window -t "${SESSION}" -n rviz "bash -lc 'sleep 14; ${RVIZ_CMD}; rc=\$?; echo; echo \"RViz exited with code \$rc\"; echo \"If this says could not connect to display, run: xhost +SI:localuser:\$(id -un)\"; exec bash'"
@@ -213,8 +362,17 @@ Depth topics:
   /depth_image_right
   /depth_image_back
 
+Sensor simulator:
+  $([[ "${START_SENSOR}" == "1" ]] && echo "enabled" || echo "disabled; an external/fixture depth publisher is required")
+
 Lidar point cloud:
   /lidar_points
+
+Control:
+  ${CONTROL_HINT}
+  speed_kp=${JOYSTICK_SPEED_KP}/s accel_max=${JOYSTICK_SPEED_ACCEL_MAX}m/s^2 horizon_min=${JOYSTICK_MIN_TRAJ_TIME}s
+  depth_plan_timeout=${JOYSTICK_DEPTH_TIMEOUT}s altitude_rewrite_safety=${JOYSTICK_ALTITUDE_SAFETY}
+  strict_full_footprint=${JOYSTICK_STRICT_FOOTPRINT}
 EOF
 
 if [[ "${START_RVIZ}" == "1" ]]; then
