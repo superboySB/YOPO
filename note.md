@@ -14,22 +14,6 @@ docker build -f docker/simulation.dockerfile \
   --progress=plain .
 ```
 
-首次构建会下载 PyTorch、cuDNN、cuBLAS、Open3D 等数 GB 的 wheel；大包下载期间日志可能数分钟只更新一条进度，不等于构建卡死。只要 build/pip 进程和代理连接仍有流量，就不要中断当前层。
-
-`docker/simulation.dockerfile` 不写机器相关的 `ARG HTTP_PROXY` / `ENV http_proxy`。当前代理由宿主机 `~/.docker/config.json` 的 `proxies.default` 自动注入当前用户经 Docker CLI 发起的 build 内置代理参数和新建容器环境，因此构建和运行命令都不需要再手写 `-e http_proxy=...`。修改该配置后要重建容器，已有容器不会自动刷新环境。可用下面两条命令核对实际注入值和容器内联网：
-```bash
-LATEST_BUILD_REF="$(docker buildx history ls --format '{{.Ref}}' | head -n 1)"
-docker buildx history inspect "$LATEST_BUILD_REF" | grep -i -E 'BUILD ARG|_PROXY'
-docker exec dzp-yopo-omni bash -lc 'env | grep -i _proxy; curl -I --max-time 15 https://www.google.com'
-```
-
-允许容器使用图形界面：
-```bash
-xhost +local:root
-HOST_XAUTHORITY="${XAUTHORITY:-/run/user/$(id -u)/gdm/Xauthority}"
-test -f "$HOST_XAUTHORITY"
-```
-
 启动容器：
 ```bash
 docker run --name dzp-yopo-omni -itd \
@@ -139,105 +123,10 @@ cd /workspace/YOPO
 bash tools/launch_sim.sh \
   --weight /workspace/YOPO/YOPO/saved/YOPO_0/epoch200.pth \
   --python python3 \
-  --velocity 6.0 \
+  --velocity 3.0 \
   --max-depth 4.0 \
   --rviz-software-gl
 ```
-
-`tools/launch_sim.sh` 默认要求 `/dev/input/js0` 存在：检测到手柄时，规划器用右摇杆生成 heading-frame 水平期望速度；设备缺失会安全退出，不会静默切到默认目标并自行前飞。确实要使用原来的 RViz `2D Nav Goal` / `/move_base_simple/goal` 控制时，必须显式传 `--no-joystick`。当前 RadioMaster 实测通道为 axis 0（左右）和 axis 1（上下）；上推为 `+x`，下推为 `-x`，左推为 `+y`，右推为 `-y`。摇杆幅度经径向死区重映射到 `0..--velocity`，回中/断连后持续发布闭环刹停与位置保持命令，并锁定 yaw。每次启动或重新连接后，要让右摇杆保持回中约 0.1 秒完成安全解锁，才会接受运动输入。
-
-当前实现不把低杆量直接当成 checkpoint 的低速训练样本。`epoch200.pth` 始终接收训练域内的 6m/s 方向意图；操作者杆量单独作为 `0..--velocity` 的实际速度目标。网络原始端点和 score 不改，8 个候选分别经过有界速度伺服：`a*=clip(1.5*(v_cmd-v_actual), ±4m/s²)`，端点尺度严格限制在 `[0,1]`、绝不外扩；空间收缩仍不够时，单计划时域才从训练的 1.4 秒缩短到最低 1.0 秒，并对缩短方向做低通和每帧限速。候选还要通过下次重规划前的加速度检查和锁高改写深度 veto，最后只在安全候选中按 checkpoint 原 score 选最小；全拒就持续 `EMPTY` hold。因此无需重新采集数据或训练。`/yopo/vdes_body` 发布操作者实际命令；飞机倾斜时，为保持世界水平运动，瞬时 body-frame 向量允许出现非零 z 分量。
-
-右杆只控制 heading-frame 水平速度；世界 z 在第一次有效拨杆时锁定，并在运动、回中、断连和重连后保持同一高度。默认锁高 veto 使用未做 resize/nan-to-num 的 8×8 米制深度：近场可见碰撞、坏像素、球心落入相机盲区都会拒绝。默认 `--joystick-strict-footprint 0` 允许球心仍在 FoV 内、但 0.45m 检查球边缘被 FoV 裁切的候选继续使用原 YOPO score，并在日志中明确 residual risk；需要整颗检查球都落入 FoV 时传 `--joystick-strict-footprint 1`，极端姿态下可能保守地全候选 hold。
-
-仿真器发布的 `32FC1` 深度默认按米处理，并由 `--max-depth`（默认 4m）归一化；`16UC1` 默认按毫米处理。只有接入本来就是 `[0,1]` 的 `32FC1` 数据源时才给 planner 显式加 `--depth-normalized`，不要再依赖图像最大值猜测单位。
-
-安全链路包括：
-
-- 回中、断连或显著换向时推进 intent epoch，旧推理不能重新接管，并持续发布闭环 hold；
-- 只有“当前意图的计划成功提交”才刷新默认 0.20 秒 depth/plan watchdog，原始深度到达但推理失败不能续命；
-- 单计划超过自己的 1.0–1.4 秒时域仍未更新也会 hold；
-- 默认开启锁高改写深度 veto，全候选拒绝时 fail-closed；
-- `network_control_node` 另有默认 0.30 秒 `PositionCommand` watchdog，planner/GPU 整体停更时以 50Hz 捕获并保持当前位置，新命令到达后恢复。
-
-回中命令的目标速度会立即变为 0，但物理速度需要控制器完成减速，不能把“杆为 0”理解成速度瞬间跳零。
-
-宿主机或容器内可用下面的命令重新校准原始通道：
-```bash
-jstest --event /dev/input/js0
-```
-
-若同时接入多个输入设备，可使用稳定的 by-id 路径：
-```bash
-bash tools/launch_sim.sh \
-  --joystick-device /dev/input/by-id/usb-NATIONS_RADIOMASTER_SIM_N32G45x-joystick \
-  --weight /workspace/YOPO/YOPO/saved/YOPO_0/epoch200.pth
-```
-
-不启动 ROS 和飞行控制，仅检查右摇杆的二维 heading-frame 速度映射：
-```bash
-python3 tools/test_joystick_mapping.py --device /dev/input/js0 --speed 6
-```
-该命令会持续读取真实设备，完成上下左右检查后按 `Ctrl-C` 退出。
-
-需要在仿真日志中同时查看原始轴值和映射后的速度比例时：
-```bash
-bash tools/launch_sim.sh --joystick-calibrate \
-  --weight /workspace/YOPO/YOPO/saved/YOPO_0/epoch200.pth
-```
-
-仿真启动后可直接查看手柄产生的实际 body-frame 期望速度向量（网络内部会按上文所述使用训练域内的方向意图）：
-```bash
-rostopic echo /yopo/vdes_body
-```
-
-需要可重复地验收 axis 事件解析、四方向、半/满杆比例、回中停稳以及完整模型/控制器/动力学闭环时，可用 FIFO 代替人工拨杆；它不会写真实 `/dev/input/js0`：
-```bash
-test -p /tmp/yopo-js-test || mkfifo /tmp/yopo-js-test
-bash tools/launch_sim.sh --no-rviz --no-sensor \
-  --joystick-device /tmp/yopo-js-test \
-  --weight /workspace/YOPO/YOPO/saved/YOPO_0/epoch200.pth
-
-source /opt/ros/noetic/setup.bash
-source /workspace/YOPO/Controller/devel/setup.bash
-python3 tools/joystick_e2e_test.py \
-  --fifo /tmp/yopo-js-test \
-  --publish-clear-depth \
-  --summary-only \
-  --output /tmp/joystick_e2e.json
-```
-
-验收器返回码为 0 才表示通过，并会检查 `/yopo/vdes_body`、`/so3_control/pos_cmd` 和 `/sim/odom`，而不只是输入映射。它在每个方向后立即检查实际运动、比例、锁高、固定 yaw 和回中停稳，并持续监控高度、速度、位置范围、odom 新鲜度及非有限值，越界会先归中再中止。`--no-sensor` 与 `--publish-clear-depth` 必须配套，不能同时混入真实 sensor。
-
-单独验证“满杆保持不变，只停四路深度后 0.20 秒 hold，再恢复深度自动恢复飞行”：
-```bash
-python3 tools/depth_watchdog_e2e_test.py \
-  --fifo /tmp/yopo-js-test \
-  --output /tmp/depth_watchdog_e2e.json
-```
-
-真实 `sensor_simulator_cuda` 地图测试不要传 `--no-sensor` / `--publish-clear-depth`，并把碰撞累计值变成硬门禁。复杂地图中某方向被障碍封住而安全 hold 是正确行为；可用 `--directions right` 只测试当前可通方向：
-```bash
-test -p /tmp/yopo-map-js || mkfifo /tmp/yopo-map-js
-bash tools/launch_sim.sh --session yopo_map --no-rviz \
-  --velocity 3.0 \
-  --joystick-device /tmp/yopo-map-js \
-  --weight /workspace/YOPO/YOPO/saved/YOPO_0/epoch200.pth
-
-python3 tools/joystick_e2e_test.py \
-  --fifo /tmp/yopo-map-js \
-  --max-speed 3.0 \
-  --directions right \
-  --max-actual-projection-slope 0.5 \
-  --require-collision-topic \
-  --collision-topic /yopo/collision_counter_total \
-  --summary-only \
-  --output /tmp/joystick_map_e2e.json
-```
-
-本次最终代码的闭环结果：6m/s clear-depth 四向 4 秒和 8 秒压力测试均通过；8 秒测试半杆投影 2.47–2.53m/s、满杆 5.20–5.22m/s、锁高最大漂移 1.26cm、9218 次安全检查无违规。深度断流专测在 0.201 秒出现首个零命令、0.280 秒确认连续 hold，恢复深度后 0.209 秒恢复飞行。seed=3 森林地图以 3m/s 做真实渲染深度测试，right 半/满杆分别达到 1.290/2.614m/s，1813 个碰撞计数样本保持 0。
-
-安全边界：当前“真实 sensor”仍是地图渲染的 `sensor_simulator_cuda`，不是物理 ToF。物理接入必须匹配四路 8×8、45° FoV、固定朝向、30ms 内时间同步、`32FC1` 米或 `16UC1` 毫米以及 odom/控制话题。锁高 veto 只处理“把 YOPO 三维轨迹压到固定高度”新增的可见风险，不重做全局规划；偏差不超过 0.20m、球边缘裁切部分及 4m 量程外仍依赖原 YOPO score。4m/15Hz 传感器存在盲区；6m/s 在 4m/s² 理想恒减速下仅刹车距离就是 4.5m，已超过量程，因此满速障碍飞行未获硬安全保证。碰撞计数只检查离散 odom 时刻的机体中心，也不等同于连续体积碰撞认证。
 
 进入 tmux：
 ```bash
@@ -248,6 +137,29 @@ tmux attach -t yopo_sim
 ```bash
 tmux kill-session -t yopo_sim
 ```
+
+注意，`tools/launch_sim.sh` 默认要求 `/dev/input/js0` 存在；设备缺失会退出，不会静默改成 Nav Goal 自行前飞。确实要用原来的 RViz `2D Nav Goal` 时必须显式传 `--no-joystick`。
+
+当前 `NATIONS RADIOMASTER SIM` 的实测映射如下。这里的数值是 `jstest --event` 显示的 Linux 原始轴值，不是 ROS Joy 消息编号：
+
+- 右杆 axis 1：`+32767` 前进，`-32767` 后退；
+- 右杆 axis 0：`-32767` 左移，`+32767` 右移；
+- 左杆 axis 2：`+32767` 上升，`-32767` 下降；
+- 左杆 axis 3：`-32767` 左转，`+32767` 右转。
+
+对应的默认启动参数是：
+
+| 操作 | Linux 轴 | 原始方向 | 启动参数 | 默认反向参数 |
+|---|---:|---|---|---:|
+| 右杆左右（左移/右移） | 0 | 左负、右正 | `--joystick-axis-x 0` | `--joystick-invert-x 1` |
+| 右杆上下（前进/后退） | 1 | 上正、下负 | `--joystick-axis-y 1` | `--joystick-invert-y 0` |
+| 左杆上下（上升/下降） | 2 | 上正、下负 | `--joystick-axis-z 2` | `--joystick-invert-z 0` |
+| 左杆左右（左转/右转） | 3 | 左负、右正 | `--joystick-axis-yaw 3` | `--joystick-invert-yaw 1` |
+
+`--joystick-axis-x/y/z/yaw` 表示“控制功能”，不要求新手柄也使用相同的物理 axis 编号。`invert=1` 表示把该 Linux 原始值乘以 `-1`。右杆默认还使用 `--joystick-swap-xy 1`，即物理上下轴映射前后速度、物理左右轴映射侧向速度。
+
+注意：右杆有输入时，`epoch200.pth` 持续根据四向 ToF 规划水平避障轨迹；左杆升降和偏航由外层控制器同时执行，不会覆盖模型的水平 `x/y` 轨迹。但升降方向没有独立的 YOPO 垂直避障保证；只有左杆、右杆回中时，不会产生水平规划运动。
+
 
 ## RViz 与状态检查
 `YOPO/yopo.rviz` 已配置四个 ToF 深度图面板和一个前向高清 debug 面板：
@@ -299,6 +211,35 @@ rostopic pub /move_base_simple/goal geometry_msgs/PoseStamped "{
 ```
 
 ## 常用配置
+### 1. 配置容器代理
+需要提前配置宿主机的代理 `~/.docker/config.json` 如下
+```json
+{
+  "proxies": {
+    "default": {
+      "httpProxy": "http://172.17.0.1:7897",
+      "httpsProxy": "http://172.17.0.1:7897",
+      "noProxy": "localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+    }
+  }
+}
+```
+其中，`proxies.default` 自动注入当前用户经 Docker CLI 发起的 build 内置代理参数和新建容器环境，因此构建和运行命令都不需要再手写 `-e http_proxy=...`。修改该配置后要重建容器，已有容器不会自动刷新环境。可用下面两条命令核对实际注入值和容器内联网：
+```bash
+LATEST_BUILD_REF="$(docker buildx history ls --format '{{.Ref}}' | head -n 1)"
+docker buildx history inspect "$LATEST_BUILD_REF" | grep -i -E 'BUILD ARG|_PROXY'
+docker exec dzp-yopo-omni bash -lc 'env | grep -i _proxy; curl -I --max-time 15 https://www.google.com'
+```
+
+### 2. 配置图形界面
+允许容器使用图形界面：
+```bash
+xhost +local:root
+HOST_XAUTHORITY="${XAUTHORITY:-/run/user/$(id -u)/gdm/Xauthority}"
+test -f "$HOST_XAUTHORITY"
+```
+
+### 3. 数据相关config
 数据生成配置：
 ```text
 Simulator/src/config/config.yaml
@@ -336,6 +277,7 @@ omni:
   astar_local_radius: 16.0
 ```
 
+### 4. 训练相关config
 训练配置：
 ```text
 YOPO/config/traj_opt.yaml
@@ -361,3 +303,80 @@ sgm_time: 1.4
 - `tools/run_yopo_pipeline.py` 的 `--save-path ../dataset_omni` 会同时覆盖训练用的 `dataset_path`。
 - 不加 `--keep-config` 时，脚本运行结束会恢复原始配置文件。
 - 在线测试订阅四向深度图，输出 8 个 topology 的候选轨迹和 score。
+
+### 5. 更换手柄配置
+
+
+更换手柄时按下面步骤配置，不需要修改模型或重新训练：
+
+1. 查找稳定设备路径，并确认容器中也能看到设备：
+
+   ```bash
+   ls -l /dev/input/by-id/*joystick* /dev/input/js* 2>/dev/null
+   docker exec dzp-yopo-omni bash -lc 'ls -l /dev/input/by-id/*joystick* /dev/input/js* 2>/dev/null'
+   ```
+
+2. 停止正在运行的飞行会话，在宿主机或容器里执行 `jstest`，依次只推动一个方向，记录右左右上下、左上下左右各自变化的 axis 编号、中心值和正负号：
+
+   ```bash
+   tmux kill-session -t yopo_sim 2>/dev/null || true
+   jstest --event /dev/input/js0
+   ```
+
+   理想的自回中轴中心应接近 0，满行程通常接近 `-32767/+32767`。如果中心长期偏离零，先做系统手柄校准，或适当增大 `--joystick-deadzone`。按 `Ctrl-C` 结束 `jstest` 后再启动仿真。
+
+3. 优先通过启动参数覆盖映射，不要为了换一只手柄直接修改 Python。下面是假设新手柄右杆为 axis 3/4、左杆为 axis 1/0，且右杆上下方向需要反转的示例：
+
+   ```bash
+   bash tools/launch_sim.sh \
+     --joystick-device /dev/input/by-id/你的手柄-joystick \
+     --joystick-axis-x 3 \
+     --joystick-axis-y 4 \
+     --joystick-axis-z 1 \
+     --joystick-axis-yaw 0 \
+     --joystick-invert-x 1 \
+     --joystick-invert-y 1 \
+     --joystick-invert-z 0 \
+     --joystick-invert-yaw 1 \
+     --joystick-swap-xy 1 \
+     --joystick-deadzone 0.08 \
+     --velocity 2.0 \
+     --joystick-vertical-velocity 2.0 \
+     --joystick-yaw-rate 1.0 \
+     --weight /workspace/YOPO/YOPO/saved/YOPO_0/epoch200.pth
+   ```
+
+   如果某个方向相反，只切换对应的 `--joystick-invert-* 0/1`；如果右杆上下变成侧移、左右变成前后，切换 `--joystick-swap-xy 0/1`。四个 `--joystick-axis-*` 必须是互不相同的非负整数。如果设备满行程并非约 32767，还要给正式启动传入对应的 `--joystick-axis-max`，给映射工具传入相同的 `--axis-max`。
+
+4. 启动飞行前可用同一组参数做纯映射检查。这个工具只读取遥控器，不启动 ROS、模型或电机：
+
+   ```bash
+   python3 tools/test_joystick_mapping.py \
+     --device /dev/input/js0 \
+     --axis-x 0 --axis-y 1 --axis-z 2 --axis-yaw 3 \
+     --invert-x 1 --invert-y 0 --invert-z 0 --invert-yaw 1 \
+     --swap-xy 1 --speed 2 --vertical-speed 2 --yaw-rate 1
+   ```
+
+   输出中的 `vdes_heading=(forward,left,up)` 应满足：前/左/上为正，后/右/下为负；`yaw_rate` 左转为正、右转为负。完成后按 `Ctrl-C` 退出。
+
+5. 正式启动或设备重新连接后，必须让四个配置轴同时回中并保持约 0.1 秒。日志出现 `Joystick unlocked after all four configured axes initialized...` 后才会接受运动输入。可以用 `rostopic echo /yopo/vdes_body` 再确认回中为零、各方向符号正确。
+
+两根摇杆默认有 8% 中心死区，越过死区后的杆量连续重映射到满量程。右杆最大水平期望速度由 `--velocity` 设置，左杆最大升降速度由 `--joystick-vertical-velocity` 设置，最大偏航角速度由 `--joystick-yaw-rate` 设置。
+
+若确认某套映射要成为项目的新默认值，再修改以下位置：
+
+- `tools/launch_sim.sh` 顶部的 `JOYSTICK_AXIS_*`、`JOYSTICK_INVERT_*`、`JOYSTICK_SWAP_XY` 和速度默认值；
+- `YOPO/test_yopo_ros.py` 中 `--joystick-axis-*`、`--joystick-invert-*` 等 argparse 默认值，保证直接运行 Python 时一致；
+- `tools/test_joystick_mapping.py` 的 argparse 默认值，保证校准工具与正式启动一致；
+- `YOPO/joystick_control.py` 的 `map_dual_sticks()` 是通用映射公式，普通换手柄不应修改；只有确实改变控制语义时才改这里，并重新执行纯映射检查和低速仿真确认。
+
+建议始终优先使用 `/dev/input/by-id/...-joystick`，因为 `/dev/input/js0` 在插拔多个输入设备后可能变成 `js1`。当前 Docker 启动命令已经映射整个 `/dev/input`，所以无需再修改镜像。
+
+右杆的水平速度向量直接进入 `epoch200.pth`：规划器将世界速度、加速度和操作者期望速度转换到机体系，拼成 `[v_body, a_body, vdes_body]`，网络对八条轨迹输出 endpoint 和 score，直接选择原始最低 score，并按训练时的 1.4 秒时域发布轨迹。正常手柄路径不再运行外层速度伺服、端点缩放、锁高改写、候选 veto 或 depth-plan hold；不会因为这些保底条件把有效模型输出替换成悬停。
+
+`epoch200.pth` 的训练数据把期望速度幅值采在 3–6m/s，而且 intent loss 会归一化 `vdes`，所以它可靠表达的是水平意图方向，不保证飞机实际速度严格正比于杆量。杆量到 `/yopo/vdes_body` 的映射是精确连续的，但低杆和满杆可能得到相近的物理速度；若必须精确比例调速，需要模型本身覆盖这个监督目标，本实现不会再用模型外的“速度保底层”伪造它。
+
+离线检查还确认该 checkpoint 的八个拓扑主要是水平轨迹：纯 `+z/-z` 意图仍会产生明显水平 endpoint。因此左杆升降作为核心人工控制量直接进入飞控的世界系垂直速度闭环，而不是强塞进不具备竖直拓扑的网络；右杆水平仍由 YOPO 避障轨迹控制。左杆左右直接积分为 yaw 参考和 yaw rate。`/yopo/vdes_body` 始终发布操作者完整的三维期望速度，左右杆也可以同时使用。
+
+平移杆回中时，控制从 YOPO 的 `READY` 模式立即切到与 YOPO-Simple 相同的 `EMPTY` 位置/速度闭环，但不会把速度字段突然清零。规划器从最后一帧 p/v/a 接一段连续五次多项式制动参考，平滑减速到零后保持最终位置；这不是 Nav Goal，也不会重新引入 target 规划。

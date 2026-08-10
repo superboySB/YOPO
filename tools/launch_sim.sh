@@ -24,21 +24,18 @@ JOYSTICK_DEVICE="/dev/input/js0"
 JOYSTICK_AUTO="1"
 JOYSTICK_AXIS_X="0"
 JOYSTICK_AXIS_Y="1"
+JOYSTICK_AXIS_Z="2"
+JOYSTICK_AXIS_YAW="3"
 JOYSTICK_AXIS_MAX="32767"
 JOYSTICK_DEADZONE="0.08"
 JOYSTICK_INVERT_X="1"
 JOYSTICK_INVERT_Y="0"
+JOYSTICK_INVERT_Z="0"
+JOYSTICK_INVERT_YAW="1"
 JOYSTICK_SWAP_XY="1"
+JOYSTICK_VERTICAL_VELOCITY="2.0"
+JOYSTICK_YAW_RATE="1.0"
 JOYSTICK_CALIBRATE="0"
-JOYSTICK_SPEED_KP="1.5"
-JOYSTICK_SPEED_ACCEL_MAX="4.0"
-JOYSTICK_MIN_TRAJ_TIME="1.0"
-JOYSTICK_DEPTH_TIMEOUT="0.20"
-JOYSTICK_ALTITUDE_SAFETY="1"
-JOYSTICK_REWRITE_THRESHOLD="0.20"
-JOYSTICK_VEHICLE_RADIUS="0.30"
-JOYSTICK_SAFETY_MARGIN="0.15"
-JOYSTICK_STRICT_FOOTPRINT="0"
 CONTROL_MODE="nav_goal"
 CONTROL_HINT=""
 START_SENSOR="1"
@@ -64,23 +61,20 @@ Options:
   --joystick-device P Linux joystick device for auto manual-assist mode. Default: ${JOYSTICK_DEVICE}
   --joystick-axis-x N Right-stick horizontal axis. Default: ${JOYSTICK_AXIS_X}
   --joystick-axis-y N Right-stick vertical axis. Default: ${JOYSTICK_AXIS_Y}
+  --joystick-axis-z N Left-stick vertical climb/descent axis. Default: ${JOYSTICK_AXIS_Z}
+  --joystick-axis-yaw N Left-stick horizontal yaw axis. Default: ${JOYSTICK_AXIS_YAW}
   --joystick-axis-max V Absolute raw axis maximum. Default: ${JOYSTICK_AXIS_MAX}
   --joystick-deadzone V Radial deadzone in [0,1). Default: ${JOYSTICK_DEADZONE}
   --joystick-invert-x 0|1 Invert horizontal axis. Default: ${JOYSTICK_INVERT_X}
   --joystick-invert-y 0|1 Invert vertical axis. Default: ${JOYSTICK_INVERT_Y}
+  --joystick-invert-z 0|1 Invert climb/descent axis. Default: ${JOYSTICK_INVERT_Z}
+  --joystick-invert-yaw 0|1 Invert yaw axis. Default: ${JOYSTICK_INVERT_YAW}
   --joystick-swap-xy 0|1 Map vertical/horizontal to body x/y. Default: ${JOYSTICK_SWAP_XY}
+  --joystick-vertical-velocity V Maximum climb/descent speed in m/s. Default: ${JOYSTICK_VERTICAL_VELOCITY}
+  --joystick-yaw-rate V Maximum yaw rate in rad/s. Default: ${JOYSTICK_YAW_RATE}
   --joystick-calibrate Print raw axes and mapped body velocity while running.
-  --joystick-speed-kp V Velocity-error feedback gain in 1/s. Default: ${JOYSTICK_SPEED_KP}
-  --joystick-speed-accel-max V Horizontal acceleration target/check in m/s^2. Default: ${JOYSTICK_SPEED_ACCEL_MAX}
-  --joystick-min-traj-time V Minimum bounded plan horizon in seconds. Default: ${JOYSTICK_MIN_TRAJ_TIME}
-  --joystick-depth-timeout V Hold if no current-intent plan commits in this many seconds. Default: ${JOYSTICK_DEPTH_TIMEOUT}
-  --joystick-altitude-safety 0|1 Check lock-height rewrites against raw metric depth. Default: ${JOYSTICK_ALTITUDE_SAFETY}
-  --joystick-rewrite-threshold V Trust original YOPO score below this rewrite distance. Default: ${JOYSTICK_REWRITE_THRESHOLD}
-  --joystick-vehicle-radius V Vehicle sphere radius for rewrite checks. Default: ${JOYSTICK_VEHICLE_RADIUS}
-  --joystick-safety-margin V Extra rewrite-check obstacle margin. Default: ${JOYSTICK_SAFETY_MARGIN}
-  --joystick-strict-footprint 0|1 Require the full vehicle sphere inside camera FoV. Default: ${JOYSTICK_STRICT_FOOTPRINT}
   --no-joystick       Disable joystick auto-detection and keep RViz 2D Nav Goal control.
-  --no-sensor         Do not start sensor_simulator_cuda (for deterministic clear-depth E2E).
+  --no-sensor         Do not start sensor_simulator_cuda (when using an external depth source).
   --no-rviz           Do not start RViz.
   --rviz-software-gl  Start RViz with Mesa llvmpipe software OpenGL.
   --rviz-opengl VER   RViz OpenGL version. Default: ${RVIZ_OPENGL}; use 120 or 210 for compatibility.
@@ -156,6 +150,14 @@ while [[ $# -gt 0 ]]; do
       JOYSTICK_AXIS_Y="$2"
       shift 2
       ;;
+    --joystick-axis-z)
+      JOYSTICK_AXIS_Z="$2"
+      shift 2
+      ;;
+    --joystick-axis-yaw)
+      JOYSTICK_AXIS_YAW="$2"
+      shift 2
+      ;;
     --joystick-axis-max)
       JOYSTICK_AXIS_MAX="$2"
       shift 2
@@ -172,49 +174,29 @@ while [[ $# -gt 0 ]]; do
       JOYSTICK_INVERT_Y="$2"
       shift 2
       ;;
+    --joystick-invert-z)
+      JOYSTICK_INVERT_Z="$2"
+      shift 2
+      ;;
+    --joystick-invert-yaw)
+      JOYSTICK_INVERT_YAW="$2"
+      shift 2
+      ;;
     --joystick-swap-xy)
       JOYSTICK_SWAP_XY="$2"
+      shift 2
+      ;;
+    --joystick-vertical-velocity)
+      JOYSTICK_VERTICAL_VELOCITY="$2"
+      shift 2
+      ;;
+    --joystick-yaw-rate)
+      JOYSTICK_YAW_RATE="$2"
       shift 2
       ;;
     --joystick-calibrate)
       JOYSTICK_CALIBRATE="1"
       shift
-      ;;
-    --joystick-speed-kp)
-      JOYSTICK_SPEED_KP="$2"
-      shift 2
-      ;;
-    --joystick-speed-accel-max)
-      JOYSTICK_SPEED_ACCEL_MAX="$2"
-      shift 2
-      ;;
-    --joystick-min-traj-time)
-      JOYSTICK_MIN_TRAJ_TIME="$2"
-      shift 2
-      ;;
-    --joystick-depth-timeout)
-      JOYSTICK_DEPTH_TIMEOUT="$2"
-      shift 2
-      ;;
-    --joystick-altitude-safety)
-      JOYSTICK_ALTITUDE_SAFETY="$2"
-      shift 2
-      ;;
-    --joystick-rewrite-threshold)
-      JOYSTICK_REWRITE_THRESHOLD="$2"
-      shift 2
-      ;;
-    --joystick-vehicle-radius)
-      JOYSTICK_VEHICLE_RADIUS="$2"
-      shift 2
-      ;;
-    --joystick-safety-margin)
-      JOYSTICK_SAFETY_MARGIN="$2"
-      shift 2
-      ;;
-    --joystick-strict-footprint)
-      JOYSTICK_STRICT_FOOTPRINT="$2"
-      shift 2
       ;;
     --no-joystick)
       JOYSTICK_AUTO="0"
@@ -279,7 +261,7 @@ if [[ "${JOYSTICK_AUTO}" == "1" ]]; then
     exit 1
   fi
   CONTROL_MODE="joystick"
-  CONTROL_HINT="[control] ${JOYSTICK_DEVICE} detected: right stick axes ${JOYSTICK_AXIS_X}/${JOYSTICK_AXIS_Y}, proportional heading-frame velocity, closed-loop centered hold, fixed yaw. Center the stick once to arm input."
+  CONTROL_HINT="[control] ${JOYSTICK_DEVICE}: right axes ${JOYSTICK_AXIS_X}/${JOYSTICK_AXIS_Y}=YOPO forward/left; left axis ${JOYSTICK_AXIS_Z}=closed-loop climb, ${JOYSTICK_AXIS_YAW}=yaw. Center switches READY to a continuous EMPTY braking reference, then hover."
 else
   CONTROL_MODE="nav_goal"
   CONTROL_HINT="[control] joystick disabled explicitly: using original RViz 2D Nav Goal control."
@@ -305,7 +287,7 @@ if [[ "${DEPTH_NORMALIZED}" == "1" ]]; then
   PLANNER_CMD="${PLANNER_CMD} --depth-normalized"
 fi
 if [[ "${CONTROL_MODE}" == "joystick" ]]; then
-  PLANNER_CMD="${PLANNER_CMD} --control-mode joystick --joystick-device ${JOYSTICK_DEVICE} --joystick-axis-x ${JOYSTICK_AXIS_X} --joystick-axis-y ${JOYSTICK_AXIS_Y} --joystick-axis-max ${JOYSTICK_AXIS_MAX} --joystick-deadzone ${JOYSTICK_DEADZONE} --joystick-invert-x ${JOYSTICK_INVERT_X} --joystick-invert-y ${JOYSTICK_INVERT_Y} --joystick-swap-xy ${JOYSTICK_SWAP_XY} --joystick-calibrate ${JOYSTICK_CALIBRATE} --joystick-speed-kp ${JOYSTICK_SPEED_KP} --joystick-speed-accel-max ${JOYSTICK_SPEED_ACCEL_MAX} --joystick-min-traj-time ${JOYSTICK_MIN_TRAJ_TIME} --joystick-depth-timeout ${JOYSTICK_DEPTH_TIMEOUT} --joystick-altitude-safety ${JOYSTICK_ALTITUDE_SAFETY} --joystick-rewrite-threshold ${JOYSTICK_REWRITE_THRESHOLD} --joystick-vehicle-radius ${JOYSTICK_VEHICLE_RADIUS} --joystick-safety-margin ${JOYSTICK_SAFETY_MARGIN} --joystick-strict-footprint ${JOYSTICK_STRICT_FOOTPRINT}"
+  PLANNER_CMD="${PLANNER_CMD} --control-mode joystick --joystick-device ${JOYSTICK_DEVICE} --joystick-axis-x ${JOYSTICK_AXIS_X} --joystick-axis-y ${JOYSTICK_AXIS_Y} --joystick-axis-z ${JOYSTICK_AXIS_Z} --joystick-axis-yaw ${JOYSTICK_AXIS_YAW} --joystick-axis-max ${JOYSTICK_AXIS_MAX} --joystick-deadzone ${JOYSTICK_DEADZONE} --joystick-invert-x ${JOYSTICK_INVERT_X} --joystick-invert-y ${JOYSTICK_INVERT_Y} --joystick-invert-z ${JOYSTICK_INVERT_Z} --joystick-invert-yaw ${JOYSTICK_INVERT_YAW} --joystick-swap-xy ${JOYSTICK_SWAP_XY} --joystick-vertical-velocity ${JOYSTICK_VERTICAL_VELOCITY} --joystick-yaw-rate ${JOYSTICK_YAW_RATE} --joystick-calibrate ${JOYSTICK_CALIBRATE}"
 fi
 if [[ -n "${RADIUS_MIN}" ]]; then
   PLANNER_CMD="${PLANNER_CMD} --radius-min ${RADIUS_MIN}"
@@ -370,9 +352,8 @@ Lidar point cloud:
 
 Control:
   ${CONTROL_HINT}
-  speed_kp=${JOYSTICK_SPEED_KP}/s accel_max=${JOYSTICK_SPEED_ACCEL_MAX}m/s^2 horizon_min=${JOYSTICK_MIN_TRAJ_TIME}s
-  depth_plan_timeout=${JOYSTICK_DEPTH_TIMEOUT}s altitude_rewrite_safety=${JOYSTICK_ALTITUDE_SAFETY}
-  strict_full_footprint=${JOYSTICK_STRICT_FOOTPRINT}
+  horizontal_max=${VELOCITY}m/s vertical_max=${JOYSTICK_VERTICAL_VELOCITY}m/s yaw_rate_max=${JOYSTICK_YAW_RATE}rad/s
+  direct_model=1 planner_candidate_veto=0 altitude_rewrite=0
 EOF
 
 if [[ "${START_RVIZ}" == "1" ]]; then
