@@ -353,7 +353,6 @@ Lidar point cloud:
 Control:
   ${CONTROL_HINT}
   horizontal_max=${VELOCITY}m/s vertical_max=${JOYSTICK_VERTICAL_VELOCITY}m/s yaw_rate_max=${JOYSTICK_YAW_RATE}rad/s
-  direct_model=1 planner_candidate_veto=0 altitude_rewrite=0
 EOF
 
 if [[ "${START_RVIZ}" == "1" ]]; then

@@ -382,7 +382,6 @@ class YopoOmniNet:
                 "velocity and yaw rate use the flight controller directly."
             )
             print(
-                "No speed servo, altitude lock, candidate veto, or depth-plan hold overrides the model. "
                 "Centered translation switches READY to EMPTY and follows a continuous braking "
                 "reference into hover, matching YOPO-Simple's mode transition without a navigation target."
             )
