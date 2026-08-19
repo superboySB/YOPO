@@ -1,17 +1,22 @@
 --extra-index-url https://download.pytorch.org/whl/cu118
 
-torch==2.4.1+cu118
-torchaudio==2.4.1+cu118
-torchvision==0.19.1+cu118
+# torch itself is fetched with parallel range requests in simulation.dockerfile
+# because the 858 MB wheel is unreliable over a single proxied connection.
 opencv-python==4.11.0.86
 scipy==1.10.1
+scikit-learn==1.3.2
 scikit-build==0.18.1
 ruamel-yaml==0.17.21
 numpy==1.22.3
 tensorboard==2.14.0
-open3d==0.19.0
 rich==14.0.0
 empy==3.3.4
 catkin_pkg
 rospkg
 netifaces
+filelock==3.16.1
+typing-extensions==4.13.2
+sympy==1.13.3
+networkx==3.1
+jinja2==3.1.6
+fsspec==2025.3.0

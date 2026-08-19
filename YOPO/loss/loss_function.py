@@ -16,6 +16,8 @@ class YOPOOmniLoss(nn.Module):
         self.sgm_time = float(cfg["sgm_time"])
         self.eval_points = int(cfg["omni_loss_eval_points"])
         self.use_guidance_loss = bool(cfg["use_guidance_loss"])
+        self.camera_weight = float(cfg["w_camera"])
+        self.camera_smooth_weight = float(cfg["w_camera_smooth"])
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self._L, self._RJ, self._RA = self.qp_generation()
@@ -28,16 +30,19 @@ class YOPOOmniLoss(nn.Module):
         self.safety_loss = SafetyLoss(self._L)
         self.safety_loss.traj_num = self.topology_num
 
-        print("------ YOPO-Omni Loss ------")
+        print("------ YOPO Active Loss ------")
         print(f"| {'smooth':<12} = {self.smoothness_weight:6.4f} |")
         print(f"| {'safety':<12} = {self.safety_weight:6.4f} |")
         print(f"| {'intent':<12} = {self.intent_weight:6.4f} |")
+        print(f"| {'altitude':<12} = {self.altitude_weight:6.4f} |")
         print(f"| {'explore':<12} = {self.explore_weight:6.4f} | beta={self.explore_beta:.3g}")
         print(f"| {'guide':<12} = {self.guide_weight:6.4f} | enabled={self.use_guidance_loss}")
+        print(f"| {'camera':<12} = {self.camera_weight:6.4f} | smooth={self.camera_smooth_weight:.4f}")
         print("----------------------------")
 
     def forward(self, start_state_w, end_state_w, endstate_b, state_b, guide_path_w,
-                guide_mask, selected_topology, map_id, pred_score):
+                guide_mask, selected_topology, map_id, pred_score,
+                pred_camera_target, camera_target, camera_orientation):
         B, K = endstate_b.shape[:2]
         flat_start = start_state_w[:, None, :, :].expand(B, K, 3, 3).reshape(B * K, 3, 3)
         flat_end = end_state_w.reshape(B * K, 3, 3)
@@ -53,12 +58,14 @@ class YOPOOmniLoss(nn.Module):
         intent_cost = self.intent_loss(endstate_b[..., 0:3], state_b[:, 6:9])
         explore_cost = self.explore_loss(endstate_b[..., 0:3])
         guide_cost = self.guidance_loss(Df, Dp, guide_path_w, guide_mask, selected_topology, B, K)
+        altitude_cost = self.altitude_loss(start_state_w, end_state_w)
 
         base_cost = (
             self.smoothness_weight * smooth_cost
             + self.accele_weight * acc_cost
             + self.safety_weight * safety_cost
             + self.intent_weight * intent_cost
+            + self.altitude_weight * altitude_cost
         )
         explore_loss = explore_cost.mean()
         trajectory_cost = base_cost + self.explore_weight * explore_cost
@@ -68,7 +75,18 @@ class YOPOOmniLoss(nn.Module):
         trajectory_loss = trajectory_cost.mean() + self.guide_weight * guide_loss
         score_loss = F.smooth_l1_loss(pred_score, total_cost.detach())
         rank_loss = self.ranking_loss(pred_score, total_cost.detach())
-        loss = trajectory_loss + self.score_weight * score_loss + self.rank_weight * rank_loss
+        selected_camera = pred_camera_target.gather(
+            1, selected_topology[:, None, None].expand(-1, 1, 2)
+        ).squeeze(1)
+        camera_loss = F.smooth_l1_loss(selected_camera, camera_target)
+        camera_smooth_loss = (selected_camera - camera_orientation).square().mean()
+        loss = (
+            trajectory_loss
+            + self.score_weight * score_loss
+            + self.rank_weight * rank_loss
+            + self.camera_weight * camera_loss
+            + self.camera_smooth_weight * camera_smooth_loss
+        )
 
         return loss, {
             "trajectory": trajectory_loss,
@@ -78,8 +96,11 @@ class YOPOOmniLoss(nn.Module):
             "acc": acc_cost.mean(),
             "safety": safety_cost.mean(),
             "intent": intent_cost.mean(),
+            "altitude": altitude_cost.mean(),
             "explore": explore_loss,
             "guide": guide_loss,
+            "camera": camera_loss,
+            "camera_smooth": camera_smooth_loss,
         }
 
     def intent_loss(self, end_pos_b, vdes_b):
@@ -87,6 +108,14 @@ class YOPOOmniLoss(nn.Module):
         progress = (end_pos_b * vdes_norm[:, None, :]).sum(dim=-1)
         lateral = end_pos_b - progress[..., None] * vdes_norm[:, None, :]
         return F.softplus(float(cfg["omni_intent_min_progress"]) - progress) + 0.1 * lateral.norm(dim=-1)
+
+    @staticmethod
+    def altitude_loss(start_state_w, end_state_w):
+        """Keep the fixed-altitude YOPO-Simple task level in world coordinates."""
+        delta_z = end_state_w[:, :, 0, 2] - start_state_w[:, None, 0, 2]
+        end_vz = end_state_w[:, :, 1, 2]
+        end_az = end_state_w[:, :, 2, 2]
+        return delta_z.square() + 0.25 * end_vz.square() + 0.05 * end_az.square()
 
     def explore_loss(self, end_pos_b):
         if self.explore_weight <= 0:
@@ -145,6 +174,7 @@ class YOPOOmniLoss(nn.Module):
         self.accele_weight = cfg["wa"] / vel_scale ** 3
         self.safety_weight = cfg["wc"]
         self.intent_weight = cfg["wi"]
+        self.altitude_weight = float(cfg["wh"])
         self.explore_weight = float(cfg["w_explore"])
         self.explore_beta = float(cfg["omni_explore_beta"])
         if self.explore_beta <= 0:

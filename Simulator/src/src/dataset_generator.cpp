@@ -438,87 +438,30 @@ void saveDepthAs16BitPNG(const cv::Mat &depth_float, float max_depth_dist, const
     cv::imwrite(filepath, depth_scaled);
 }
 
-float weightedQuantileDepth(std::vector<std::pair<float, float>> depth_weights, float quantile)
+void renderInsight9DepthImage(GridMap *grid_map,
+                              const CameraParams &camera,
+                              cudaMat::SE3<float> &T_wc,
+                              float min_depth,
+                              float accuracy_ratio,
+                              std::default_random_engine &generator,
+                              cv::Mat &depth_image)
 {
-    if (depth_weights.empty())
-        return 0.0f;
-    std::sort(depth_weights.begin(), depth_weights.end(),
-              [](const auto &lhs, const auto &rhs) { return lhs.first < rhs.first; });
-    float total_weight = 0.0f;
-    for (const auto &item : depth_weights)
-        total_weight += item.second;
-    if (total_weight <= 1e-6f)
-        return depth_weights.front().first;
-
-    float target = std::clamp(quantile, 0.0f, 1.0f) * total_weight;
-    float accum = 0.0f;
-    for (const auto &item : depth_weights)
-    {
-        accum += item.second;
-        if (accum >= target)
-            return item.first;
-    }
-    return depth_weights.back().first;
-}
-
-void renderToFSenseMImage(GridMap *grid_map,
-                          const CameraParams &tof_camera,
-                          cudaMat::SE3<float> &T_wc,
-                          int zone_subsample,
-                          float depth_quantile,
-                          float noise_std,
-                          float far_noise_std,
-                          float signal_floor,
-                          float min_depth,
-                          std::default_random_engine &generator,
-                          cv::Mat &tof_image)
-{
-    const int subsample = std::max(1, zone_subsample);
-    CameraParams sub_camera = tof_camera;
-    const float tan_half_x = (0.5f * tof_camera.image_width) / tof_camera.fx;
-    const float tan_half_y = (0.5f * tof_camera.image_height) / tof_camera.fy;
-    sub_camera.image_width = tof_camera.image_width * subsample;
-    sub_camera.image_height = tof_camera.image_height * subsample;
-    sub_camera.fx = (0.5f * sub_camera.image_width) / tan_half_x;
-    sub_camera.fy = (0.5f * sub_camera.image_height) / tan_half_y;
-    sub_camera.cx = 0.5f * (sub_camera.image_width - 1);
-    sub_camera.cy = 0.5f * (sub_camera.image_height - 1);
-
-    cv::Mat sub_depth;
-    renderDepthImage(grid_map, &sub_camera, T_wc, sub_depth);
-
-    tof_image.create(tof_camera.image_height, tof_camera.image_width, CV_32FC1);
-    std::normal_distribution<float> normal_distribution(0.0f, 1.0f);
-    const float max_depth = tof_camera.max_depth_dist;
-
-    for (int zone_v = 0; zone_v < tof_camera.image_height; ++zone_v)
-        for (int zone_u = 0; zone_u < tof_camera.image_width; ++zone_u)
+    renderDepthImage(grid_map, const_cast<CameraParams *>(&camera), T_wc, depth_image);
+    std::normal_distribution<float> noise(0.0f, 1.0f);
+    for (int row = 0; row < depth_image.rows; ++row)
+        for (int col = 0; col < depth_image.cols; ++col)
         {
-            std::vector<std::pair<float, float>> depth_weights;
-            depth_weights.reserve(subsample * subsample);
-            for (int sv = 0; sv < subsample; ++sv)
-                for (int su = 0; su < subsample; ++su)
-                {
-                    float depth = sub_depth.at<float>(zone_v * subsample + sv, zone_u * subsample + su);
-                    depth = std::clamp(depth, min_depth, max_depth);
-                    float normalized = depth / max_depth;
-                    float signal = depth >= max_depth - 1e-4f
-                                       ? signal_floor
-                                       : std::max(signal_floor, 1.0f / (depth * depth + 0.05f));
-                    signal *= std::max(0.05f, 1.0f - 0.35f * normalized * normalized);
-                    depth_weights.emplace_back(depth, signal);
-                }
-
-            float depth = weightedQuantileDepth(depth_weights, depth_quantile);
-            if (depth < max_depth - 1e-4f)
+            float depth = std::clamp(depth_image.at<float>(row, col), min_depth, camera.max_depth_dist);
+            if (depth < camera.max_depth_dist - 1e-4f)
             {
-                float normalized = depth / max_depth;
-                float sigma = noise_std + far_noise_std * normalized * normalized;
-                depth += sigma * normal_distribution(generator);
+                // The product sheet specifies <2% error at 3m.  Use one
+                // quarter of that bound as Gaussian sigma so approximately
+                // 95% of simulated samples remain inside the stated error.
+                const float sigma = std::max(0.001f, 0.25f * accuracy_ratio * depth);
+                depth += sigma * noise(generator);
             }
-            depth = std::clamp(depth, min_depth, max_depth);
-            depth = std::round(depth * 1000.0f) / 1000.0f;
-            tof_image.at<float>(zone_v, zone_u) = depth;
+            depth = std::clamp(depth, min_depth, camera.max_depth_dist);
+            depth_image.at<float>(row, col) = std::round(depth * 1000.0f) / 1000.0f;
         }
 }
 
@@ -556,25 +499,23 @@ int main(int argc, char **argv)
 {
     YAML::Node config = YAML::LoadFile(CONFIG_FILE_PATH);
 
-    // 1. 前向高清debug相机参数。只保存方便检查数据，不作为网络训练输入。
-    CameraParams debug_camera = loadCameraParams(config["camera"]);
-    float debug_camera_pitch_deg = config["camera"]["pitch"].as<float>();
-
-    // 2. ToF参数。训练数据使用Nooploop TOFSense-M等效8x8深度pixels。
-    YAML::Node tof_config = config["tof"] ? config["tof"] : config["camera"];
-    CameraParams tof_camera = loadCameraParams(tof_config);
-    float tof_pitch_deg = tof_config["pitch"].as<float>();
-    int tof_zone_subsample = tof_config["zone_subsample"] ? tof_config["zone_subsample"].as<int>() : 4;
-    float tof_depth_quantile = tof_config["depth_quantile"] ? tof_config["depth_quantile"].as<float>() : 0.35f;
-    float tof_noise_std = tof_config["noise_std"] ? tof_config["noise_std"].as<float>() : 0.015f;
-    float tof_far_noise_std = tof_config["far_noise_std"] ? tof_config["far_noise_std"].as<float>() : 0.08f;
-    float tof_signal_floor = tof_config["signal_floor"] ? tof_config["signal_floor"].as<float>() : 0.08f;
-    float tof_min_depth = tof_config["min_depth_dist"] ? tof_config["min_depth_dist"].as<float>() : 0.015f;
-    std::cout << "ToF model: " << (tof_config["model"] ? tof_config["model"].as<std::string>() : "pinhole")
-              << ", " << tof_camera.image_width << "x" << tof_camera.image_height
-              << ", FOV " << (tof_config["horizontal_fov_deg"] ? tof_config["horizontal_fov_deg"].as<float>() : 0.0f)
-              << "x" << (tof_config["vertical_fov_deg"] ? tof_config["vertical_fov_deg"].as<float>() : 0.0f)
-              << " deg, range [" << tof_min_depth << ", " << tof_camera.max_depth_dist
+    // 1. Insight 9 learning-stereo depth model and two-axis mount.
+    YAML::Node insight_config = config["insight9"];
+    CameraParams insight_camera = loadCameraParams(insight_config);
+    const float insight_min_depth = insight_config["min_depth_dist"].as<float>();
+    const float insight_accuracy_ratio = insight_config["depth_accuracy_ratio"].as<float>();
+    const float camera_pitch_limit_deg = insight_config["pitch_limit_deg"].as<float>();
+    const float camera_yaw_limit_deg = insight_config["yaw_limit_deg"].as<float>();
+    const float camera_mount_x = insight_config["mount_x"].as<float>();
+    const float camera_mount_y = insight_config["mount_y"].as<float>();
+    const float camera_mount_z = insight_config["mount_z"].as<float>();
+    std::cout << "Depth model: " << insight_config["model"].as<std::string>()
+              << ", native " << insight_config["native_image_width"].as<int>() << "x"
+              << insight_config["native_image_height"].as<int>() << ", train "
+              << insight_camera.image_width << "x" << insight_camera.image_height
+              << ", FOV " << insight_config["horizontal_fov_deg"].as<float>()
+              << "x" << insight_config["vertical_fov_deg"].as<float>()
+              << " deg, range [" << insight_min_depth << ", " << insight_camera.max_depth_dist
               << "] m" << std::endl;
 
     // 3. 地图参数
@@ -610,6 +551,7 @@ int main(int argc, char **argv)
     float dijkstra_resolution = config["omni"]["dijkstra_resolution"].as<float>();
     float dijkstra_inflation = config["omni"]["dijkstra_inflation"].as<float>();
     float astar_local_radius = config["omni"]["astar_local_radius"].as<float>();
+    float camera_gaze_lookahead = config["omni"]["camera_gaze_lookahead_m"].as<float>();
     float omni_goal_z_min = z_min + omni_goal_z_margin;
     float omni_goal_z_max = z_max - omni_goal_z_margin;
     if (omni_goal_z_min > omni_goal_z_max)
@@ -617,9 +559,6 @@ int main(int argc, char **argv)
         omni_goal_z_min = z_min;
         omni_goal_z_max = z_max;
     }
-
-    const std::array<std::string, 4> view_names = {"front", "left", "right", "back"};
-    const std::array<float, 4> view_yaws = {0.0f, 90.0f, -90.0f, 180.0f};
 
     // 中心对齐，计算偏移量
     int dataset_num = env_num * image_num;
@@ -689,7 +628,8 @@ int main(int argc, char **argv)
         std::ofstream sample_file(save_path + "samples-" + std::to_string(map_i) + ".csv");
         sample_file << "sample_id,pose_id,dir_idx,px,py,pz,qw,qx,qy,qz,"
                     << "vdes_bx,vdes_by,vdes_bz,goal_wx,goal_wy,goal_wz,"
-                    << "guide_offset,guide_len,guide_mask,guide_cost,selected_topology\n";
+                    << "guide_offset,guide_len,guide_mask,guide_cost,selected_topology,"
+                    << "camera_pitch,camera_yaw,camera_target_pitch,camera_target_yaw\n";
         std::ofstream guide_file(save_path + "guides-" + std::to_string(map_i) + ".csv");
         guide_file << "sample_id,point_idx,x,y,z\n";
         int guide_offset = 0;
@@ -716,36 +656,27 @@ int main(int argc, char **argv)
             float roll = std::clamp(normal_distribution(generator) * roll_range / 3.0f, -roll_range, roll_range);
             float pitch = std::clamp(normal_distribution(generator) * pitch_range / 3.0f, -pitch_range, pitch_range);
             float yaw = uniform_uniform(generator) * 360.0f;
+            const float camera_pitch_deg = (2.0f * uniform_uniform(generator) - 1.0f) * camera_pitch_limit_deg;
+            const float camera_yaw_deg = (2.0f * uniform_uniform(generator) - 1.0f) * camera_yaw_limit_deg;
+            const float camera_pitch_rad = camera_pitch_deg * M_PI / 180.0f;
+            const float camera_yaw_rad = camera_yaw_deg * M_PI / 180.0f;
 
             Eigen::Quaternionf quat = RPY2Quat(roll, pitch, yaw);
             Eigen::Matrix3f R_yaw = RPY2Quat(0.0f, 0.0f, yaw).toRotationMatrix();
             cudaMat::SE3<float> T_wb(quat.w(), quat.x(), quat.y(), quat.z(),
                                      pos.x(), pos.y(), pos.z());
 
-            for (size_t view_i = 0; view_i < view_names.size(); ++view_i)
-            {
-                Eigen::Quaternionf quat_bc_view = RPY2Quat(0.0f, tof_pitch_deg, view_yaws[view_i]);
-                cudaMat::SE3<float> T_bc(quat_bc_view.w(), quat_bc_view.x(), quat_bc_view.y(), quat_bc_view.z(),
-                                         0.0f, 0.0f, 0.0f);
-                cudaMat::SE3<float> T_wc = T_wb * T_bc;
-
-                cv::Mat depth_image;
-                renderToFSenseMImage(&grid_map, tof_camera, T_wc, tof_zone_subsample,
-                                      tof_depth_quantile, tof_noise_std, tof_far_noise_std,
-                                      tof_signal_floor, tof_min_depth, generator, depth_image);
-
-                std::string filename = image_path + "/img_" + std::to_string(image_i) + "_" + view_names[view_i] + ".png";
-                saveDepthAs16BitPNG(depth_image, tof_camera.max_depth_dist, filename);
-            }
-
-            Eigen::Quaternionf quat_bc_debug = RPY2Quat(0.0f, debug_camera_pitch_deg, 0.0f);
-            cudaMat::SE3<float> T_bc_debug(quat_bc_debug.w(), quat_bc_debug.x(), quat_bc_debug.y(), quat_bc_debug.z(),
-                                           0.0f, 0.0f, 0.0f);
-            cudaMat::SE3<float> T_wc_debug = T_wb * T_bc_debug;
-            cv::Mat debug_depth_image;
-            renderDepthImage(&grid_map, &debug_camera, T_wc_debug, debug_depth_image);
-            std::string debug_filename = image_path + "/img_" + std::to_string(image_i) + "_debug_front.png";
-            saveDepthAs16BitPNG(debug_depth_image, debug_camera.max_depth_dist, debug_filename);
+            Eigen::Quaternionf quat_bc_camera = RPY2Quat(0.0f, camera_pitch_deg, camera_yaw_deg);
+            cudaMat::SE3<float> T_bc_camera(
+                quat_bc_camera.w(), quat_bc_camera.x(), quat_bc_camera.y(), quat_bc_camera.z(),
+                camera_mount_x, camera_mount_y, camera_mount_z);
+            cudaMat::SE3<float> T_wc_camera = T_wb * T_bc_camera;
+            cv::Mat depth_image;
+            renderInsight9DepthImage(&grid_map, insight_camera, T_wc_camera,
+                                     insight_min_depth, insight_accuracy_ratio,
+                                     generator, depth_image);
+            std::string filename = image_path + "/img_" + std::to_string(image_i) + "_depth.png";
+            saveDepthAs16BitPNG(depth_image, insight_camera.max_depth_dist, filename);
 
             pose_file << std::fixed << std::setprecision(6)
                       << pos.x() << "," << pos.y() << "," << pos.z() << ","
@@ -757,8 +688,9 @@ int main(int argc, char **argv)
             {
                 int sample_id = image_i * omni_direction_num + dir_i;
                 float theta = sectorAngle(dir_i, omni_direction_num, generator);
-                Eigen::Vector3f vdes_b(std::cos(theta), std::sin(theta), 0.0f);
-                Eigen::Vector3f vdes_w = R_yaw * vdes_b;
+                Eigen::Vector3f vdes_yaw(std::cos(theta), std::sin(theta), 0.0f);
+                Eigen::Vector3f vdes_w = R_yaw * vdes_yaw;
+                Eigen::Vector3f vdes_b = R_wb.transpose() * vdes_w;
                 Eigen::Vector3f goal = pos + omni_goal_length * vdes_w.normalized();
                 goal.z() = std::clamp(goal.z(), omni_goal_z_min, omni_goal_z_max);
 
@@ -773,9 +705,33 @@ int main(int argc, char **argv)
                 int selected_topology = dir_i;
                 if (guide_success && guide_path.size() > 1)
                 {
-                    Eigen::Vector3f init_dir_b = R_yaw.transpose() * near_field_dir;
+                    Eigen::Vector3f init_dir_b = R_wb.transpose() * near_field_dir;
                     selected_topology = directionSector(init_dir_b, omni_direction_num);
                 }
+
+                Eigen::Vector3f gaze_point_w = goal;
+                if (guide_success && guide_path.size() > 1)
+                {
+                    gaze_point_w = guide_path.back();
+                    for (size_t path_i = 1; path_i < guide_path.size(); ++path_i)
+                    {
+                        gaze_point_w = guide_path[path_i];
+                        if ((gaze_point_w - pos).norm() >= camera_gaze_lookahead)
+                            break;
+                    }
+                }
+                Eigen::Vector3f gaze_dir_b = R_wb.transpose() * (gaze_point_w - pos);
+                const float gaze_horizontal = std::hypot(gaze_dir_b.x(), gaze_dir_b.y());
+                float camera_target_pitch = std::atan2(-gaze_dir_b.z(), std::max(1e-6f, gaze_horizontal));
+                float camera_target_yaw = std::atan2(gaze_dir_b.y(), gaze_dir_b.x());
+                camera_target_pitch = std::clamp(
+                    camera_target_pitch,
+                    -camera_pitch_limit_deg * static_cast<float>(M_PI) / 180.0f,
+                    camera_pitch_limit_deg * static_cast<float>(M_PI) / 180.0f);
+                camera_target_yaw = std::clamp(
+                    camera_target_yaw,
+                    -camera_yaw_limit_deg * static_cast<float>(M_PI) / 180.0f,
+                    camera_yaw_limit_deg * static_cast<float>(M_PI) / 180.0f);
 
                 sample_file << std::fixed << std::setprecision(6)
                             << sample_id << "," << image_i << "," << dir_i << ","
@@ -784,7 +740,9 @@ int main(int argc, char **argv)
                             << vdes_b.x() << "," << vdes_b.y() << "," << vdes_b.z() << ","
                             << goal.x() << "," << goal.y() << "," << goal.z() << ","
                             << guide_offset << "," << guide_len << "," << (guide_success ? 1 : 0) << ","
-                            << guide_cost << "," << selected_topology << "\n";
+                            << guide_cost << "," << selected_topology << ","
+                            << camera_pitch_rad << "," << camera_yaw_rad << ","
+                            << camera_target_pitch << "," << camera_target_yaw << "\n";
 
                 for (int path_i = 0; path_i < guide_len; ++path_i)
                 {

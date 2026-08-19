@@ -1,0 +1,12 @@
+.git
+.idea
+dataset*/
+YOPO/saved/
+Controller/build/
+Controller/devel/
+Simulator/build/
+Simulator/devel/
+**/__pycache__/
+*.pyc
+*.pth
+*.bag

@@ -32,7 +32,8 @@ def configure_random_seed(seed):
 
 def parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--pretrained", type=int, default=0, help="use pre-trained YOPO-Omni model?")
+    parser.add_argument("--pretrained", type=int, default=0, help="resume a YOPO active-perception model?")
+    parser.add_argument("--checkpoint", default="", help="Explicit checkpoint path to resume from.")
     parser.add_argument("--trial", type=int, default=0, help="trial of pre-trained model")
     parser.add_argument("--epoch", type=int, default=50, help="epoch of pre-trained model")
     parser.add_argument("--train-epoch", type=int, default=50, help="training epochs")
@@ -70,6 +71,8 @@ def parser():
                         help="Override wc.")
     parser.add_argument("--intent-weight", type=float, default=None,
                         help="Override wi.")
+    parser.add_argument("--altitude-weight", type=float, default=None,
+                        help="Override wh for fixed-altitude endpoint stability.")
     parser.add_argument("--intent-min-progress", type=float, default=None,
                         help="Override omni_intent_min_progress.")
     parser.add_argument("--explore-weight", type=float, default=None,
@@ -119,6 +122,8 @@ if __name__ == "__main__":
         cfg["wc"] = args.safety_weight
     if args.intent_weight is not None:
         cfg["wi"] = args.intent_weight
+    if args.altitude_weight is not None:
+        cfg["wh"] = args.altitude_weight
     if args.intent_min_progress is not None:
         cfg["omni_intent_min_progress"] = args.intent_min_progress
     if args.explore_weight is not None:
@@ -128,7 +133,7 @@ if __name__ == "__main__":
 
     log_dir = os.path.dirname(os.path.abspath(__file__)) + "/saved"
     os.makedirs(log_dir, exist_ok=True)
-    checkpoint_path = (
+    checkpoint_path = args.checkpoint or (
         log_dir + "/YOPO_{}/epoch{}.pth".format(args.trial, args.epoch)
         if args.pretrained
         else ""
@@ -142,5 +147,8 @@ if __name__ == "__main__":
         run_name=args.run_name,
         save_on_exit=True,
     )
-    trainer.train(epoch=args.train_epoch, save_interval=10)
-    print("Run YOPO-Omni Finish!")
+    try:
+        trainer.train(epoch=args.train_epoch, save_interval=10)
+    finally:
+        trainer.close()
+    print("Run YOPO active-perception training finish!")

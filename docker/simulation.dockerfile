@@ -13,37 +13,14 @@ ENV APT_RETRY_SLEEP=${APT_RETRY_SLEEP}
 
 # Setup basic packages
 RUN printf 'Acquire::Retries "8";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' > /etc/apt/apt.conf.d/99-network-retry
-RUN cat >/usr/local/bin/apt-install-retry <<'EOF' && chmod +x /usr/local/bin/apt-install-retry
-#!/usr/bin/env bash
-set -euo pipefail
-if [ "$#" -lt 1 ]; then
-  echo "usage: apt-install-retry <pkg1> [pkg2 ...]" >&2
-  exit 2
-fi
-max_retries="${APT_MAX_RETRIES:-12}"
-sleep_base="${APT_RETRY_SLEEP:-15}"
-for i in $(seq 1 "$max_retries"); do
-  echo "[apt-install-retry] attempt ${i}/${max_retries}: $*"
-  if apt-get -o Acquire::Retries=10 -o Acquire::http::Timeout=60 -o Acquire::https::Timeout=60 update && \
-     DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=10 -o Acquire::http::Timeout=60 -o Acquire::https::Timeout=60 \
-     install -y --no-install-recommends --fix-missing "$@"; then
-    rm -rf /var/lib/apt/lists/*
-    exit 0
-  fi
-  rc=$?
-  echo "[apt-install-retry] failed with exit=${rc}, retrying..." >&2
-  rm -rf /var/lib/apt/lists/*
-  sleep "$(( sleep_base * i ))"
-done
-echo "[apt-install-retry] exhausted retries for: $*" >&2
-exit 1
-EOF
+COPY docker/apt-install-retry.sh /usr/local/bin/apt-install-retry
+RUN chmod +x /usr/local/bin/apt-install-retry
 
 RUN ln -snf /usr/share/zoneinfo/${TZ} /etc/localtime && \
     echo ${TZ} > /etc/timezone && \
     apt-get update && \
     apt-get install -y --no-install-recommends --fix-missing \
-    tzdata ca-certificates curl wget gnupg2 lsb-release software-properties-common joystick
+    tzdata ca-certificates curl wget gnupg2 lsb-release software-properties-common v4l-utils
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends --fix-missing \
@@ -79,6 +56,22 @@ RUN wget -q https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}
     cmake --version && \
     rm -f /tmp/cmake.sh
 
+# Official Looper Robotics Insight 9 Linux SDK, pinned for reproducibility.
+# The ROS bridge is conditionally built when these headers/library are present.
+ARG INSIGHT9_SDK_COMMIT=afddfacde54323eb3484136e82ced189c9ee90ab
+RUN git clone --filter=blob:none --no-checkout https://github.com/LooperRobotics/insight-sdk.git /tmp/insight-sdk && \
+    git -C /tmp/insight-sdk sparse-checkout init --cone && \
+    git -C /tmp/insight-sdk sparse-checkout set Linux-SDK && \
+    git -C /tmp/insight-sdk checkout "${INSIGHT9_SDK_COMMIT}" && \
+    cmake -S /tmp/insight-sdk/Linux-SDK -B /tmp/insight-sdk/build \
+      -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local && \
+    cmake --build /tmp/insight-sdk/build --target insight9 -j"$(nproc)" && \
+    cp -a /tmp/insight-sdk/build/libinsight9.so* /usr/local/lib/ && \
+    install -m 0644 /tmp/insight-sdk/Linux-SDK/Insight_9_receive.h /usr/local/include/ && \
+    install -m 0644 /tmp/insight-sdk/Linux-SDK/UvcExtensionUnit.hpp /usr/local/include/ && \
+    ldconfig && \
+    rm -rf /tmp/insight-sdk
+
 # -----------------------------------------------------
 # ROS and relevant infra
 ENV ROS_DISTRO=noetic
@@ -101,10 +94,32 @@ WORKDIR /workspace
 # -----------------------------------------------------
 # YOPO python dependencies (no conda/mamba/uv)
 COPY docker/requirements.txt /tmp/yopo-requirements.txt
+COPY docker/download-pinned-wheels.py /usr/local/bin/download-pinned-wheels
+ARG TORCH_WHEEL_URL=https://download-r2.pytorch.org/whl/cu118/torch-2.4.1%2Bcu118-cp38-cp38-linux_x86_64.whl
+RUN apt-install-retry aria2
+RUN aria2c --console-log-level=warn --summary-interval=30 \
+      --max-connection-per-server=16 --split=16 --min-split-size=1M \
+      --file-allocation=none --dir=/tmp \
+      --out=torch-2.4.1+cu118-cp38-cp38-linux_x86_64.whl \
+      "${TORCH_WHEEL_URL}" && \
+    python3 -m pip install --no-cache-dir --no-deps \
+      /tmp/torch-2.4.1+cu118-cp38-cp38-linux_x86_64.whl && \
+    rm -f /tmp/torch-2.4.1+cu118-cp38-cp38-linux_x86_64.whl
+RUN python3 /usr/local/bin/download-pinned-wheels \
+      --output-dir /tmp/torch-cuda-wheels \
+      --aria-input /tmp/torch-cuda-wheels.txt && \
+    aria2c --console-log-level=warn --summary-interval=30 \
+      --max-concurrent-downloads=12 --max-connection-per-server=16 \
+      --split=16 --min-split-size=1M --file-allocation=none \
+      --input-file=/tmp/torch-cuda-wheels.txt && \
+    python3 -m pip install --no-cache-dir --no-deps /tmp/torch-cuda-wheels/*.whl && \
+    rm -rf /tmp/torch-cuda-wheels /tmp/torch-cuda-wheels.txt
 RUN python3 -m pip install --no-cache-dir --ignore-installed "PyYAML>=6.0.1,<7" && \
     python3 -m pip install --no-cache-dir --ignore-installed -r /tmp/yopo-requirements.txt && \
     python3 -m pip install --no-cache-dir --ignore-installed "empy==3.3.4" && \
-    rm -f /tmp/yopo-requirements.txt
+    rm -f /tmp/yopo-requirements.txt && \
+    python3 -m pip check && \
+    python3 -c "import torch; print(torch.__version__, torch.version.cuda)"
 
 # RUN rm -rf /var/lib/apt/lists/* && apt-get clean
 ENV GLOG_minloglevel=2

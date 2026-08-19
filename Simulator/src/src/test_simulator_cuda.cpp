@@ -11,6 +11,7 @@
 #include <nav_msgs/Odometry.h>
 #include <sensor_msgs/Image.h>
 #include <std_msgs/Int32.h>
+#include <geometry_msgs/Vector3.h>
 #include <pcl_ros/point_cloud.h>
 #include <cv_bridge/cv_bridge.h>
 #include <algorithm>
@@ -47,87 +48,24 @@ CameraParams loadCameraParams(const YAML::Node &config)
     return camera;
 }
 
-float weightedQuantileDepth(std::vector<std::pair<float, float>> depth_weights, float quantile)
+void renderInsight9DepthImage(GridMap *grid_map,
+                              const CameraParams &camera,
+                              cudaMat::SE3<float> &T_wc,
+                              float min_depth,
+                              float accuracy_ratio,
+                              std::default_random_engine &generator,
+                              cv::Mat &depth_image)
 {
-    if (depth_weights.empty())
-        return 0.0f;
-    std::sort(depth_weights.begin(), depth_weights.end(),
-              [](const auto &lhs, const auto &rhs) { return lhs.first < rhs.first; });
-    float total_weight = 0.0f;
-    for (const auto &item : depth_weights)
-        total_weight += item.second;
-    if (total_weight <= 1e-6f)
-        return depth_weights.front().first;
-
-    float target = std::clamp(quantile, 0.0f, 1.0f) * total_weight;
-    float accum = 0.0f;
-    for (const auto &item : depth_weights)
-    {
-        accum += item.second;
-        if (accum >= target)
-            return item.first;
-    }
-    return depth_weights.back().first;
-}
-
-void renderToFSenseMImage(GridMap *grid_map,
-                          const CameraParams &tof_camera,
-                          cudaMat::SE3<float> &T_wc,
-                          int zone_subsample,
-                          float depth_quantile,
-                          float noise_std,
-                          float far_noise_std,
-                          float signal_floor,
-                          float min_depth,
-                          std::default_random_engine &generator,
-                          cv::Mat &tof_image)
-{
-    const int subsample = std::max(1, zone_subsample);
-    CameraParams sub_camera = tof_camera;
-    const float tan_half_x = (0.5f * tof_camera.image_width) / tof_camera.fx;
-    const float tan_half_y = (0.5f * tof_camera.image_height) / tof_camera.fy;
-    sub_camera.image_width = tof_camera.image_width * subsample;
-    sub_camera.image_height = tof_camera.image_height * subsample;
-    sub_camera.fx = (0.5f * sub_camera.image_width) / tan_half_x;
-    sub_camera.fy = (0.5f * sub_camera.image_height) / tan_half_y;
-    sub_camera.cx = 0.5f * (sub_camera.image_width - 1);
-    sub_camera.cy = 0.5f * (sub_camera.image_height - 1);
-
-    cv::Mat sub_depth;
-    renderDepthImage(grid_map, &sub_camera, T_wc, sub_depth);
-
-    tof_image.create(tof_camera.image_height, tof_camera.image_width, CV_32FC1);
-    std::normal_distribution<float> normal_distribution(0.0f, 1.0f);
-    const float max_depth = tof_camera.max_depth_dist;
-
-    for (int zone_v = 0; zone_v < tof_camera.image_height; ++zone_v)
-        for (int zone_u = 0; zone_u < tof_camera.image_width; ++zone_u)
+    renderDepthImage(grid_map, const_cast<CameraParams *>(&camera), T_wc, depth_image);
+    std::normal_distribution<float> noise(0.0f, 1.0f);
+    for (int row = 0; row < depth_image.rows; ++row)
+        for (int col = 0; col < depth_image.cols; ++col)
         {
-            std::vector<std::pair<float, float>> depth_weights;
-            depth_weights.reserve(subsample * subsample);
-            for (int sv = 0; sv < subsample; ++sv)
-                for (int su = 0; su < subsample; ++su)
-                {
-                    float depth = sub_depth.at<float>(zone_v * subsample + sv, zone_u * subsample + su);
-                    depth = std::clamp(depth, min_depth, max_depth);
-                    float normalized = depth / max_depth;
-                    float signal = depth >= max_depth - 1e-4f
-                                       ? signal_floor
-                                       : std::max(signal_floor, 1.0f / (depth * depth + 0.05f));
-                    signal *= std::max(0.05f, 1.0f - 0.35f * normalized * normalized);
-                    depth_weights.emplace_back(depth, signal);
-                }
-
-            float depth = weightedQuantileDepth(depth_weights, depth_quantile);
-            if (depth < max_depth - 1e-4f)
-            {
-                float normalized = depth / max_depth;
-                float sigma = noise_std + far_noise_std * normalized * normalized;
-                depth += sigma * normal_distribution(generator);
-            }
-            depth = std::clamp(depth, min_depth, max_depth);
-            depth = std::round(depth * 1000.0f) / 1000.0f;
-            tof_image.at<float>(zone_v, zone_u) = depth;
+            float depth = std::clamp(depth_image.at<float>(row, col), min_depth, camera.max_depth_dist);
+            if (depth < camera.max_depth_dist - 1e-4f)
+                depth += std::max(0.001f, 0.25f * accuracy_ratio * depth) * noise(generator);
+            depth_image.at<float>(row, col) = std::round(
+                std::clamp(depth, min_depth, camera.max_depth_dist) * 1000.0f) / 1000.0f;
         }
 }
 
@@ -135,27 +73,24 @@ class SensorSimulator {
 public:
     SensorSimulator(ros::NodeHandle &nh) : nh_(nh) {
         YAML::Node config = YAML::LoadFile(CONFIG_FILE_PATH);
-        // 读取前向高清debug相机参数
-        debug_camera = new CameraParams();
-        *debug_camera = loadCameraParams(config["camera"]);
-        debug_camera_pitch_rad = config["camera"]["pitch"].as<float>() * M_PI / 180.0f;
-
-        // 读取Nooploop TOFSense-M等效ToF参数，四向8x8 depth pixels作为网络输入
-        YAML::Node tof_config = config["tof"] ? config["tof"] : config["camera"];
-        tof_camera = new CameraParams();
-        *tof_camera = loadCameraParams(tof_config);
-        tof_pitch_rad = tof_config["pitch"].as<float>() * M_PI / 180.0f;
-        tof_zone_subsample_ = tof_config["zone_subsample"] ? tof_config["zone_subsample"].as<int>() : 4;
-        tof_depth_quantile_ = tof_config["depth_quantile"] ? tof_config["depth_quantile"].as<float>() : 0.35f;
-        tof_noise_std_ = tof_config["noise_std"] ? tof_config["noise_std"].as<float>() : 0.015f;
-        tof_far_noise_std_ = tof_config["far_noise_std"] ? tof_config["far_noise_std"].as<float>() : 0.08f;
-        tof_signal_floor_ = tof_config["signal_floor"] ? tof_config["signal_floor"].as<float>() : 0.08f;
-        tof_min_depth_ = tof_config["min_depth_dist"] ? tof_config["min_depth_dist"].as<float>() : 0.015f;
-        std::cout << "ToF model: " << (tof_config["model"] ? tof_config["model"].as<std::string>() : "pinhole")
-                  << ", " << tof_camera->image_width << "x" << tof_camera->image_height
-                  << ", FOV " << (tof_config["horizontal_fov_deg"] ? tof_config["horizontal_fov_deg"].as<float>() : 0.0f)
-                  << "x" << (tof_config["vertical_fov_deg"] ? tof_config["vertical_fov_deg"].as<float>() : 0.0f)
-                  << " deg, range [" << tof_min_depth_ << ", " << tof_camera->max_depth_dist
+        YAML::Node insight_config = config["insight9"];
+        insight_camera = new CameraParams();
+        *insight_camera = loadCameraParams(insight_config);
+        insight_min_depth_ = insight_config["min_depth_dist"].as<float>();
+        insight_accuracy_ratio_ = insight_config["depth_accuracy_ratio"].as<float>();
+        camera_mount_ = Eigen::Vector3f(
+            insight_config["mount_x"].as<float>(),
+            insight_config["mount_y"].as<float>(),
+            insight_config["mount_z"].as<float>());
+        camera_pitch_limit_ = insight_config["pitch_limit_deg"].as<float>() * M_PI / 180.0f;
+        camera_yaw_limit_ = insight_config["yaw_limit_deg"].as<float>() * M_PI / 180.0f;
+        camera_servo_tau_ = insight_config["servo_tau_s"].as<float>();
+        camera_servo_max_rate_ = insight_config["servo_max_rate_deg_s"].as<float>() * M_PI / 180.0f;
+        std::cout << "Depth model: " << insight_config["model"].as<std::string>()
+                  << ", " << insight_camera->image_width << "x" << insight_camera->image_height
+                  << ", FOV " << insight_config["horizontal_fov_deg"].as<float>()
+                  << "x" << insight_config["vertical_fov_deg"].as<float>()
+                  << " deg, range [" << insight_min_depth_ << ", " << insight_camera->max_depth_dist
                   << "] m" << std::endl;
 
         // 读取lidar参数
@@ -235,12 +170,13 @@ public:
 
         // ROS
         image_pub_ = nh_.advertise<sensor_msgs::Image>(depth_topic, 1);
-        const std::array<std::string, 4> view_names = {"front", "left", "right", "back"};
-        for (const auto &view_name : view_names)
-            image_pubs_.push_back(nh_.advertise<sensor_msgs::Image>(depth_topic + "_" + view_name, 1));
+        camera_state_pub_ = nh_.advertise<geometry_msgs::Vector3>("/yopo/camera/orientation", 1);
         point_cloud_pub_ = nh_.advertise<sensor_msgs::PointCloud2>(lidar_topic, 1);
         collision_counter_total_pub_ = nh_.advertise<std_msgs::Int32>("/yopo/collision_counter_total", 1);
         odom_sub_ = nh_.subscribe(odom_topic, 1, &SensorSimulator::odomCallback, this, ros::TransportHints().tcpNoDelay());
+        camera_command_sub_ = nh_.subscribe(
+            "/yopo/camera/command", 1, &SensorSimulator::cameraCommandCallback, this,
+            ros::TransportHints().tcpNoDelay());
         timer_map_   = nh_.createTimer(ros::Duration(1), &SensorSimulator::timerMapCallback, this);
 
         printf("3.Simulation Ready! \n");
@@ -257,27 +193,26 @@ public:
 
     void publishCollisionCounterTotal();
 
+    void cameraCommandCallback(const geometry_msgs::Vector3::ConstPtr &msg);
+
 private:
     bool render_depth{false};
     bool render_lidar{false};
     Eigen::Quaternionf quat;
     Eigen::Quaternionf quat_bc, quat_wc;
-    float debug_camera_pitch_rad{0.0f};
-    float tof_pitch_rad{0.0f};
     Eigen::Vector3f pos;
+    Eigen::Vector3f camera_mount_{0.10f, 0.0f, 0.03f};
 
-    CameraParams* debug_camera;
-    CameraParams* tof_camera;
+    CameraParams* insight_camera;
     LidarParams* lidar;
     GridMap* grid_map;
     sensor_msgs::PointCloud2 output;
     
     ros::NodeHandle nh_;
-    ros::Publisher image_pub_, point_cloud_pub_;
-    std::vector<ros::Publisher> image_pubs_;
+    ros::Publisher image_pub_, point_cloud_pub_, camera_state_pub_;
     ros::Publisher pcl_pub;
     ros::Publisher collision_counter_total_pub_;
-    ros::Subscriber odom_sub_;
+    ros::Subscriber odom_sub_, camera_command_sub_;
     ros::Timer timer_depth_, timer_lidar_, timer_map_;
 
     ros::Time next_depth_pub_time, next_lidar_pub_time;
@@ -285,13 +220,16 @@ private:
     double depth_time{0.0}, lidar_time{0.0};
     int depth_count{0}, lidar_count{0};
     int collision_counter_total_{0};
-    int tof_zone_subsample_{4};
-    float tof_depth_quantile_{0.35f};
-    float tof_noise_std_{0.015f};
-    float tof_far_noise_std_{0.08f};
-    float tof_signal_floor_{0.08f};
-    float tof_min_depth_{0.015f};
-    std::default_random_engine tof_noise_generator_{3};
+    float insight_min_depth_{0.19f};
+    float insight_accuracy_ratio_{0.02f};
+    float camera_pitch_limit_{M_PI / 3.0f};
+    float camera_yaw_limit_{M_PI / 4.0f};
+    float camera_servo_tau_{0.25f};
+    float camera_servo_max_rate_{2.0f * M_PI / 3.0f};
+    float camera_pitch_{0.0f}, camera_yaw_{0.0f};
+    float camera_target_pitch_{0.0f}, camera_target_yaw_{0.0f};
+    ros::Time last_camera_update_;
+    std::default_random_engine insight_noise_generator_{3};
     // mocka::Maps map;
 };
 
@@ -303,41 +241,45 @@ void SensorSimulator::renderDepthCallback(const ros::Time stamp) {
 
     auto start = std::chrono::high_resolution_clock::now();
 
-    const std::array<float, 4> view_yaws = {0.0f, M_PI / 2.0f, -M_PI / 2.0f, M_PI};
-    for (size_t i = 0; i < view_yaws.size(); ++i) {
-        Eigen::AngleAxisf yaw_view(view_yaws[i], Eigen::Vector3f::UnitZ());
-        Eigen::AngleAxisf pitch_view(tof_pitch_rad, Eigen::Vector3f::UnitY());
-        Eigen::Quaternionf quat_wc_view = quat * Eigen::Quaternionf(yaw_view * pitch_view);
-        cudaMat::SE3<float> T_wc(quat_wc_view.w(), quat_wc_view.x(), quat_wc_view.y(), quat_wc_view.z(),
-                                  pos.x(), pos.y(), pos.z());
-        cv::Mat depth_image;
-        renderToFSenseMImage(grid_map, *tof_camera, T_wc, tof_zone_subsample_,
-                             tof_depth_quantile_, tof_noise_std_, tof_far_noise_std_,
-                             tof_signal_floor_, tof_min_depth_, tof_noise_generator_, depth_image);
+    const ros::Time update_stamp = stamp.isZero() ? ros::Time::now() : stamp;
+    float dt = depth_pub_duration.toSec();
+    if (!last_camera_update_.isZero())
+        dt = std::clamp(static_cast<float>((update_stamp - last_camera_update_).toSec()), 0.0f, 0.2f);
+    last_camera_update_ = update_stamp;
+    const auto servo_step = [this, dt](float current, float target, float limit) {
+        const float rate = std::clamp(
+            (target - current) / std::max(1e-3f, camera_servo_tau_),
+            -camera_servo_max_rate_, camera_servo_max_rate_);
+        return std::clamp(current + rate * dt, -limit, limit);
+    };
+    camera_pitch_ = servo_step(camera_pitch_, camera_target_pitch_, camera_pitch_limit_);
+    camera_yaw_ = servo_step(camera_yaw_, camera_target_yaw_, camera_yaw_limit_);
 
-        sensor_msgs::Image ros_image;
-        cv_bridge::CvImage cv_image;
-        cv_image.header.stamp = stamp;
-        cv_image.encoding = sensor_msgs::image_encodings::TYPE_32FC1;
-        cv_image.image = depth_image;
-        cv_image.toImageMsg(ros_image);
-        image_pubs_[i].publish(ros_image);
-    }
+    Eigen::AngleAxisf yaw_view(camera_yaw_, Eigen::Vector3f::UnitZ());
+    Eigen::AngleAxisf pitch_view(camera_pitch_, Eigen::Vector3f::UnitY());
+    Eigen::Quaternionf quat_wc_camera = quat * Eigen::Quaternionf(yaw_view * pitch_view);
+    Eigen::Vector3f camera_pos = pos + quat * camera_mount_;
+    cudaMat::SE3<float> T_wc(
+        quat_wc_camera.w(), quat_wc_camera.x(), quat_wc_camera.y(), quat_wc_camera.z(),
+        camera_pos.x(), camera_pos.y(), camera_pos.z());
+    cv::Mat depth_image;
+    renderInsight9DepthImage(grid_map, *insight_camera, T_wc, insight_min_depth_,
+                             insight_accuracy_ratio_, insight_noise_generator_, depth_image);
 
-    Eigen::AngleAxisf debug_pitch_view(debug_camera_pitch_rad, Eigen::Vector3f::UnitY());
-    Eigen::Quaternionf quat_wc_debug = quat * Eigen::Quaternionf(debug_pitch_view);
-    cudaMat::SE3<float> T_wc_debug(quat_wc_debug.w(), quat_wc_debug.x(), quat_wc_debug.y(), quat_wc_debug.z(),
-                                   pos.x(), pos.y(), pos.z());
-    cv::Mat debug_depth_image;
-    renderDepthImage(grid_map, debug_camera, T_wc_debug, debug_depth_image);
+    sensor_msgs::Image ros_image;
+    cv_bridge::CvImage cv_image;
+    cv_image.header.stamp = stamp;
+    cv_image.header.frame_id = "insight9_optical_frame";
+    cv_image.encoding = sensor_msgs::image_encodings::TYPE_32FC1;
+    cv_image.image = depth_image;
+    cv_image.toImageMsg(ros_image);
+    image_pub_.publish(ros_image);
 
-    sensor_msgs::Image debug_ros_image;
-    cv_bridge::CvImage debug_cv_image;
-    debug_cv_image.header.stamp = stamp;
-    debug_cv_image.encoding = sensor_msgs::image_encodings::TYPE_32FC1;
-    debug_cv_image.image = debug_depth_image;
-    debug_cv_image.toImageMsg(debug_ros_image);
-    image_pub_.publish(debug_ros_image);
+    geometry_msgs::Vector3 camera_state;
+    camera_state.x = camera_pitch_;
+    camera_state.y = camera_yaw_;
+    camera_state.z = 0.0;
+    camera_state_pub_.publish(camera_state);
     
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
@@ -345,6 +287,11 @@ void SensorSimulator::renderDepthCallback(const ros::Time stamp) {
     depth_count++;
     // std::cout << "生成图像耗时: " << elapsed.count() << " 秒" << std::endl;
 
+}
+
+void SensorSimulator::cameraCommandCallback(const geometry_msgs::Vector3::ConstPtr &msg) {
+    camera_target_pitch_ = std::clamp(static_cast<float>(msg->x), -camera_pitch_limit_, camera_pitch_limit_);
+    camera_target_yaw_ = std::clamp(static_cast<float>(msg->y), -camera_yaw_limit_, camera_yaw_limit_);
 }
 
 void SensorSimulator::timerMapCallback(const ros::TimerEvent&) {

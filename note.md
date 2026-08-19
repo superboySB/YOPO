@@ -1,22 +1,84 @@
-# YOPO-Omni Docker 速记
+# YOPO Active Perception 复现手册
 
-## 配置
-在宿主机进入项目根目录：
+本文对应分支 `active-perception`。系统保留 YOPO-Simple 的“给目标点后自主飞行”方式，删除手柄辅助驾驶，并让策略用一幅可转动 Looper Robotics Insight 9 深度图同时输出：
+
+1. 8 条候选五次多项式轨迹的末端状态与代价；
+2. 与选中轨迹绑定的二自由度相机目标角（pitch/yaw）。
+
+规划器在收到 `/move_base_simple/goal` 前只悬停，不会再沿历史默认目标自行起飞。
+
+## 1. 已实现架构
+
+```text
+Insight 9 Z16/仿真 32FC1 depth
+          │  单帧 544×640，运行前缩放为 160×192
+          ▼
+历史 ResNet-18 backbone（恢复自 ToFSense-M 切换前代码）
+          │  带二维位置编码的空间 token
+          ▼
+Transformer decoder ◄── UAV v/a/v_des + 当前相机 pitch/yaw（11维）
+          │
+          ├── 8 × [末端 p/v/a + score]
+          └── 8 × [camera pitch/yaw]
+                         │
+                         ▼
+             一阶舵机 + 限速模型 / 实际云台
+```
+
+恢复的历史 backbone 位于 `YOPO/policy/models/`。原 ResNet 在提交 `79899a3`（`switch to tofsense-m`）中因 8×8 ToF 输入而被移除；当前高维深度图重新使用 ResNet-18，再将 CNN 空间特征送入 Transformer。
+
+相机模型参考 `/home/dzp/projects/active-perception-RL-navigation/note.md`：pitch/yaw 两轴、一阶时间常数 0.25 s、最大角速度 120 deg/s、pitch ±60 deg、yaw ±45 deg。区别是这里没有 RL action/rollout；监督来自 YOPO 地图、深度图、ESDF 代价、A* 引导路径和解析式 gaze target。
+
+YOPO-Simple 固定高度任务继续使用 RViz `2D Nav Goal`。网络仍学习三维候选轨迹，但在线控制把选中轨迹的终端高度约束到目标高度，以消除高频重规划的垂直漂移；训练中也加入了世界系高度稳定损失。
+
+## 2. Insight 9 参数依据
+
+官方资料：
+
+- 产品页：<https://looper-robotics.com/home/product/insight-9/>
+- 产品手册 v3.0：<https://prod-us-sv-alicloud-looper-robotics-deepmirror-s3.oss-us-west-1.aliyuncs.com/web/products/pdf/v3.0_Insight%209_EN_20260715.pdf>
+- Linux SDK：<https://github.com/LooperRobotics/insight-sdk>
+- Docker 固定 SDK commit：`afddfacde54323eb3484136e82ced189c9ee90ab`
+
+代码采用的参数如下：
+
+| 项目 | 值 |
+|---|---:|
+| 深度输出 | Z16，最大 544×640 |
+| 深度帧率 | 最大 15 Hz |
+| 对角/水平/垂直 FoV | 157.2° / 96.8° / 115.6° |
+| 最近深度 | 约 0.19 m |
+| 理想量程 | 0.3–30 m |
+| 训练/在线截断 | 20 m |
+| 3 m 深度精度 | 小于 2% |
+| 尺寸 | 129×33.9×35 mm |
+| 重量 | 176 g |
+| 接口 | USB-C 3.1 |
+| VIO / IMU | 最高 100 Hz / 400 Hz，BMI088，±24 g |
+
+仿真深度会应用最近/最远量程、随距离增长且不超过 2% 的高斯误差以及毫米量化。网络分辨率为 160×192，保持 544×640 的宽高比与光学 FoV，显著高于旧 8×8 ToF。
+
+## 3. 分支、Docker 与编译
+
+宿主机：
+
 ```bash
 cd /home/dzp/projects/YOPO
-git switch omni-transformer
+git switch active-perception
+
+docker build --network=host \
+  -f docker/simulation.dockerfile \
+  -t dzp_yopo:active-perception-u2004-noetic-py38 .
 ```
 
-构建镜像：
-```bash
-docker build -f docker/simulation.dockerfile \
-  -t dzp_yopo:omni-u2004-noetic-py38 \
-  --progress=plain .
-```
+允许 RViz 使用 X11，并启动容器：
 
-启动容器：
 ```bash
-docker run --name dzp-yopo-omni -itd \
+xhost +SI:localuser:root
+HOST_XAUTHORITY="${XAUTHORITY:-/run/user/$(id -u)/gdm/Xauthority}"
+test -f "$HOST_XAUTHORITY"
+
+docker run --name dzp-yopo-active -itd \
   --privileged \
   --gpus all \
   --network host \
@@ -26,357 +88,328 @@ docker run --name dzp-yopo-omni -itd \
   -e QT_X11_NO_MITSHM=1 \
   -v "$HOST_XAUTHORITY:/root/.Xauthority:ro" \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
-  -v /dev/input:/dev/input \
+  -v /dev:/dev \
   --shm-size=4g \
   -v /home/dzp/projects/YOPO:/workspace/YOPO \
-  dzp_yopo:omni-u2004-noetic-py38
+  dzp_yopo:active-perception-u2004-noetic-py38
+
+docker exec -it dzp-yopo-active bash
 ```
 
-进入容器：
-```bash
-docker exec -it dzp-yopo-omni /bin/bash
-cd /workspace/YOPO
-```
+容器内编译：
 
-## 代码用法（容器内）
-```bash
-source /opt/ros/noetic/setup.bash
-python3 --version   # 期望 3.8.x
-```
-
-首次编译（只需一次，代码有 C++ 变更时重编）：
 ```bash
 cd /workspace/YOPO/Controller
-catkin_make
+source /opt/ros/noetic/setup.bash
+catkin_make -j2
 
 cd /workspace/YOPO/Simulator
-catkin_make
+source /opt/ros/noetic/setup.bash
+catkin_make -j2
+
+# 新镜像内应同时存在仿真器和真实相机桥
+test -x devel/lib/sensor_simulator/sensor_simulator_cuda
+test -x devel/lib/sensor_simulator/dataset_generator
+test -x devel/lib/sensor_simulator/insight9_ros_bridge
 ```
 
-## 采集 YOPO-Omni 数据
+## 4. 数据采集
 
-> 当前手柄辅助驾驶直接使用 `YOPO/saved/YOPO_0/epoch200.pth`，不需要重新采集或训练。不要为运行辅助驾驶执行下面的删除命令。
+默认正式配置是 10 张地图、每图 10,000 个相机位姿、每个位姿 8 个 desired direction，即 100,000 幅深度图和 800,000 条方向监督。
 
-默认采集 10 张地图，每张地图 10000 个位姿；每个位姿渲染 front/left/right/back 四个 TOFSense-M 等效 ToF 深度图，并展开 8 个 desired direction 样本。
+注意：生成器会重建 `--save-path` 指向的数据目录；若同名数据需要保留，先备份。
 
-ToF 输入为 8x8 pixels、水平/垂直 45 度 FoV、65 度对角 FoV、1.5cm 到 4m 量程；前向高清 debug 图只用于观察，不参与训练。
+快速冒烟采集（不会覆盖正式目录）：
 
-只有明确要从零训练、且已备份模型时，才清理旧数据和旧模型：
 ```bash
 cd /workspace/YOPO
-rm -rf dataset_omni
-rm -rf YOPO/saved/YOPO_0
+source /opt/ros/noetic/setup.bash
+python3 tools/run_yopo_pipeline.py \
+  --mode generate \
+  --env-num 2 \
+  --image-num 10 \
+  --save-path ../dataset_active_smoke
 ```
 
-采集正式数据集：
+正式采集：
+
 ```bash
 cd /workspace/YOPO
+source /opt/ros/noetic/setup.bash
 python3 tools/run_yopo_pipeline.py \
   --mode generate \
   --env-num 10 \
   --image-num 10000 \
-  --save-path ../dataset_omni
+  --save-path ../dataset_active_v2
 ```
 
-生成结果：
+生成结构：
+
 ```text
-dataset_omni/
-  0/img_0_front.png
-  0/img_0_left.png
-  0/img_0_right.png
-  0/img_0_back.png
-  0/img_0_debug_front.png
-  pose-0.csv
-  samples-0.csv
-  guides-0.csv
-  pointcloud-0.ply
+dataset_active_v2/
+  0/img_0_depth.png       # 单个可转动 Insight 9 视角，16-bit 归一化深度
+  pose-0.csv              # UAV 世界位姿
+  samples-0.csv           # 方向、目标、guide 索引、相机当前角/目标角
+  guides-0.csv            # A* 专家路径点
+  pointcloud-0.ply        # 训练安全损失使用的地图
+  ...
 ```
 
-`img_*_front/left/right/back.png` 是 8x8 TOFSense-M 深度图。每个 pixel 内部用多条子射线做小视锥聚合，再按 4m 量程截断并保存为 16-bit PNG，读取时归一化到 `[0, 1]`。
+`samples-*.csv` 为 25 列 active-perception schema。生成器会把期望速度和 A* 近场方向正确变换到包含 roll/pitch/yaw 的完整机体系；相机目标指向引导路径上约 4 m 的前视点，并受云台角度限制。
 
-`img_*_debug_front.png` 是 160x90 前向高清深度图，只用于人工检查采集场景，训练代码不会读取它。
+本次交付验收使用了较省时但仍覆盖 10 张独立地图的数据集：每图 500 位姿，共 5,000 幅深度图、40,000 条方向监督。生成目录为 `dataset_active_v2/`，约 229 MB；数据目录被 `.gitignore` 排除，但保留在本机工作区。
 
-## 训练 YOPO-Omni
-训练 200 epoch：
+## 5. 训练至少 50 epoch
+
+从零训练 50 epoch：
+
 ```bash
 cd /workspace/YOPO
+PYTHONPATH=/workspace/YOPO/YOPO \
+python3 YOPO/train_yopo.py \
+  --train-epoch 50 \
+  --batch-size 16 \
+  --run-name YOPO_Active_Repro
+```
+
+也可由统一流水线启动：
+
+```bash
 python3 tools/run_yopo_pipeline.py \
   --mode train \
-  --python python3 \
-  --dataset-path ../dataset_omni \
-  --train-epoch 200 \
+  --dataset-path ../dataset_active_v2 \
+  --train-epoch 50 \
   --batch-size 16 \
-  --num-workers 4
+  --run-name YOPO_Active_Repro
 ```
 
-查看 TensorBoard：
+从某个 checkpoint 继续训练：
+
 ```bash
-cd /workspace/YOPO/YOPO/saved
-tensorboard --logdir=./
+python3 YOPO/train_yopo.py \
+  --checkpoint YOPO/saved/YOPO_Active_Final/epoch50.pth \
+  --train-epoch 50 \
+  --run-name YOPO_Active_Finetune
 ```
 
-## 仿真测试
-启动 roscore、控制器、四向深度传感器、Omni 规划器和 RViz。脚本使用固定启动延时（controller 3 秒、sensor 7 秒、planner 11 秒、RViz 14 秒）；看到控制器输出 `TakeOff Done! Ready to Flight` 后再拨杆：
+TensorBoard：
+
+```bash
+tensorboard --logdir=/workspace/YOPO/YOPO/saved --bind_all
+```
+
+最终交付 checkpoint：
+
+```text
+YOPO/saved/YOPO_Active_Final/epoch50.pth
+SHA-256: 9f5deb248a67e047edb1870a7b7a491f06a7e17d29eabf446a1635e9aaca8bf9
+```
+
+本次实际训练集/验证集为 4,500/500 个 pose（有效方向样本 36,000/4,000）。第 50 轮验证结果：总 loss 5.04、score loss 0.45、camera loss 0.0152。训练正常退出并保存 epoch10/20/30/40/50。
+
+## 6. 离线模型验收
+
+网络 contract（含 CUDA backward）：
+
 ```bash
 cd /workspace/YOPO
+PYTHONPATH=/workspace/YOPO/YOPO \
+python3 tools/test_active_perception_contract.py --backward
+```
 
-bash tools/launch_sim.sh \
-  --weight /workspace/YOPO/YOPO/saved/YOPO_0/epoch200.pth \
-  --python python3 \
+预期关键输出：
+
+```text
+PASS device=cuda parameters=11,857,100
+single=(2, 8, 9), pose=(2, 8, 8, 9), backward=True
+```
+
+checkpoint、数据读取和归一化：
+
+```bash
+PYTHONPATH=/workspace/YOPO/YOPO \
+python3 tools/test_yopo_checkpoint.py \
+  --weight YOPO/saved/YOPO_Active_Final/epoch50.pth \
+  --num-batches 4 \
+  --strict-depth-range
+```
+
+本次实测 32 个 pose / 256 个方向样本全部通过，输出形状分别为 `[B,D,8,9]`、`[B,D,8]`、`[B,D,8,2]`；RTX 4070 Ti SUPER 上每个 8-pose batch 平均约 28.85 ms。
+
+## 7. 仿真、目标飞行和 RViz
+
+一条命令启动 roscore、控制器、Insight 9 云台深度仿真、规划器和 RViz：
+
+```bash
+cd /workspace/YOPO
+tools/launch_sim.sh \
+  --weight /workspace/YOPO/YOPO/saved/YOPO_Active_Final/epoch50.pth \
   --velocity 3.0 \
-  --max-depth 4.0 \
+  --max-depth 20 \
+  --goal-height 2.0 \
   --rviz-software-gl
 ```
 
-进入 tmux：
+若只做无界面 CI：
+
 ```bash
-tmux attach -t yopo_sim
+tools/launch_sim.sh --no-rviz --session yopo_active_ci
 ```
 
-停止仿真：
+查看/停止 tmux：
+
 ```bash
+tmux attach -t yopo_sim
 tmux kill-session -t yopo_sim
 ```
 
-注意，`tools/launch_sim.sh` 默认要求 `/dev/input/js0` 存在；设备缺失会退出，不会静默改成 Nav Goal 自行前飞。确实要用原来的 RViz `2D Nav Goal` 时必须显式传 `--no-joystick`。
+等待控制器输出 `TakeOff Done! Ready to Flight`。此时规划器日志应显示 `Waiting for /move_base_simple/goal`，无人机稳定悬停而不自行前飞。然后在 RViz 使用 `2D Nav Goal`，或发布一次目标：
 
-当前 `NATIONS RADIOMASTER SIM` 的实测映射如下。这里的数值是 `jstest --event` 显示的 Linux 原始轴值，不是 ROS Joy 消息编号：
-
-- 右杆 axis 1：`+32767` 前进，`-32767` 后退；
-- 右杆 axis 0：`-32767` 左移，`+32767` 右移；
-- 左杆 axis 2：`+32767` 上升，`-32767` 下降；
-- 左杆 axis 3：`-32767` 左转，`+32767` 右转。
-
-对应的默认启动参数是：
-
-| 操作 | Linux 轴 | 原始方向 | 启动参数 | 默认反向参数 |
-|---|---:|---|---|---:|
-| 右杆左右（左移/右移） | 0 | 左负、右正 | `--joystick-axis-x 0` | `--joystick-invert-x 1` |
-| 右杆上下（前进/后退） | 1 | 上正、下负 | `--joystick-axis-y 1` | `--joystick-invert-y 0` |
-| 左杆上下（上升/下降） | 2 | 上正、下负 | `--joystick-axis-z 2` | `--joystick-invert-z 0` |
-| 左杆左右（左转/右转） | 3 | 左负、右正 | `--joystick-axis-yaw 3` | `--joystick-invert-yaw 1` |
-
-`--joystick-axis-x/y/z/yaw` 表示“控制功能”，不要求新手柄也使用相同的物理 axis 编号。`invert=1` 表示把该 Linux 原始值乘以 `-1`。右杆默认还使用 `--joystick-swap-xy 1`，即物理上下轴映射前后速度、物理左右轴映射侧向速度。
-
-注意：右杆有输入时，`epoch200.pth` 持续根据四向 ToF 规划水平避障轨迹；左杆升降和偏航由外层控制器同时执行，不会覆盖模型的水平 `x/y` 轨迹。但升降方向没有独立的 YOPO 垂直避障保证；只有左杆、右杆回中时，不会产生水平规划运动。
-
-
-## RViz 与状态检查
-`YOPO/yopo.rviz` 已配置四个 ToF 深度图面板和一个前向高清 debug 面板：
-```text
-/depth_image_front   # 8x8 ToF
-/depth_image_left    # 8x8 ToF
-/depth_image_right   # 8x8 ToF
-/depth_image_back    # 8x8 ToF
-/depth_image         # 160x90 front debug，只用于观察
-```
-
-检查四向 ToF 频率：
 ```bash
 source /opt/ros/noetic/setup.bash
-rostopic hz /depth_image_front /depth_image_left /depth_image_right /depth_image_back
-```
-
-检查图像尺寸：
-```bash
-rostopic echo -n 1 /depth_image_front | grep -E "height|width|encoding"
-rostopic echo -n 1 /depth_image | grep -E "height|width|encoding"
-```
-
-检查碰撞计数：
-```bash
-rostopic echo /yopo/collision_counter_total
-```
-
-正常运行时可看到：
-```text
-/depth_image_front 约 15 Hz
-/depth_image_left  约 15 Hz
-/depth_image_right 约 15 Hz
-/depth_image_back  约 15 Hz
-/depth_image_front height=8,width=8
-/depth_image       height=90,width=160
-/yopo/collision_counter_total: 0
-```
-
-仅在 `tools/launch_sim.sh --no-joystick` 模式下发布新目标点：
-```bash
-rostopic pub /move_base_simple/goal geometry_msgs/PoseStamped "{
-  header: {frame_id: 'world'},
+rostopic pub -1 /move_base_simple/goal geometry_msgs/PoseStamped "{
+  header: {frame_id: world},
   pose: {
-    position: {x: 10.0, y: 0.0, z: 2.0},
+    position: {x: 0.0, y: 8.0, z: 2.0},
     orientation: {w: 1.0}
   }
 }"
 ```
 
-## 常用配置
-### 1. 配置容器代理
-需要提前配置宿主机的代理 `~/.docker/config.json` 如下
-```json
-{
-  "proxies": {
-    "default": {
-      "httpProxy": "http://172.17.0.1:7897",
-      "httpsProxy": "http://172.17.0.1:7897",
-      "noProxy": "localhost,127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
-    }
-  }
-}
-```
-其中，`proxies.default` 自动注入当前用户经 Docker CLI 发起的 build 内置代理参数和新建容器环境，因此构建和运行命令都不需要再手写 `-e http_proxy=...`。修改该配置后要重建容器，已有容器不会自动刷新环境。可用下面两条命令核对实际注入值和容器内联网：
-```bash
-LATEST_BUILD_REF="$(docker buildx history ls --format '{{.Ref}}' | head -n 1)"
-docker buildx history inspect "$LATEST_BUILD_REF" | grep -i -E 'BUILD ARG|_PROXY'
-docker exec dzp-yopo-omni bash -lc 'env | grep -i _proxy; curl -I --max-time 15 https://www.google.com'
-```
+`z` 由 `--goal-height` 决定；RViz 的 2D goal 只使用 x/y。
 
-### 2. 配置图形界面
-允许容器使用图形界面：
-```bash
-xhost +local:root
-HOST_XAUTHORITY="${XAUTHORITY:-/run/user/$(id -u)/gdm/Xauthority}"
-test -f "$HOST_XAUTHORITY"
-```
+核心话题：
 
-### 3. 数据相关config
-数据生成配置：
 ```text
-Simulator/src/config/config.yaml
+/depth_image                    sensor_msgs/Image，15 Hz
+/sim/odom                       nav_msgs/Odometry
+/move_base_simple/goal          geometry_msgs/PoseStamped
+/yopo/camera/command            geometry_msgs/Vector3，目标 pitch/yaw(rad)
+/yopo/camera/orientation        geometry_msgs/Vector3，实际 pitch/yaw(rad)
+/yopo/best_traj_visual          sensor_msgs/PointCloud2
+/yopo/trajs_visual              sensor_msgs/PointCloud2
+/yopo/topology_endstates_visual sensor_msgs/PointCloud2
+/yopo/active_camera_visual      visualization_msgs/MarkerArray
+/yopo/collision_counter_total   std_msgs/Int32
 ```
 
-关键项：
-```yaml
-save_path: "../dataset_omni/"
-env_num: 10
-image_num: 10000
-depth_fps: 15
-tof:
-  model: "tofsense_m"
-  image_width: 8
-  image_height: 8
-  horizontal_fov_deg: 45.0
-  vertical_fov_deg: 45.0
-  diagonal_fov_deg: 65.0
-  fx: 9.656854
-  fy: 9.656854
-  cx: 3.5
-  cy: 3.5
-  zone_subsample: 4
-  depth_quantile: 0.35
-  noise_std: 0.015
-  far_noise_std: 0.08
-  signal_floor: 0.08
-  max_depth_dist: 4.0
-  min_depth_dist: 0.015
-omni:
-  direction_num: 8
-  goal_length: 10.0
-  dijkstra_resolution: 0.5
-  dijkstra_inflation: 0.5
-  astar_local_radius: 16.0
+检查频率和角度：
+
+```bash
+rostopic hz /depth_image /yopo/best_traj_visual
+rostopic echo -n 1 /yopo/camera/command
+rostopic echo -n 1 /yopo/camera/orientation
+rostopic echo -n 1 /yopo/collision_counter_total
 ```
 
-### 4. 训练相关config
-训练配置：
+RViz 中：
+
+- 蓝色扁盒是无人机；
+- 橙色 129×33.9×35 mm 盒是 Insight 9；
+- 橙色线框是 96.8°×115.6° FoV；
+- 相机盒/FoV 使用云台实际 pitch/yaw，因此会与机体朝向实时不同；
+- 彩色点云显示所有候选轨迹、选中轨迹及拓扑末端。
+
+本次无界面闭环验收中，深度与轨迹均稳定约 15 Hz，单帧网络前向约 1.76–1.99 ms；发布 `(0,8)` 后在 2 m 制动触发距离切换悬停，最终停在 `(0.122,8.718,2.003)`，距目标约 0.73 m、速度收敛到约 `1.5e-8 m/s` 且碰撞计数保持 0。相机命令与实际角曾分别为 `(0.0461,-0.0589)` 和 `(0.0383,-0.0737)` rad，证明一阶/限速云台状态不是直接复制机体姿态。
+
+## 8. 真实 Insight 9 与实体云台
+
+新 Docker 镜像会编译安装固定版本的官方 Linux SDK。连接相机时必须将 `/dev/video*` 和 `/dev/hidraw*` 暴露给容器；上面的 `--privileged -v /dev:/dev` 已覆盖。先检查设备：
+
+```bash
+v4l2-ctl --list-devices
+ls -l /dev/video* /dev/hidraw*
+```
+
+启动真实相机 ROS bridge：
+
+```bash
+cd /workspace/YOPO/Simulator
+source /opt/ros/noetic/setup.bash
+source devel/setup.bash
+# 若整套 ROS 系统尚未启动 master，先在另一终端运行 roscore
+rosrun sensor_simulator insight9_ros_bridge
+```
+
+它复制 SDK callback 缓冲区并发布：
+
 ```text
-YOPO/config/traj_opt.yaml
+/depth_image   16UC1 Z16（毫米）
+/insight9/imu  sensor_msgs/Imu
+/insight9/vio  nav_msgs/Odometry
 ```
 
-关键项：
-```yaml
-dataset_path: "../dataset_omni"
-image_height: 8
-image_width: 8
-tof_horizontal_fov_deg: 45.0
-tof_vertical_fov_deg: 45.0
-omni_topology_num: 8
-omni_d_model: 128
-omni_num_heads: 4
-omni_decoder_layers: 2
-omni_amp: true
-omni_num_workers: 4
-sgm_time: 1.4
+SDK 当前 header 定义 depth `cam_id=2`，部分 README 版本写作 3；bridge 同时接受 2/3，但强制要求像素格式为 Z16，避免把灰度流误当深度。
+
+实体二轴云台适配器：
+
+```bash
+cd /workspace/YOPO
+source /opt/ros/noetic/setup.bash
+PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages \
+python3 YOPO/insight9_gimbal_bridge.py \
+  --pitch-topic /gimbal/pitch_position_controller/command \
+  --yaw-topic /gimbal/yaw_position_controller/command \
+  --joint-states-topic /joint_states \
+  --pitch-joint insight9_pitch_joint \
+  --yaw-joint insight9_yaw_joint
 ```
 
-说明：
-- `tools/run_yopo_pipeline.py` 的 `--save-path ../dataset_omni` 会同时覆盖训练用的 `dataset_path`。
-- 不加 `--keep-config` 时，脚本运行结束会恢复原始配置文件。
-- 在线测试订阅四向深度图，输出 8 个 topology 的候选轨迹和 score。
+输出为 `std_msgs/Float64` 弧度，可 remap 到 ros_control 或飞控板的舵机驱动。若 `/joint_states` 有反馈，`/yopo/camera/orientation` 使用实测关节角；没有反馈时使用与仿真相同的 0.25 s 一阶、120 deg/s 限速估计。
 
-### 5. 更换手柄配置
+真实飞行规划器可显式指定机上话题：
 
+```bash
+cd /workspace/YOPO
+source /opt/ros/noetic/setup.bash
+source Controller/devel/setup.bash
+source Simulator/devel/setup.bash
+PYTHONPATH=/workspace/YOPO/YOPO \
+python3 YOPO/test_yopo_ros.py \
+  --weight YOPO/saved/YOPO_Active_Final/epoch50.pth \
+  --odom-topic /your_vehicle/odom \
+  --depth-topic /depth_image \
+  --ctrl-topic /your_controller/pos_cmd \
+  --velocity 3.0 \
+  --goal-height 2.0
+```
 
-更换手柄时按下面步骤配置，不需要修改模型或重新训练：
+真实飞行前必须确认 `quadrotor_msgs/PositionCommand` 与飞控桥的坐标系、单位、急停和 geofence。没有连接 Insight 9 与实体云台时，只能验证 SDK 编译/API、仿真闭环和话题协议，不能把无硬件环境的测试等同于实机标定或安全飞行认证。
 
-1. 查找稳定设备路径，并确认容器中也能看到设备：
+## 9. 配置位置与常见问题
 
-   ```bash
-   ls -l /dev/input/by-id/*joystick* /dev/input/js* 2>/dev/null
-   docker exec dzp-yopo-omni bash -lc 'ls -l /dev/input/by-id/*joystick* /dev/input/js* 2>/dev/null'
-   ```
+主要配置：
 
-2. 停止正在运行的飞行会话，在宿主机或容器里执行 `jstest`，依次只推动一个方向，记录右左右上下、左上下左右各自变化的 axis 编号、中心值和正负号：
+```text
+Simulator/src/config/config.yaml  # 传感器、云台、地图与采集
+YOPO/config/traj_opt.yaml         # 网络、损失、训练与轨迹
+YOPO/yopo.rviz                    # 深度、无人机、相机/FoV、轨迹显示
+```
 
-   ```bash
-   tmux kill-session -t yopo_sim 2>/dev/null || true
-   jstest --event /dev/input/js0
-   ```
+常见问题：
 
-   理想的自回中轴中心应接近 0，满行程通常接近 `-32767/+32767`。如果中心长期偏离零，先做系统手柄校准，或适当增大 `--joystick-deadzone`。按 `Ctrl-C` 结束 `jstest` 后再启动仿真。
+- `Checkpoint not found`：显式传 `--weight`，或确认 `YOPO/saved/YOPO_Active_Final/epoch50.pth` 在本机；权重目录不提交 Git。
+- RViz 无窗口：确认宿主机 `DISPLAY`、Xauthority 和 `xhost`；无桌面会话时用 `--no-rviz`。
+- CUDA architecture 检测失败：按 CMake 输出在 `Simulator/src/CMakeLists.txt` 设置本机 `-gencode`。
+- SDK 初始化失败：官方 SDK 需要足够的 UVC/HID 设备，检查 USB 3.1、供电、`/dev/video*`、`/dev/hidraw*` 和容器权限。
+- 深度异常：真实相机必须发布 `16UC1` 毫米 Z16；仿真为 `32FC1` 米。规划器会统一缩放并截断到 20 m。
+- 启动后无人机不动：这是预期安全行为；先等待起飞完成，再发布 `/move_base_simple/goal`。
+- 相机不动：检查 command/orientation 两个话题，以及实体 bridge 的 pitch/yaw controller topic 和 joint 名称。
 
-3. 优先通过启动参数覆盖映射，不要为了换一只手柄直接修改 Python。下面是假设新手柄右杆为 axis 3/4、左杆为 axis 1/0，且右杆上下方向需要反转的示例：
+## 10. 本次交付验收摘要（2026-08-19）
 
-   ```bash
-   bash tools/launch_sim.sh \
-     --joystick-device /dev/input/by-id/你的手柄-joystick \
-     --joystick-axis-x 3 \
-     --joystick-axis-y 4 \
-     --joystick-axis-z 1 \
-     --joystick-axis-yaw 0 \
-     --joystick-invert-x 1 \
-     --joystick-invert-y 1 \
-     --joystick-invert-z 0 \
-     --joystick-invert-yaw 1 \
-     --joystick-swap-xy 1 \
-     --joystick-deadzone 0.08 \
-     --velocity 2.0 \
-     --joystick-vertical-velocity 2.0 \
-     --joystick-yaw-rate 1.0 \
-     --weight /workspace/YOPO/YOPO/saved/YOPO_0/epoch200.pth
-   ```
-
-   如果某个方向相反，只切换对应的 `--joystick-invert-* 0/1`；如果右杆上下变成侧移、左右变成前后，切换 `--joystick-swap-xy 0/1`。四个 `--joystick-axis-*` 必须是互不相同的非负整数。如果设备满行程并非约 32767，还要给正式启动传入对应的 `--joystick-axis-max`，给映射工具传入相同的 `--axis-max`。
-
-4. 启动飞行前可用同一组参数做纯映射检查。这个工具只读取遥控器，不启动 ROS、模型或电机：
-
-   ```bash
-   python3 tools/test_joystick_mapping.py \
-     --device /dev/input/js0 \
-     --axis-x 0 --axis-y 1 --axis-z 2 --axis-yaw 3 \
-     --invert-x 1 --invert-y 0 --invert-z 0 --invert-yaw 1 \
-     --swap-xy 1 --speed 2 --vertical-speed 2 --yaw-rate 1
-   ```
-
-   输出中的 `vdes_heading=(forward,left,up)` 应满足：前/左/上为正，后/右/下为负；`yaw_rate` 左转为正、右转为负。完成后按 `Ctrl-C` 退出。
-
-5. 正式启动或设备重新连接后，必须让四个配置轴同时回中并保持约 0.1 秒。日志出现 `Joystick unlocked after all four configured axes initialized...` 后才会接受运动输入。可以用 `rostopic echo /yopo/vdes_body` 再确认回中为零、各方向符号正确。
-
-两根摇杆默认有 8% 中心死区，越过死区后的杆量连续重映射到满量程。右杆最大水平期望速度由 `--velocity` 设置，左杆最大升降速度由 `--joystick-vertical-velocity` 设置，最大偏航角速度由 `--joystick-yaw-rate` 设置。
-
-若确认某套映射要成为项目的新默认值，再修改以下位置：
-
-- `tools/launch_sim.sh` 顶部的 `JOYSTICK_AXIS_*`、`JOYSTICK_INVERT_*`、`JOYSTICK_SWAP_XY` 和速度默认值；
-- `YOPO/test_yopo_ros.py` 中 `--joystick-axis-*`、`--joystick-invert-*` 等 argparse 默认值，保证直接运行 Python 时一致；
-- `tools/test_joystick_mapping.py` 的 argparse 默认值，保证校准工具与正式启动一致；
-- `YOPO/joystick_control.py` 的 `map_dual_sticks()` 是通用映射公式，普通换手柄不应修改；只有确实改变控制语义时才改这里，并重新执行纯映射检查和低速仿真确认。
-
-建议始终优先使用 `/dev/input/by-id/...-joystick`，因为 `/dev/input/js0` 在插拔多个输入设备后可能变成 `js1`。当前 Docker 启动命令已经映射整个 `/dev/input`，所以无需再修改镜像。
-
-右杆的水平速度向量直接进入 `epoch200.pth`：规划器将世界速度、加速度和操作者期望速度转换到机体系，拼成 `[v_body, a_body, vdes_body]`，网络对八条轨迹输出 endpoint 和 score，直接选择原始最低 score，并按训练时的 1.4 秒时域发布轨迹。正常手柄路径不再运行外层速度伺服、端点缩放、锁高改写、候选 veto 或 depth-plan hold；不会因为这些保底条件把有效模型输出替换成悬停。
-
-`epoch200.pth` 的训练数据把期望速度幅值采在 3–6m/s，而且 intent loss 会归一化 `vdes`，所以它可靠表达的是水平意图方向，不保证飞机实际速度严格正比于杆量。杆量到 `/yopo/vdes_body` 的映射是精确连续的，但低杆和满杆可能得到相近的物理速度；若必须精确比例调速，需要模型本身覆盖这个监督目标，本实现不会再用模型外的“速度保底层”伪造它。
-
-离线检查还确认该 checkpoint 的八个拓扑主要是水平轨迹：纯 `+z/-z` 意图仍会产生明显水平 endpoint。因此左杆升降作为核心人工控制量直接进入飞控的世界系垂直速度闭环，而不是强塞进不具备竖直拓扑的网络；右杆水平仍由 YOPO 避障轨迹控制。左杆左右直接积分为 yaw 参考和 yaw rate。`/yopo/vdes_body` 始终发布操作者完整的三维期望速度，左右杆也可以同时使用。
-
-平移杆回中时，控制从 YOPO 的 `READY` 模式立即切到与 YOPO-Simple 相同的 `EMPTY` 位置/速度闭环，但不会把速度字段突然清零。规划器从最后一帧 p/v/a 接一段连续五次多项式制动参考，平滑减速到零后保持最终位置；这不是 Nav Goal，也不会重新引入 target 规划。
+| 项目 | 结果 |
+|---|---|
+| active-perception 分支 | 通过 |
+| Docker 完整构建、`pip check`、CUDA 运行 | 通过；镜像 `dzp_yopo:active-perception-u2004-noetic-py38` |
+| 历史 ResNet-18 恢复并接 Transformer | 通过 |
+| 单 Insight 9 深度仿真、FoV/量程/噪声 | 通过 |
+| 轨迹 + 相机联合输出与 backward | 通过 |
+| 10 地图/5,000 pose/40,000 方向样本 | 通过 |
+| 从零训练 50 epoch | 通过 |
+| epoch50 离线 checkpoint 检查 | 通过 |
+| 起飞等待目标、目标飞行、到达后定高 | 通过 |
+| 15 Hz 深度/轨迹、动态相机角与 RViz marker | 通过 |
+| Controller/Simulator 编译 | 通过 |
+| 官方 SDK 安装、API 链接与 bridge 编译 | 通过；无设备启动按设计以 exit 2 给出明确诊断 |
+| 实体 Insight 9/云台数据与实飞 | 当前主机无对应硬件，未冒充实机验证 |

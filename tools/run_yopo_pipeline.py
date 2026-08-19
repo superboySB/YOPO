@@ -170,6 +170,8 @@ def train(args, env):
         cmd += ["--learning-rate", str(args.learning_rate)]
     if args.pretrained:
         cmd += ["--pretrained", "1", "--trial", str(args.trial), "--epoch", str(args.epoch)]
+    if args.checkpoint:
+        cmd += ["--checkpoint", args.checkpoint]
     if args.guidance_loss is not None:
         cmd += ["--guidance-loss", str(args.guidance_loss).lower()]
     if args.rank_loss is not None:
@@ -202,6 +204,8 @@ def train(args, env):
         cmd += ["--safety-weight", str(args.safety_weight)]
     if args.intent_weight is not None:
         cmd += ["--intent-weight", str(args.intent_weight)]
+    if args.altitude_weight is not None:
+        cmd += ["--altitude-weight", str(args.altitude_weight)]
     if args.intent_min_progress is not None:
         cmd += ["--intent-min-progress", str(args.intent_min_progress)]
     if args.explore_weight is not None:
@@ -214,7 +218,7 @@ def train(args, env):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="One-command YOPO-Omni dataset generation and training pipeline.")
+    parser = argparse.ArgumentParser(description="One-command YOPO active-perception data and training pipeline.")
     parser.add_argument("--mode", choices=["all", "generate", "train"], default="all",
                         help="Run dataset generation, training, or both.")
     parser.add_argument("--python", default="python3",
@@ -229,14 +233,14 @@ def parse_args():
 
     parser.add_argument("--env-num", type=int, default=None, help="Override Simulator env_num.")
     parser.add_argument("--image-num", type=int, default=None, help="Override Simulator image_num per map.")
-    parser.add_argument("--save-path", default=None, help='Override Simulator save_path, e.g. "../dataset_omni".')
+    parser.add_argument("--save-path", default=None, help='Override Simulator save_path, e.g. "../dataset_active".')
     parser.add_argument("--direction-num", type=int, default=None, help="Override omni.direction_num.")
     parser.add_argument("--goal-length", type=float, default=None, help="Override omni.goal_length.")
     parser.add_argument("--goal-search-radius", type=float, default=None, help="Override omni.goal_search_radius.")
     parser.add_argument("--astar-local-radius", type=float, default=None, help="Override omni.astar_local_radius.")
 
     parser.add_argument("--dataset-path", default=None,
-                        help='Override YOPO dataset_path, e.g. "../dataset_omni".')
+                        help='Override YOPO dataset_path, e.g. "../dataset_active".')
     parser.add_argument("--guidance-loss", type=str2bool, default=None,
                         help="Override use_guidance_loss for training.")
     parser.add_argument("--rank-loss", type=str2bool, default=None,
@@ -259,6 +263,8 @@ def parse_args():
     parser.add_argument("--acc-weight", type=float, default=None, help="Override wa.")
     parser.add_argument("--safety-weight", type=float, default=None, help="Override wc.")
     parser.add_argument("--intent-weight", type=float, default=None, help="Override wi.")
+    parser.add_argument("--altitude-weight", type=float, default=None,
+                        help="Override wh for fixed-altitude endpoint stability.")
     parser.add_argument("--intent-min-progress", type=float, default=None,
                         help="Override omni_intent_min_progress.")
     parser.add_argument("--explore-weight", type=float, default=None,
@@ -270,7 +276,8 @@ def parse_args():
     parser.add_argument("--batch-size", type=int, default=16, help="Pose-level training batch size.")
     parser.add_argument("--run-name", default=None,
                         help="Directory name under YOPO/saved for training logs and checkpoints.")
-    parser.add_argument("--pretrained", action="store_true", help="Resume from a saved YOPO-Omni checkpoint.")
+    parser.add_argument("--pretrained", action="store_true", help="Resume from a saved active-perception checkpoint.")
+    parser.add_argument("--checkpoint", default="", help="Explicit checkpoint path to resume from.")
     parser.add_argument("--trial", type=int, default=0, help="Checkpoint trial id when --pretrained is set.")
     parser.add_argument("--epoch", type=int, default=50, help="Checkpoint epoch when --pretrained is set.")
     args = parser.parse_args()

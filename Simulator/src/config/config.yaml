@@ -4,7 +4,7 @@ depth_topic: "/depth_image"
 lidar_topic: "/lidar_points"
 
 render_depth: true
-depth_fps: 15          # TOFSense-M 8x8 max update rate
+depth_fps: 15          # Insight 9 depth output rate
 
 render_lidar: true
 lidar_fps: 10
@@ -56,37 +56,40 @@ wall_number: 100       # 墙面数量
 wall_ceiling: 1        # 是否添加天花板
 
 # 3. 传感器参数 ==============================================================
-camera:                # 前向高清debug深度图，仅用于RViz观察，不作为网络输入
-  fx: 80.0             # focal length x
-  fy: 80.0             # focal length y
-  cx: 80.0             # principal point x (image center)
-  cy: 45.0              # principal point y (image center)
+insight9:              # Looper Robotics Insight 9 learning-stereo model
+  model: "looper_insight_9"
+  native_image_width: 544
+  native_image_height: 640
+  image_width: 160     # aspect-preserving network/render resolution
+  image_height: 192
+  horizontal_fov_deg: 96.8
+  vertical_fov_deg: 115.6
+  diagonal_fov_deg: 157.2
+  depth_fps: 15
+  max_depth_dist: 20.0 # train range; device ideal range is 0.3-30m
+  min_depth_dist: 0.19
+  depth_accuracy_ratio: 0.02
+  normalize_depth: false
+  mount_x: 0.10
+  mount_y: 0.0
+  mount_z: 0.03
+  pitch_limit_deg: 60.0
+  yaw_limit_deg: 45.0
+  servo_tau_s: 0.25
+  servo_max_rate_deg_s: 120.0
+
+# CPU raycaster compatibility. The documented workflow uses the CUDA node,
+# which additionally simulates the two-axis gimbal above.
+camera:
+  fx: 71.0
+  fy: 60.5
+  cx: 79.5
+  cy: 95.5
   image_width: 160
-  image_height: 90
+  image_height: 192
   max_depth_dist: 20.0
   normalize_depth: false
-  pitch: -0.0           # 相机相对机体的俯仰角 (仰为负, cpu版尚未添加)
-
-tof:                   # Nooploop TOFSense-M equivalent model
-  model: "tofsense_m"
-  image_width: 8       # 64-zone matrix output
-  image_height: 8
-  horizontal_fov_deg: 45.0 # official horizontal coverage
-  vertical_fov_deg: 45.0   # official vertical coverage
-  diagonal_fov_deg: 65.0   # official max diagonal coverage; documented reference for this pinhole approximation
-  update_rate_8x8_hz: 15
-  distance_resolution_m: 0.001
-  typical_accuracy_m: 0.015
-  typical_std_m: 0.01
-  zone_subsample: 4    # raycast sub-rays per ToF zone edge
-  depth_quantile: 0.35
-  noise_std: 0.01
-  far_noise_std: 0.0
-  signal_floor: 0.08
-  max_depth_dist: 4.0  # indoor range under moderate ambient light
-  min_depth_dist: 0.015
-  normalize_depth: false
-  pitch: -0.0
+  pitch: 0.0
 
 lidar:
   vertical_lines: 16             # 纵向16线
@@ -97,9 +100,9 @@ lidar:
   max_lidar_dist: 20.0
 
 # 4. 数据收集参数 =============================================================
-save_path: "../dataset_omni/"
+save_path: "../dataset_active_v2/"
 env_num: 10             # 地图数量
-image_num: 10000        # 每个地图收集图像数量
+image_num: 10000        # 每地图正式采集图像数量；快速验收可通过流水线覆盖为500
 roll_range: 30          # 采样点的roll角度范围
 pitch_range: 30         # 采样点的pitch角度范围
 x_range: 40             # x方向采样范围 (请小于地图大小x_length并保留一定边缘间距)
@@ -108,7 +111,7 @@ z_range: [0.5, 4]       # z方向采样范围 (请小于地图大小z_length并�
 safe_dist: 0.5          # 安全距离，采样点与障碍的最小距离
 ply_res: 0.1            # 保存点云滤波的体素网格大小
 
-# 5. YOPO-Omni 数据标签参数 ==================================================
+# 5. YOPO active-perception 数据标签参数 =====================================
 omni:
   direction_num: 8          # 每个采样点展开为8个desired direction样本
   goal_length: 10.0         # Dijkstra局部目标距离(m)
@@ -117,3 +120,4 @@ omni:
   dijkstra_resolution: 0.5  # Dijkstra使用的粗栅格分辨率(m)
   dijkstra_inflation: 0.5   # Dijkstra障碍膨胀半径(m)
   astar_local_radius: 16.0  # A*局部搜索窗口在start-goal包围盒外扩半径(m)
+  camera_gaze_lookahead_m: 4.0

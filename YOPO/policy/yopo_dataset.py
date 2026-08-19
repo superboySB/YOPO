@@ -26,7 +26,6 @@ class YOPOOmniDataset(Dataset):
         self.vdes_max = float(cfg["omni_vdes_speed_max"])
         self.vel_noise_std = float(cfg["omni_vel_noise_std"])
         self.acc_noise_std = float(cfg["omni_acc_noise_std"])
-        self.view_names = ["front", "left", "right", "back"]
         self.depth_cache_size = int(cfg["omni_depth_cache_size"])
         self.depth_cache = OrderedDict()
 
@@ -57,8 +56,8 @@ class YOPOOmniDataset(Dataset):
 
         unit_name = "Poses" if self.pose_level else "Samples"
         unit_count = len(self.indices)
-        print(f"=============== YOPO-Omni {mode.capitalize()} Data Summary ===============")
-        print(f"{unit_name:<12} | Count: {unit_count:<6} | Views: 4 | Shape: {self.width},{self.height}")
+        print(f"=============== YOPO Active {mode.capitalize()} Data Summary ===============")
+        print(f"{unit_name:<12} | Count: {unit_count:<6} | Insight 9: 1 | Shape: {self.width},{self.height}")
         if self.pose_level:
             print(f"{'Directions':<12} | Per pose: {self.direction_num:<3} | Effective samples: {unit_count * self.direction_num}")
         print(f"{'Guides':<12} | Points/sample: {self.guide_points:<3} | Depth cache: {self.depth_cache_size}")
@@ -75,7 +74,7 @@ class YOPOOmniDataset(Dataset):
         map_dirs = [f.path for f in os.scandir(data_dir) if f.is_dir() and os.path.basename(f.path).isdigit()]
         map_ids = sorted(int(os.path.basename(path)) for path in map_dirs)
         if not map_ids:
-            raise FileNotFoundError(f"No map folders found in YOPO-Omni dataset: {data_dir}")
+            raise FileNotFoundError(f"No map folders found in YOPO active dataset: {data_dir}")
 
         arrays = {
             "sample_id": [],
@@ -91,6 +90,8 @@ class YOPOOmniDataset(Dataset):
             "guide_len": [],
             "guide_mask": [],
             "selected_topology": [],
+            "camera_orientation": [],
+            "camera_target": [],
         }
         guides = {}
 
@@ -98,13 +99,18 @@ class YOPOOmniDataset(Dataset):
             sample_path = os.path.join(data_dir, f"samples-{map_id}.csv")
             guide_path = os.path.join(data_dir, f"guides-{map_id}.csv")
             if not os.path.exists(sample_path):
-                raise FileNotFoundError(f"Missing YOPO-Omni label file: {sample_path}")
+                raise FileNotFoundError(f"Missing YOPO active label file: {sample_path}")
             if not os.path.exists(guide_path):
-                raise FileNotFoundError(f"Missing YOPO-Omni guide file: {guide_path}")
+                raise FileNotFoundError(f"Missing YOPO active guide file: {guide_path}")
 
             sample_data = np.loadtxt(sample_path, delimiter=",", skiprows=1, dtype=np.float32)
             if sample_data.ndim == 1:
                 sample_data = sample_data[None, :]
+            if sample_data.shape[1] < 25:
+                raise ValueError(
+                    f"{sample_path} uses the legacy schema ({sample_data.shape[1]} columns); "
+                    "regenerate it with the active-perception dataset generator"
+                )
 
             count = sample_data.shape[0]
             arrays["sample_id"].append(sample_data[:, 0].astype(np.int32))
@@ -121,6 +127,8 @@ class YOPOOmniDataset(Dataset):
             arrays["guide_len"].append(sample_data[:, 17].astype(np.int16))
             arrays["guide_mask"].append(sample_data[:, 18].astype(np.float32))
             arrays["selected_topology"].append(sample_data[:, 20].astype(np.int64))
+            arrays["camera_orientation"].append(sample_data[:, 21:23].astype(np.float32))
+            arrays["camera_target"].append(sample_data[:, 23:25].astype(np.float32))
 
             guides[map_id] = cls._load_guide_points(guide_path)
 
@@ -195,7 +203,9 @@ class YOPOOmniDataset(Dataset):
                         -self.vel_max, self.vel_max)
         acc_b = np.clip(np.random.randn(3).astype(np.float32) * self.acc_noise_std,
                         -self.acc_max, self.acc_max)
-        state_b = np.concatenate((vel_b, acc_b, vdes_b)).astype(np.float32)
+        camera_orientation = self.arrays["camera_orientation"][idx]
+        camera_target = self.arrays["camera_target"][idx]
+        state_b = np.concatenate((vel_b, acc_b, vdes_b, camera_orientation)).astype(np.float32)
 
         guide_mask = np.float32(self.arrays["guide_mask"][idx])
         guide = self._get_guide(map_id, idx)
@@ -211,17 +221,18 @@ class YOPOOmniDataset(Dataset):
             guide,
             guide_mask,
             selected_topology,
+            camera_target,
             np.int64(map_id),
         )
 
     def _infer_direction_num(self):
         counts = np.asarray([self.count_by_key[int(key)] for key in self.group_keys], dtype=np.int64)
         if counts.size == 0:
-            raise ValueError("YOPO-Omni dataset split is empty.")
+            raise ValueError("YOPO active dataset split is empty.")
         direction_num = int(counts[0])
         if self.pose_level and np.any(counts != direction_num):
             unique_counts = np.unique(counts).tolist()
-            raise ValueError(f"Pose-level YOPO-Omni dataset requires fixed directions per pose, got {unique_counts}.")
+            raise ValueError(f"Pose-level YOPO active dataset requires fixed directions per pose, got {unique_counts}.")
         return direction_num
 
     def _get_pose_item(self, item):
@@ -243,7 +254,9 @@ class YOPOOmniDataset(Dataset):
                         -self.vel_max, self.vel_max)
         acc_b = np.clip(np.random.randn(count, 3).astype(np.float32) * self.acc_noise_std,
                         -self.acc_max, self.acc_max)
-        state_b = np.concatenate((vel_b, acc_b, vdes_b), axis=1).astype(np.float32)
+        camera_orientation = self.arrays["camera_orientation"][idxs]
+        camera_target = self.arrays["camera_target"][idxs]
+        state_b = np.concatenate((vel_b, acc_b, vdes_b, camera_orientation), axis=1).astype(np.float32)
 
         guide = np.stack([self._get_guide(map_id, int(idx)) for idx in idxs], axis=0)
         guide_mask = self.arrays["guide_mask"][idxs].astype(np.float32, copy=False)
@@ -259,6 +272,7 @@ class YOPOOmniDataset(Dataset):
             guide,
             guide_mask,
             selected_topology,
+            camera_target,
             np.int64(map_id),
         )
 
@@ -269,19 +283,14 @@ class YOPOOmniDataset(Dataset):
             self.depth_cache.move_to_end(key)
             return cached
 
-        depth = []
         datafolder = os.path.join(self.data_dir, str(map_id))
-        for view in self.view_names:
-            image_path = os.path.join(datafolder, f"img_{pose_id}_{view}.png")
-            image = cv2.imread(image_path, -1)
-            if image is None:
-                raise FileNotFoundError(f"Missing depth image: {image_path}")
-            if image.shape[0] != self.height or image.shape[1] != self.width:
-                image = cv2.resize(image, (self.width, self.height), interpolation=cv2.INTER_NEAREST)
-            image = image.astype(np.float32) / 65535.0
-            depth.append(image[None, ...])
-
-        depth = np.stack(depth, axis=0).astype(np.float32)
+        image_path = os.path.join(datafolder, f"img_{pose_id}_depth.png")
+        image = cv2.imread(image_path, -1)
+        if image is None:
+            raise FileNotFoundError(f"Missing Insight 9 depth image: {image_path}")
+        if image.shape[0] != self.height or image.shape[1] != self.width:
+            image = cv2.resize(image, (self.width, self.height), interpolation=cv2.INTER_AREA)
+        depth = (image.astype(np.float32) / 65535.0)[None, ...]
         if self.depth_cache_size > 0:
             self.depth_cache[key] = depth
             if len(self.depth_cache) > self.depth_cache_size:

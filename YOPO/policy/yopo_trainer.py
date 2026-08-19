@@ -38,7 +38,7 @@ class YOPOOmniTrainer:
         self.tensorboard_path = self.get_next_log_path(tensorboard_path, run_name=run_name)
         self.tensorboard_log = SummaryWriter(log_dir=self.tensorboard_path)
 
-        print("Loading YOPO-Omni network...")
+        print("Loading YOPO active-perception network...")
         self.policy = YOPOOmniNetwork().to(self.device)
         if checkpoint_path:
             try:
@@ -51,7 +51,7 @@ class YOPOOmniTrainer:
         self.yopo_loss = YOPOOmniLoss()
         self.optimizer = torch.optim.AdamW(self.policy.parameters(), lr=learning_rate, fused=torch.cuda.is_available())
 
-        print("Loading YOPO-Omni dataset...")
+        print("Loading YOPO active-perception dataset...")
         num_workers = int(cfg["omni_num_workers"])
         loader_kwargs = {
             "num_workers": num_workers,
@@ -76,7 +76,7 @@ class YOPOOmniTrainer:
 
     def train(self, epoch, save_interval=None):
         with self.progress_log:
-            total_progress = self.progress_log.add_task("Training YOPO-Omni", total=epoch)
+            total_progress = self.progress_log.add_task("Training YOPO Active", total=epoch)
             for self.epoch_i in range(epoch):
                 self.policy.train()
                 self.train_one_epoch(self.epoch_i, total_progress)
@@ -84,7 +84,7 @@ class YOPOOmniTrainer:
                 self.eval_one_epoch(self.epoch_i)
                 if save_interval is not None and (self.epoch_i + 1) % save_interval == 0:
                     self.save_model()
-            self.progress_log.console.log("Train YOPO-Omni Finish!")
+            self.progress_log.console.log("Train YOPO Active Finish!")
             self.progress_log.remove_task(total_progress)
 
     def train_one_epoch(self, epoch, total_progress):
@@ -111,7 +111,7 @@ class YOPOOmniTrainer:
                 mean_metrics = {name: np.mean(values) for name, values in metrics.items()}
                 self.progress_log.console.log(
                     f"Epoch: {epoch}, Loss: {mean_metrics['loss']:.3g}, "
-                    f"Score: {mean_metrics['score']:.3g}, Guide: {mean_metrics['guide']:.3g}, "
+                    f"Score: {mean_metrics['score']:.3g}, Camera: {mean_metrics['camera']:.3g}, "
                     f"Batch FPS: {batch_fps:.3g}"
                 )
                 global_step = epoch * len(self.train_dataloader) + step
@@ -138,20 +138,24 @@ class YOPOOmniTrainer:
         mean_metrics = {name: np.mean(values) for name, values in metrics.items()}
         self.progress_log.console.log(
             f"Eval: {epoch}, Loss: {mean_metrics['loss']:.3g}, "
-            f"Score: {mean_metrics['score']:.3g}, Guide: {mean_metrics['guide']:.3g}"
+            f"Score: {mean_metrics['score']:.3g}, Camera: {mean_metrics['camera']:.3g}"
         )
         for name, value in mean_metrics.items():
             self.tensorboard_log.add_scalar(f"Eval/{name}", value, epoch)
         self.progress_log.remove_task(one_epoch_progress)
 
     def forward_and_compute_loss(self, batch):
-        depth, pos, rot, state_b, _, guide_path_w, guide_mask, selected_topology, map_id = [
+        depth, pos, rot, state_b, _, guide_path_w, guide_mask, selected_topology, camera_target, map_id = [
             x.to(self.device) for x in batch
         ]
 
-        endstate_b, score = self.policy(depth, state_b)
-        pos, rot, state_b, guide_path_w, guide_mask, selected_topology, map_id, endstate_b, score = (
-            self.flatten_pose_batch(pos, rot, state_b, guide_path_w, guide_mask, selected_topology, map_id, endstate_b, score)
+        endstate_b, score, pred_camera_target = self.policy(depth, state_b)
+        (pos, rot, state_b, guide_path_w, guide_mask, selected_topology,
+         camera_target, map_id, endstate_b, score, pred_camera_target) = (
+            self.flatten_pose_batch(
+                pos, rot, state_b, guide_path_w, guide_mask, selected_topology,
+                camera_target, map_id, endstate_b, score, pred_camera_target
+            )
         )
         B, K = endstate_b.shape[:2]
 
@@ -183,28 +187,35 @@ class YOPOOmniTrainer:
             selected_topology=selected_topology.long(),
             map_id=map_id.long(),
             pred_score=score,
+            pred_camera_target=pred_camera_target,
+            camera_target=camera_target,
+            camera_orientation=state_b[:, 9:11],
         )
 
     @staticmethod
-    def flatten_pose_batch(pos, rot, state_b, guide_path_w, guide_mask, selected_topology, map_id, endstate_b, score):
+    def flatten_pose_batch(pos, rot, state_b, guide_path_w, guide_mask, selected_topology,
+                           camera_target, map_id, endstate_b, score, pred_camera_target):
         if state_b.dim() == 2:
-            return pos, rot, state_b, guide_path_w, guide_mask, selected_topology, map_id, endstate_b, score
+            return (pos, rot, state_b, guide_path_w, guide_mask, selected_topology,
+                    camera_target, map_id, endstate_b, score, pred_camera_target)
 
         if state_b.dim() != 3:
-            raise ValueError(f"Expected state_b shape [B,9] or [B,D,9], got {tuple(state_b.shape)}")
+            raise ValueError(f"Expected state_b shape [B,11] or [B,D,11], got {tuple(state_b.shape)}")
 
         B, D = state_b.shape[:2]
         K = endstate_b.shape[2]
 
         flat_pos = pos[:, None, :].expand(B, D, 3).reshape(B * D, 3)
         flat_rot = rot[:, None, :, :].expand(B, D, 3, 3).reshape(B * D, 3, 3)
-        flat_state_b = state_b.reshape(B * D, 9)
+        flat_state_b = state_b.reshape(B * D, 11)
         flat_guide_path_w = guide_path_w.reshape(B * D, guide_path_w.shape[-2], 3)
         flat_guide_mask = guide_mask.reshape(B * D)
         flat_selected_topology = selected_topology.reshape(B * D)
+        flat_camera_target = camera_target.reshape(B * D, 2)
         flat_map_id = map_id[:, None].expand(B, D).reshape(B * D)
         flat_endstate_b = endstate_b.reshape(B * D, K, 9)
         flat_score = score.reshape(B * D, K)
+        flat_pred_camera_target = pred_camera_target.reshape(B * D, K, 2)
 
         return (
             flat_pos,
@@ -213,9 +224,11 @@ class YOPOOmniTrainer:
             flat_guide_path_w,
             flat_guide_mask,
             flat_selected_topology,
+            flat_camera_target,
             flat_map_id,
             flat_endstate_b,
             flat_score,
+            flat_pred_camera_target,
         )
 
     @staticmethod
@@ -232,6 +245,16 @@ class YOPOOmniTrainer:
             if hasattr(self, "_exit_func"):
                 atexit.unregister(self._exit_func)
                 del self._exit_func
+
+    def close(self):
+        """Flush logs and terminate persistent DataLoader workers cleanly."""
+        self.tensorboard_log.flush()
+        self.tensorboard_log.close()
+        for loader in (self.train_dataloader, self.val_dataloader):
+            iterator = getattr(loader, "_iterator", None)
+            if iterator is not None:
+                iterator._shutdown_workers()
+                loader._iterator = None
 
     @staticmethod
     def get_next_log_path(base_path, run_name=None):

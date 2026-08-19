@@ -19,9 +19,9 @@ from policy.yopo_network import YOPOOmniNetwork
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Offline YOPO-Omni checkpoint test.")
-    parser.add_argument("--weight", required=True, help="Path to YOPO-Omni .pth checkpoint.")
-    parser.add_argument("--dataset-path", default=None, help='Override cfg["dataset_path"], e.g. "../dataset_omni".')
+    parser = argparse.ArgumentParser(description="Offline YOPO active-perception checkpoint test.")
+    parser.add_argument("--weight", required=True, help="Path to YOPO active-perception .pth checkpoint.")
+    parser.add_argument("--dataset-path", default=None, help='Override cfg["dataset_path"], e.g. "../dataset_active".')
     parser.add_argument("--split", choices=["train", "valid"], default="valid", help="Dataset split to test.")
     parser.add_argument("--batch-size", type=int, default=8, help="Pose-level batch size.")
     parser.add_argument("--num-batches", type=int, default=8, help="Number of batches to run.")
@@ -35,7 +35,7 @@ def inspect_raw_depth(dataset, batch):
     map_id = int(batch[-1][0].item())
     pose_key = int(dataset.indices[0])
     pose_id = int(dataset.arrays["pose_id"][dataset.start_by_key[pose_key]])
-    image_path = os.path.join(dataset.data_dir, str(map_id), f"img_{pose_id}_front.png")
+    image_path = os.path.join(dataset.data_dir, str(map_id), f"img_{pose_id}_depth.png")
     image = cv2.imread(image_path, -1)
     if image is None:
         raise FileNotFoundError(f"Missing depth image: {image_path}")
@@ -66,7 +66,7 @@ def main():
     print(f"Device: {device}")
     print(f"Dataset path: {dataset.data_dir}")
     print(f"Depth normalization: cv2.imread(..., -1) uint16 -> float32 / 65535.0")
-    print(f"Network expects normalized depth in [0, 1], shape [B,4,1,H,W].")
+    print(f"Network expects normalized Insight 9 depth in [0, 1], shape [B,1,H,W].")
 
     total_poses = 0
     total_dirs = 0
@@ -78,7 +78,7 @@ def main():
         for step, batch in enumerate(loader):
             if step >= args.num_batches:
                 break
-            depth, _, _, state_b, _, _, guide_mask, selected_topology, _ = batch
+            depth, _, _, state_b, _, _, guide_mask, selected_topology, camera_target, _ = batch
             if step == 0:
                 image_path, raw_dtype, raw_min, raw_max = inspect_raw_depth(dataset, batch)
                 print(f"Raw depth sample: {image_path}")
@@ -99,12 +99,15 @@ def main():
             if device.type == "cuda":
                 torch.cuda.synchronize()
             t0 = time.time()
-            endstate, score = model(depth, state_b)
+            endstate, score, pred_camera_target = model(depth, state_b)
             if device.type == "cuda":
                 torch.cuda.synchronize()
             forward_times.append(time.time() - t0)
 
-            print(f"         output endstate={tuple(endstate.shape)}, score={tuple(score.shape)}")
+            print(
+                f"         output endstate={tuple(endstate.shape)}, score={tuple(score.shape)}, "
+                f"camera={tuple(pred_camera_target.shape)}, target={tuple(camera_target.shape)}"
+            )
             score_min.append(float(score.min().item()))
             score_max.append(float(score.max().item()))
             total_poses += depth.shape[0]

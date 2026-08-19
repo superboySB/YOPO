@@ -54,59 +54,11 @@ Visualization Manager:
       Value: true
     - Class: rviz/Image
       Enabled: true
-      Image Topic: /depth_image_front
-      Max Value: 1
-      Median window: 5
-      Min Value: 0
-      Name: Depth_Front
-      Normalize Range: true
-      Queue Size: 2
-      Transport Hint: raw
-      Unreliable: false
-      Value: true
-    - Class: rviz/Image
-      Enabled: true
       Image Topic: /depth_image
       Max Value: 20
       Median window: 5
       Min Value: 0
-      Name: Depth_Debug_Front
-      Normalize Range: true
-      Queue Size: 2
-      Transport Hint: raw
-      Unreliable: false
-      Value: true
-    - Class: rviz/Image
-      Enabled: true
-      Image Topic: /depth_image_left
-      Max Value: 1
-      Median window: 5
-      Min Value: 0
-      Name: Depth_Left
-      Normalize Range: true
-      Queue Size: 2
-      Transport Hint: raw
-      Unreliable: false
-      Value: true
-    - Class: rviz/Image
-      Enabled: true
-      Image Topic: /depth_image_right
-      Max Value: 1
-      Median window: 5
-      Min Value: 0
-      Name: Depth_Right
-      Normalize Range: true
-      Queue Size: 2
-      Transport Hint: raw
-      Unreliable: false
-      Value: true
-    - Class: rviz/Image
-      Enabled: true
-      Image Topic: /depth_image_back
-      Max Value: 1
-      Median window: 5
-      Min Value: 0
-      Name: Depth_Back
+      Name: Insight9_Depth
       Normalize Range: true
       Queue Size: 2
       Transport Hint: raw
@@ -234,6 +186,16 @@ Visualization Manager:
       Name: Drone
       Namespaces:
         mesh: true
+      Queue Size: 100
+      Value: true
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /yopo/active_camera_visual
+      Name: Active_Insight9
+      Namespaces:
+        active_uav: true
+        insight9: true
+        insight9_fov: true
       Queue Size: 100
       Value: true
     - Class: rviz/Marker

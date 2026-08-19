@@ -8,6 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(catkin REQUIRED COMPONENTS
         roscpp
         nav_msgs
+        geometry_msgs
         std_msgs
         sensor_msgs
         cv_bridge
@@ -44,7 +45,7 @@ set(CMAKE_CUDA_FLAGS_RELEASE "-O3")
 catkin_package(
         INCLUDE_DIRS include
         LIBRARIES sensor_simulator
-        CATKIN_DEPENDS roscpp
+        CATKIN_DEPENDS roscpp nav_msgs geometry_msgs std_msgs sensor_msgs cv_bridge
         DEPENDS OpenCV)
 
 ## Specify additional locations of header files
@@ -71,3 +72,16 @@ target_compile_definitions(sensor_simulator_cuda PRIVATE CONFIG_FILE_PATH="${CMA
 add_executable(dataset_generator src/dataset_generator.cpp src/maps.cpp src/perlinnoise.cpp)
 target_link_libraries(dataset_generator ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} raycast_cuda yaml-cpp)
 target_compile_definitions(dataset_generator PRIVATE CONFIG_FILE_PATH="${CMAKE_SOURCE_DIR}/config/config.yaml")
+
+# Optional real-camera bridge. It is built automatically in the Docker image,
+# where the pinned official Insight 9 SDK is installed, but does not make the
+# simulator build depend on hardware SDK availability on every host.
+find_path(INSIGHT9_INCLUDE_DIR Insight_9_receive.h PATHS /usr/local/include)
+find_library(INSIGHT9_LIBRARY insight9 PATHS /usr/local/lib)
+if(INSIGHT9_INCLUDE_DIR AND INSIGHT9_LIBRARY)
+  add_executable(insight9_ros_bridge src/insight9_ros_bridge.cpp)
+  target_include_directories(insight9_ros_bridge PRIVATE ${INSIGHT9_INCLUDE_DIR})
+  target_link_libraries(insight9_ros_bridge ${catkin_LIBRARIES} ${INSIGHT9_LIBRARY})
+else()
+  message(STATUS "Insight 9 SDK not found; real-camera ROS bridge will not be built")
+endif()
