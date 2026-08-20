@@ -82,6 +82,14 @@ def apply_config_overrides(args):
     new_sim = sim_text
     new_traj = traj_text
 
+    if args.maze_type is not None:
+        new_sim = replace_top_level_scalar(new_sim, "maze_type", str(args.maze_type))
+    if args.seed is not None:
+        new_sim = replace_top_level_scalar(new_sim, "seed", str(args.seed))
+    if args.active_camera is not None:
+        yaml_bool = "true" if args.active_camera else "false"
+        new_sim = replace_top_level_scalar(new_sim, "active_camera", yaml_bool)
+        new_traj = replace_top_level_scalar(new_traj, "active_camera", yaml_bool)
     if args.env_num is not None:
         new_sim = replace_top_level_scalar(new_sim, "env_num", str(args.env_num))
     if args.image_num is not None:
@@ -166,6 +174,10 @@ def train(args, env):
         "--batch-size",
         str(args.batch_size),
     ]
+    if args.seed is not None:
+        cmd += ["--seed", str(args.seed)]
+    if args.active_camera is not None:
+        cmd += ["--active-camera", str(args.active_camera).lower()]
     if args.learning_rate is not None:
         cmd += ["--learning-rate", str(args.learning_rate)]
     if args.pretrained:
@@ -231,6 +243,11 @@ def parse_args():
     parser.add_argument("--keep-config", action="store_true",
                         help="Keep config overrides after the script exits. Default restores original files.")
 
+    parser.add_argument("--maze-type", type=int, default=None, help="Override Simulator maze_type.")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Shared simulator-map and training seed for reproducible A/B runs.")
+    parser.add_argument("--active-camera", type=str2bool, default=None,
+                        help="Generate/train active (true) or fixed (false) camera treatment.")
     parser.add_argument("--env-num", type=int, default=None, help="Override Simulator env_num.")
     parser.add_argument("--image-num", type=int, default=None, help="Override Simulator image_num per map.")
     parser.add_argument("--save-path", default=None, help='Override Simulator save_path, e.g. "../dataset_active".')

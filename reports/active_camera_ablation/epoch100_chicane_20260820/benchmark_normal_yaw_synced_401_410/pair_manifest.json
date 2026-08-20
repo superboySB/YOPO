@@ -1,0 +1,1791 @@
+{
+  "schema": "yopo.active-camera-ablation.v1",
+  "created_utc": "2026-08-20T18:17:25.703009+00:00",
+  "repository": {
+    "commit": null,
+    "branch": null,
+    "dirty": false,
+    "source_files_sha256": {
+      "Simulator/src/config/config.yaml": "8121e7e625cb61f187d931c8e5bb710556d73384885eb3226e7e46000f0547c3",
+      "Simulator/src/src/maps.cpp": "f625a5e961f551b3688b0d54576bdd854c6501376621078eadd18a11e3423686",
+      "Simulator/src/src/test_simulator_cuda.cpp": "883d468b3665fa4aa9f8f81f7873f078403cd61a611f14170e51f73a5fb9b41a",
+      "YOPO/config/traj_opt.yaml": "2f7340d14f70c506eb9ed6b1ed9567f9445353e130bd45f1c592f87e516e0248",
+      "YOPO/policy/yopo_network.py": "911ecfb20e3b1986d8f9b0a2a1e00b404ebeaf0057e97ff5278d0db2a4c1f2c2",
+      "YOPO/policy/yopo_dataset.py": "c9cb9b47bb5ba9bafe28836a63a6ade754a00810aa9ae0ab3ac6c6a677ac7ecc",
+      "YOPO/policy/yopo_trainer.py": "6db75c09932610111c3d2a9b1d91a30b0667434856d168ee83f7e2395ec3c52e",
+      "YOPO/test_yopo_ros.py": "864896964190c7dd6d469df38a75c5ef78912b19583a8e2899d7ca94f0d8861e",
+      "tools/benchmark_active_camera.py": "23bdc67dab195e9f84748017a3271be693e9e4a9eaafa13c09b02bd8612e61e6",
+      "tools/verify_ablation_pair.py": "a894adbc5046df4d1e134cac4b9e28725a6558186f4f1067e181f14625861962",
+      "tools/plot_active_camera_ablation.py": "3369ba319da3c889caf384e96aeb9c849a4acd8862ad94ee116fc0810b86ff22"
+    }
+  },
+  "order_policy": "balanced",
+  "order_seed": 20260820,
+  "expected_treatment_differences": [
+    "camera_enabled",
+    "checkpoint",
+    "checkpoint_sha256"
+  ],
+  "runs": [
+    {
+      "sequence": 1,
+      "pair_id": "seed_000401",
+      "run_id": "seed_000401_active",
+      "seed": 401,
+      "arm": "active",
+      "treatment": {
+        "camera_enabled": true,
+        "checkpoint": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.pth",
+        "checkpoint_sha256": "bb59d23ad76e0ba165553f517d1ea05acec0753b256bf5f7d3011c790c638439",
+        "checkpoint_artifact": {
+          "checkpoint_sha256": "bb59d23ad76e0ba165553f517d1ea05acec0753b256bf5f7d3011c790c638439",
+          "checkpoint_sidecar": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.manifest.json",
+          "checkpoint_sidecar_sha256": "cdc1af661512387f35b771294fedf1354ea18a4248b6a55b45a205f6464d9b46",
+          "training_manifest": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.training_manifest.json",
+          "training_manifest_sha256": "e36c28ea3dc78f61e7705b83b7254c88588a78e1ad53d781c6487f7bc198452b",
+          "epoch": 100
+        }
+      },
+      "controlled_variables": {
+        "seed": 401,
+        "sensor": {
+          "model": "looper_insight_9",
+          "maze_type": 8,
+          "map_viz_resolution_m": 0.1,
+          "depth_topic": "/depth_image",
+          "odom_topic": "/sim/odom",
+          "map_topic": "/mock_map",
+          "collision_counter_topic": "/yopo/collision_counter_total",
+          "max_depth_m": 20.0
+        },
+        "flight": {
+          "start": [
+            -20.0,
+            0.0,
+            2.0
+          ],
+          "end": [
+            20.0,
+            0.0,
+            2.0
+          ],
+          "repeats": 1,
+          "velocity_mps": 3.0,
+          "arrive_distance_m": 1.0,
+          "segment_timeout_s": 70.0,
+          "fixed_body_yaw": false
+        },
+        "planner": {
+          "sgm_time_s": 1.4,
+          "radius_min_m": null,
+          "radius_max_m": null,
+          "visualize": false,
+          "control_topic": "/so3_control/pos_cmd"
+        },
+        "collision_metric": {
+          "vehicle_radius_m": 0.45,
+          "episode_gap_s": 0.35,
+          "map_wait_s": 15.0,
+          "require_map": true
+        },
+        "camera_contract": {
+          "command_topic": "/yopo/camera/command",
+          "state_topic": "/yopo/camera/orientation",
+          "stamped_state_topic": "/yopo/camera/orientation_stamped",
+          "zero_tolerance_rad": 0.0001,
+          "active_motion_threshold_rad": 0.01,
+          "require_active_motion": true,
+          "depth_state_sync_slop_s": 0.03,
+          "minimum_depth_state_match_rate": 0.98
+        },
+        "controller": {
+          "odom_rate_hz": 100.0,
+          "hover_thrust": 0.375,
+          "disturbance_observer": true
+        }
+      },
+      "controlled_hash": "8b75583831525f7ba6bc9cfad7b3942af4b0685e8e81f076eede8fde6d8acce5",
+      "run_dir": "/workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000401_active",
+      "commands": {
+        "roscore": "source /opt/ros/noetic/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roscore -p 11503",
+        "controller": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roslaunch /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000401_active/controller.launch",
+        "sensor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO/Simulator && rosrun sensor_simulator sensor_simulator_cuda __name:=sensor_simulator_node _active_camera:=true _maze_type:=8 _seed:=401 _map_viz_resolution:=0.1 _uav_collision_radius:=0.45",
+        "planner": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && export CUDA_VISIBLE_DEVICES=0 && python3 YOPO/test_yopo_ros.py --weight /workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.pth --velocity 3.0 --max-depth 20.0 --arrive-dist 1.0 --sgm-time 1.4 --visualize 0 --active-camera true --odom-topic /sim/odom --depth-topic /depth_image --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-queue-size 30 --camera-sync-slop 0.03 --ctrl-topic /so3_control/pos_cmd",
+        "monitor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && python3 /workspace/YOPO/tools/benchmark_active_camera.py --monitor --run-dir /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000401_active --arm active --seed 401 --start=-20.0,0.0,2.0 --end=20.0,0.0,2.0 --repeats 1 --arrive-dist 1.0 --segment-timeout 70.0 --collision-radius 0.45 --collision-episode-gap 0.35 --map-wait 15.0 --map-topic /mock_map --odom-topic /sim/odom --camera-command-topic /yopo/camera/command --camera-state-topic /yopo/camera/orientation --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-slop 0.03 --min-depth-state-match-rate 0.98 --collision-counter-topic /yopo/collision_counter_total --camera-zero-tolerance 0.0001 --active-motion-threshold 0.01 --plot-map-max-points 50000 --require-map true --require-active-motion true"
+      },
+      "run_spec_hash": "b97ec07e067ea6630a68098e1fe687cbc1a0a21700ec97e2d6217a4d3432c190"
+    },
+    {
+      "sequence": 2,
+      "pair_id": "seed_000401",
+      "run_id": "seed_000401_fixed",
+      "seed": 401,
+      "arm": "fixed",
+      "treatment": {
+        "camera_enabled": false,
+        "checkpoint": "/workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.pth",
+        "checkpoint_sha256": "6e970cb69c4d8b45e23470205caff5ba1c920651f7bbc408f8962a2f21293afb",
+        "checkpoint_artifact": {
+          "checkpoint_sha256": "6e970cb69c4d8b45e23470205caff5ba1c920651f7bbc408f8962a2f21293afb",
+          "checkpoint_sidecar": "/workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.manifest.json",
+          "checkpoint_sidecar_sha256": "365e04c0ad6d6b2cf78c7f81adfc96b1e882ccf732da43551769e74dd89d0053",
+          "training_manifest": "/workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.training_manifest.json",
+          "training_manifest_sha256": "dc712f84c302a9d4489ee512a99e43ccc5ddd7259225ff546b949bc023cfd506",
+          "epoch": 100
+        }
+      },
+      "controlled_variables": {
+        "seed": 401,
+        "sensor": {
+          "model": "looper_insight_9",
+          "maze_type": 8,
+          "map_viz_resolution_m": 0.1,
+          "depth_topic": "/depth_image",
+          "odom_topic": "/sim/odom",
+          "map_topic": "/mock_map",
+          "collision_counter_topic": "/yopo/collision_counter_total",
+          "max_depth_m": 20.0
+        },
+        "flight": {
+          "start": [
+            -20.0,
+            0.0,
+            2.0
+          ],
+          "end": [
+            20.0,
+            0.0,
+            2.0
+          ],
+          "repeats": 1,
+          "velocity_mps": 3.0,
+          "arrive_distance_m": 1.0,
+          "segment_timeout_s": 70.0,
+          "fixed_body_yaw": false
+        },
+        "planner": {
+          "sgm_time_s": 1.4,
+          "radius_min_m": null,
+          "radius_max_m": null,
+          "visualize": false,
+          "control_topic": "/so3_control/pos_cmd"
+        },
+        "collision_metric": {
+          "vehicle_radius_m": 0.45,
+          "episode_gap_s": 0.35,
+          "map_wait_s": 15.0,
+          "require_map": true
+        },
+        "camera_contract": {
+          "command_topic": "/yopo/camera/command",
+          "state_topic": "/yopo/camera/orientation",
+          "stamped_state_topic": "/yopo/camera/orientation_stamped",
+          "zero_tolerance_rad": 0.0001,
+          "active_motion_threshold_rad": 0.01,
+          "require_active_motion": true,
+          "depth_state_sync_slop_s": 0.03,
+          "minimum_depth_state_match_rate": 0.98
+        },
+        "controller": {
+          "odom_rate_hz": 100.0,
+          "hover_thrust": 0.375,
+          "disturbance_observer": true
+        }
+      },
+      "controlled_hash": "8b75583831525f7ba6bc9cfad7b3942af4b0685e8e81f076eede8fde6d8acce5",
+      "run_dir": "/workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000401_fixed",
+      "commands": {
+        "roscore": "source /opt/ros/noetic/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roscore -p 11503",
+        "controller": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roslaunch /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000401_fixed/controller.launch",
+        "sensor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO/Simulator && rosrun sensor_simulator sensor_simulator_cuda __name:=sensor_simulator_node _active_camera:=false _maze_type:=8 _seed:=401 _map_viz_resolution:=0.1 _uav_collision_radius:=0.45",
+        "planner": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && export CUDA_VISIBLE_DEVICES=0 && python3 YOPO/test_yopo_ros.py --weight /workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.pth --velocity 3.0 --max-depth 20.0 --arrive-dist 1.0 --sgm-time 1.4 --visualize 0 --active-camera false --odom-topic /sim/odom --depth-topic /depth_image --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-queue-size 30 --camera-sync-slop 0.03 --ctrl-topic /so3_control/pos_cmd",
+        "monitor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && python3 /workspace/YOPO/tools/benchmark_active_camera.py --monitor --run-dir /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000401_fixed --arm fixed --seed 401 --start=-20.0,0.0,2.0 --end=20.0,0.0,2.0 --repeats 1 --arrive-dist 1.0 --segment-timeout 70.0 --collision-radius 0.45 --collision-episode-gap 0.35 --map-wait 15.0 --map-topic /mock_map --odom-topic /sim/odom --camera-command-topic /yopo/camera/command --camera-state-topic /yopo/camera/orientation --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-slop 0.03 --min-depth-state-match-rate 0.98 --collision-counter-topic /yopo/collision_counter_total --camera-zero-tolerance 0.0001 --active-motion-threshold 0.01 --plot-map-max-points 50000 --require-map true --require-active-motion true"
+      },
+      "run_spec_hash": "7a7aff47eb2406f5439db30cca5a06c0c9bd949e2723155d73d092501507ec09"
+    },
+    {
+      "sequence": 3,
+      "pair_id": "seed_000402",
+      "run_id": "seed_000402_fixed",
+      "seed": 402,
+      "arm": "fixed",
+      "treatment": {
+        "camera_enabled": false,
+        "checkpoint": "/workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.pth",
+        "checkpoint_sha256": "6e970cb69c4d8b45e23470205caff5ba1c920651f7bbc408f8962a2f21293afb",
+        "checkpoint_artifact": {
+          "checkpoint_sha256": "6e970cb69c4d8b45e23470205caff5ba1c920651f7bbc408f8962a2f21293afb",
+          "checkpoint_sidecar": "/workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.manifest.json",
+          "checkpoint_sidecar_sha256": "365e04c0ad6d6b2cf78c7f81adfc96b1e882ccf732da43551769e74dd89d0053",
+          "training_manifest": "/workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.training_manifest.json",
+          "training_manifest_sha256": "dc712f84c302a9d4489ee512a99e43ccc5ddd7259225ff546b949bc023cfd506",
+          "epoch": 100
+        }
+      },
+      "controlled_variables": {
+        "seed": 402,
+        "sensor": {
+          "model": "looper_insight_9",
+          "maze_type": 8,
+          "map_viz_resolution_m": 0.1,
+          "depth_topic": "/depth_image",
+          "odom_topic": "/sim/odom",
+          "map_topic": "/mock_map",
+          "collision_counter_topic": "/yopo/collision_counter_total",
+          "max_depth_m": 20.0
+        },
+        "flight": {
+          "start": [
+            -20.0,
+            0.0,
+            2.0
+          ],
+          "end": [
+            20.0,
+            0.0,
+            2.0
+          ],
+          "repeats": 1,
+          "velocity_mps": 3.0,
+          "arrive_distance_m": 1.0,
+          "segment_timeout_s": 70.0,
+          "fixed_body_yaw": false
+        },
+        "planner": {
+          "sgm_time_s": 1.4,
+          "radius_min_m": null,
+          "radius_max_m": null,
+          "visualize": false,
+          "control_topic": "/so3_control/pos_cmd"
+        },
+        "collision_metric": {
+          "vehicle_radius_m": 0.45,
+          "episode_gap_s": 0.35,
+          "map_wait_s": 15.0,
+          "require_map": true
+        },
+        "camera_contract": {
+          "command_topic": "/yopo/camera/command",
+          "state_topic": "/yopo/camera/orientation",
+          "stamped_state_topic": "/yopo/camera/orientation_stamped",
+          "zero_tolerance_rad": 0.0001,
+          "active_motion_threshold_rad": 0.01,
+          "require_active_motion": true,
+          "depth_state_sync_slop_s": 0.03,
+          "minimum_depth_state_match_rate": 0.98
+        },
+        "controller": {
+          "odom_rate_hz": 100.0,
+          "hover_thrust": 0.375,
+          "disturbance_observer": true
+        }
+      },
+      "controlled_hash": "457bba4d90dc1c17dcc909b3a0844047506fd9ba8b150bcc9b67f44bdff1a890",
+      "run_dir": "/workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000402_fixed",
+      "commands": {
+        "roscore": "source /opt/ros/noetic/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roscore -p 11503",
+        "controller": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roslaunch /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000402_fixed/controller.launch",
+        "sensor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO/Simulator && rosrun sensor_simulator sensor_simulator_cuda __name:=sensor_simulator_node _active_camera:=false _maze_type:=8 _seed:=402 _map_viz_resolution:=0.1 _uav_collision_radius:=0.45",
+        "planner": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && export CUDA_VISIBLE_DEVICES=0 && python3 YOPO/test_yopo_ros.py --weight /workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.pth --velocity 3.0 --max-depth 20.0 --arrive-dist 1.0 --sgm-time 1.4 --visualize 0 --active-camera false --odom-topic /sim/odom --depth-topic /depth_image --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-queue-size 30 --camera-sync-slop 0.03 --ctrl-topic /so3_control/pos_cmd",
+        "monitor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && python3 /workspace/YOPO/tools/benchmark_active_camera.py --monitor --run-dir /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000402_fixed --arm fixed --seed 402 --start=-20.0,0.0,2.0 --end=20.0,0.0,2.0 --repeats 1 --arrive-dist 1.0 --segment-timeout 70.0 --collision-radius 0.45 --collision-episode-gap 0.35 --map-wait 15.0 --map-topic /mock_map --odom-topic /sim/odom --camera-command-topic /yopo/camera/command --camera-state-topic /yopo/camera/orientation --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-slop 0.03 --min-depth-state-match-rate 0.98 --collision-counter-topic /yopo/collision_counter_total --camera-zero-tolerance 0.0001 --active-motion-threshold 0.01 --plot-map-max-points 50000 --require-map true --require-active-motion true"
+      },
+      "run_spec_hash": "08a1866f246d73726f249b61ff2ab0f41c1c1a57d1d01b89e0b3c73a947416ec"
+    },
+    {
+      "sequence": 4,
+      "pair_id": "seed_000402",
+      "run_id": "seed_000402_active",
+      "seed": 402,
+      "arm": "active",
+      "treatment": {
+        "camera_enabled": true,
+        "checkpoint": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.pth",
+        "checkpoint_sha256": "bb59d23ad76e0ba165553f517d1ea05acec0753b256bf5f7d3011c790c638439",
+        "checkpoint_artifact": {
+          "checkpoint_sha256": "bb59d23ad76e0ba165553f517d1ea05acec0753b256bf5f7d3011c790c638439",
+          "checkpoint_sidecar": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.manifest.json",
+          "checkpoint_sidecar_sha256": "cdc1af661512387f35b771294fedf1354ea18a4248b6a55b45a205f6464d9b46",
+          "training_manifest": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.training_manifest.json",
+          "training_manifest_sha256": "e36c28ea3dc78f61e7705b83b7254c88588a78e1ad53d781c6487f7bc198452b",
+          "epoch": 100
+        }
+      },
+      "controlled_variables": {
+        "seed": 402,
+        "sensor": {
+          "model": "looper_insight_9",
+          "maze_type": 8,
+          "map_viz_resolution_m": 0.1,
+          "depth_topic": "/depth_image",
+          "odom_topic": "/sim/odom",
+          "map_topic": "/mock_map",
+          "collision_counter_topic": "/yopo/collision_counter_total",
+          "max_depth_m": 20.0
+        },
+        "flight": {
+          "start": [
+            -20.0,
+            0.0,
+            2.0
+          ],
+          "end": [
+            20.0,
+            0.0,
+            2.0
+          ],
+          "repeats": 1,
+          "velocity_mps": 3.0,
+          "arrive_distance_m": 1.0,
+          "segment_timeout_s": 70.0,
+          "fixed_body_yaw": false
+        },
+        "planner": {
+          "sgm_time_s": 1.4,
+          "radius_min_m": null,
+          "radius_max_m": null,
+          "visualize": false,
+          "control_topic": "/so3_control/pos_cmd"
+        },
+        "collision_metric": {
+          "vehicle_radius_m": 0.45,
+          "episode_gap_s": 0.35,
+          "map_wait_s": 15.0,
+          "require_map": true
+        },
+        "camera_contract": {
+          "command_topic": "/yopo/camera/command",
+          "state_topic": "/yopo/camera/orientation",
+          "stamped_state_topic": "/yopo/camera/orientation_stamped",
+          "zero_tolerance_rad": 0.0001,
+          "active_motion_threshold_rad": 0.01,
+          "require_active_motion": true,
+          "depth_state_sync_slop_s": 0.03,
+          "minimum_depth_state_match_rate": 0.98
+        },
+        "controller": {
+          "odom_rate_hz": 100.0,
+          "hover_thrust": 0.375,
+          "disturbance_observer": true
+        }
+      },
+      "controlled_hash": "457bba4d90dc1c17dcc909b3a0844047506fd9ba8b150bcc9b67f44bdff1a890",
+      "run_dir": "/workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000402_active",
+      "commands": {
+        "roscore": "source /opt/ros/noetic/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roscore -p 11503",
+        "controller": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roslaunch /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000402_active/controller.launch",
+        "sensor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO/Simulator && rosrun sensor_simulator sensor_simulator_cuda __name:=sensor_simulator_node _active_camera:=true _maze_type:=8 _seed:=402 _map_viz_resolution:=0.1 _uav_collision_radius:=0.45",
+        "planner": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && export CUDA_VISIBLE_DEVICES=0 && python3 YOPO/test_yopo_ros.py --weight /workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.pth --velocity 3.0 --max-depth 20.0 --arrive-dist 1.0 --sgm-time 1.4 --visualize 0 --active-camera true --odom-topic /sim/odom --depth-topic /depth_image --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-queue-size 30 --camera-sync-slop 0.03 --ctrl-topic /so3_control/pos_cmd",
+        "monitor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && python3 /workspace/YOPO/tools/benchmark_active_camera.py --monitor --run-dir /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000402_active --arm active --seed 402 --start=-20.0,0.0,2.0 --end=20.0,0.0,2.0 --repeats 1 --arrive-dist 1.0 --segment-timeout 70.0 --collision-radius 0.45 --collision-episode-gap 0.35 --map-wait 15.0 --map-topic /mock_map --odom-topic /sim/odom --camera-command-topic /yopo/camera/command --camera-state-topic /yopo/camera/orientation --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-slop 0.03 --min-depth-state-match-rate 0.98 --collision-counter-topic /yopo/collision_counter_total --camera-zero-tolerance 0.0001 --active-motion-threshold 0.01 --plot-map-max-points 50000 --require-map true --require-active-motion true"
+      },
+      "run_spec_hash": "7bbd208b339132e0237f9c4ba08acd54d42ebb957f869c015756e391137aa1b2"
+    },
+    {
+      "sequence": 5,
+      "pair_id": "seed_000403",
+      "run_id": "seed_000403_active",
+      "seed": 403,
+      "arm": "active",
+      "treatment": {
+        "camera_enabled": true,
+        "checkpoint": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.pth",
+        "checkpoint_sha256": "bb59d23ad76e0ba165553f517d1ea05acec0753b256bf5f7d3011c790c638439",
+        "checkpoint_artifact": {
+          "checkpoint_sha256": "bb59d23ad76e0ba165553f517d1ea05acec0753b256bf5f7d3011c790c638439",
+          "checkpoint_sidecar": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.manifest.json",
+          "checkpoint_sidecar_sha256": "cdc1af661512387f35b771294fedf1354ea18a4248b6a55b45a205f6464d9b46",
+          "training_manifest": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.training_manifest.json",
+          "training_manifest_sha256": "e36c28ea3dc78f61e7705b83b7254c88588a78e1ad53d781c6487f7bc198452b",
+          "epoch": 100
+        }
+      },
+      "controlled_variables": {
+        "seed": 403,
+        "sensor": {
+          "model": "looper_insight_9",
+          "maze_type": 8,
+          "map_viz_resolution_m": 0.1,
+          "depth_topic": "/depth_image",
+          "odom_topic": "/sim/odom",
+          "map_topic": "/mock_map",
+          "collision_counter_topic": "/yopo/collision_counter_total",
+          "max_depth_m": 20.0
+        },
+        "flight": {
+          "start": [
+            -20.0,
+            0.0,
+            2.0
+          ],
+          "end": [
+            20.0,
+            0.0,
+            2.0
+          ],
+          "repeats": 1,
+          "velocity_mps": 3.0,
+          "arrive_distance_m": 1.0,
+          "segment_timeout_s": 70.0,
+          "fixed_body_yaw": false
+        },
+        "planner": {
+          "sgm_time_s": 1.4,
+          "radius_min_m": null,
+          "radius_max_m": null,
+          "visualize": false,
+          "control_topic": "/so3_control/pos_cmd"
+        },
+        "collision_metric": {
+          "vehicle_radius_m": 0.45,
+          "episode_gap_s": 0.35,
+          "map_wait_s": 15.0,
+          "require_map": true
+        },
+        "camera_contract": {
+          "command_topic": "/yopo/camera/command",
+          "state_topic": "/yopo/camera/orientation",
+          "stamped_state_topic": "/yopo/camera/orientation_stamped",
+          "zero_tolerance_rad": 0.0001,
+          "active_motion_threshold_rad": 0.01,
+          "require_active_motion": true,
+          "depth_state_sync_slop_s": 0.03,
+          "minimum_depth_state_match_rate": 0.98
+        },
+        "controller": {
+          "odom_rate_hz": 100.0,
+          "hover_thrust": 0.375,
+          "disturbance_observer": true
+        }
+      },
+      "controlled_hash": "a564b539b8a7b3953bd219bdfd82f591c2c2884c3b5ea29fd1ebe3fc34ebeaf1",
+      "run_dir": "/workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000403_active",
+      "commands": {
+        "roscore": "source /opt/ros/noetic/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roscore -p 11503",
+        "controller": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roslaunch /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000403_active/controller.launch",
+        "sensor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO/Simulator && rosrun sensor_simulator sensor_simulator_cuda __name:=sensor_simulator_node _active_camera:=true _maze_type:=8 _seed:=403 _map_viz_resolution:=0.1 _uav_collision_radius:=0.45",
+        "planner": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && export CUDA_VISIBLE_DEVICES=0 && python3 YOPO/test_yopo_ros.py --weight /workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.pth --velocity 3.0 --max-depth 20.0 --arrive-dist 1.0 --sgm-time 1.4 --visualize 0 --active-camera true --odom-topic /sim/odom --depth-topic /depth_image --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-queue-size 30 --camera-sync-slop 0.03 --ctrl-topic /so3_control/pos_cmd",
+        "monitor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && python3 /workspace/YOPO/tools/benchmark_active_camera.py --monitor --run-dir /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000403_active --arm active --seed 403 --start=-20.0,0.0,2.0 --end=20.0,0.0,2.0 --repeats 1 --arrive-dist 1.0 --segment-timeout 70.0 --collision-radius 0.45 --collision-episode-gap 0.35 --map-wait 15.0 --map-topic /mock_map --odom-topic /sim/odom --camera-command-topic /yopo/camera/command --camera-state-topic /yopo/camera/orientation --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-slop 0.03 --min-depth-state-match-rate 0.98 --collision-counter-topic /yopo/collision_counter_total --camera-zero-tolerance 0.0001 --active-motion-threshold 0.01 --plot-map-max-points 50000 --require-map true --require-active-motion true"
+      },
+      "run_spec_hash": "5612d9b7c0fc2a8150060205da802ace6ed0140cc3c5cfef56a7e8ed5a1f8ec0"
+    },
+    {
+      "sequence": 6,
+      "pair_id": "seed_000403",
+      "run_id": "seed_000403_fixed",
+      "seed": 403,
+      "arm": "fixed",
+      "treatment": {
+        "camera_enabled": false,
+        "checkpoint": "/workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.pth",
+        "checkpoint_sha256": "6e970cb69c4d8b45e23470205caff5ba1c920651f7bbc408f8962a2f21293afb",
+        "checkpoint_artifact": {
+          "checkpoint_sha256": "6e970cb69c4d8b45e23470205caff5ba1c920651f7bbc408f8962a2f21293afb",
+          "checkpoint_sidecar": "/workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.manifest.json",
+          "checkpoint_sidecar_sha256": "365e04c0ad6d6b2cf78c7f81adfc96b1e882ccf732da43551769e74dd89d0053",
+          "training_manifest": "/workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.training_manifest.json",
+          "training_manifest_sha256": "dc712f84c302a9d4489ee512a99e43ccc5ddd7259225ff546b949bc023cfd506",
+          "epoch": 100
+        }
+      },
+      "controlled_variables": {
+        "seed": 403,
+        "sensor": {
+          "model": "looper_insight_9",
+          "maze_type": 8,
+          "map_viz_resolution_m": 0.1,
+          "depth_topic": "/depth_image",
+          "odom_topic": "/sim/odom",
+          "map_topic": "/mock_map",
+          "collision_counter_topic": "/yopo/collision_counter_total",
+          "max_depth_m": 20.0
+        },
+        "flight": {
+          "start": [
+            -20.0,
+            0.0,
+            2.0
+          ],
+          "end": [
+            20.0,
+            0.0,
+            2.0
+          ],
+          "repeats": 1,
+          "velocity_mps": 3.0,
+          "arrive_distance_m": 1.0,
+          "segment_timeout_s": 70.0,
+          "fixed_body_yaw": false
+        },
+        "planner": {
+          "sgm_time_s": 1.4,
+          "radius_min_m": null,
+          "radius_max_m": null,
+          "visualize": false,
+          "control_topic": "/so3_control/pos_cmd"
+        },
+        "collision_metric": {
+          "vehicle_radius_m": 0.45,
+          "episode_gap_s": 0.35,
+          "map_wait_s": 15.0,
+          "require_map": true
+        },
+        "camera_contract": {
+          "command_topic": "/yopo/camera/command",
+          "state_topic": "/yopo/camera/orientation",
+          "stamped_state_topic": "/yopo/camera/orientation_stamped",
+          "zero_tolerance_rad": 0.0001,
+          "active_motion_threshold_rad": 0.01,
+          "require_active_motion": true,
+          "depth_state_sync_slop_s": 0.03,
+          "minimum_depth_state_match_rate": 0.98
+        },
+        "controller": {
+          "odom_rate_hz": 100.0,
+          "hover_thrust": 0.375,
+          "disturbance_observer": true
+        }
+      },
+      "controlled_hash": "a564b539b8a7b3953bd219bdfd82f591c2c2884c3b5ea29fd1ebe3fc34ebeaf1",
+      "run_dir": "/workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000403_fixed",
+      "commands": {
+        "roscore": "source /opt/ros/noetic/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roscore -p 11503",
+        "controller": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roslaunch /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000403_fixed/controller.launch",
+        "sensor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO/Simulator && rosrun sensor_simulator sensor_simulator_cuda __name:=sensor_simulator_node _active_camera:=false _maze_type:=8 _seed:=403 _map_viz_resolution:=0.1 _uav_collision_radius:=0.45",
+        "planner": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && export CUDA_VISIBLE_DEVICES=0 && python3 YOPO/test_yopo_ros.py --weight /workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.pth --velocity 3.0 --max-depth 20.0 --arrive-dist 1.0 --sgm-time 1.4 --visualize 0 --active-camera false --odom-topic /sim/odom --depth-topic /depth_image --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-queue-size 30 --camera-sync-slop 0.03 --ctrl-topic /so3_control/pos_cmd",
+        "monitor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && python3 /workspace/YOPO/tools/benchmark_active_camera.py --monitor --run-dir /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000403_fixed --arm fixed --seed 403 --start=-20.0,0.0,2.0 --end=20.0,0.0,2.0 --repeats 1 --arrive-dist 1.0 --segment-timeout 70.0 --collision-radius 0.45 --collision-episode-gap 0.35 --map-wait 15.0 --map-topic /mock_map --odom-topic /sim/odom --camera-command-topic /yopo/camera/command --camera-state-topic /yopo/camera/orientation --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-slop 0.03 --min-depth-state-match-rate 0.98 --collision-counter-topic /yopo/collision_counter_total --camera-zero-tolerance 0.0001 --active-motion-threshold 0.01 --plot-map-max-points 50000 --require-map true --require-active-motion true"
+      },
+      "run_spec_hash": "22b3e82988d13ee5baa2e27b3e73b7b78315c8366693d6fe98b39e27cb48f1a6"
+    },
+    {
+      "sequence": 7,
+      "pair_id": "seed_000404",
+      "run_id": "seed_000404_fixed",
+      "seed": 404,
+      "arm": "fixed",
+      "treatment": {
+        "camera_enabled": false,
+        "checkpoint": "/workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.pth",
+        "checkpoint_sha256": "6e970cb69c4d8b45e23470205caff5ba1c920651f7bbc408f8962a2f21293afb",
+        "checkpoint_artifact": {
+          "checkpoint_sha256": "6e970cb69c4d8b45e23470205caff5ba1c920651f7bbc408f8962a2f21293afb",
+          "checkpoint_sidecar": "/workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.manifest.json",
+          "checkpoint_sidecar_sha256": "365e04c0ad6d6b2cf78c7f81adfc96b1e882ccf732da43551769e74dd89d0053",
+          "training_manifest": "/workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.training_manifest.json",
+          "training_manifest_sha256": "dc712f84c302a9d4489ee512a99e43ccc5ddd7259225ff546b949bc023cfd506",
+          "epoch": 100
+        }
+      },
+      "controlled_variables": {
+        "seed": 404,
+        "sensor": {
+          "model": "looper_insight_9",
+          "maze_type": 8,
+          "map_viz_resolution_m": 0.1,
+          "depth_topic": "/depth_image",
+          "odom_topic": "/sim/odom",
+          "map_topic": "/mock_map",
+          "collision_counter_topic": "/yopo/collision_counter_total",
+          "max_depth_m": 20.0
+        },
+        "flight": {
+          "start": [
+            -20.0,
+            0.0,
+            2.0
+          ],
+          "end": [
+            20.0,
+            0.0,
+            2.0
+          ],
+          "repeats": 1,
+          "velocity_mps": 3.0,
+          "arrive_distance_m": 1.0,
+          "segment_timeout_s": 70.0,
+          "fixed_body_yaw": false
+        },
+        "planner": {
+          "sgm_time_s": 1.4,
+          "radius_min_m": null,
+          "radius_max_m": null,
+          "visualize": false,
+          "control_topic": "/so3_control/pos_cmd"
+        },
+        "collision_metric": {
+          "vehicle_radius_m": 0.45,
+          "episode_gap_s": 0.35,
+          "map_wait_s": 15.0,
+          "require_map": true
+        },
+        "camera_contract": {
+          "command_topic": "/yopo/camera/command",
+          "state_topic": "/yopo/camera/orientation",
+          "stamped_state_topic": "/yopo/camera/orientation_stamped",
+          "zero_tolerance_rad": 0.0001,
+          "active_motion_threshold_rad": 0.01,
+          "require_active_motion": true,
+          "depth_state_sync_slop_s": 0.03,
+          "minimum_depth_state_match_rate": 0.98
+        },
+        "controller": {
+          "odom_rate_hz": 100.0,
+          "hover_thrust": 0.375,
+          "disturbance_observer": true
+        }
+      },
+      "controlled_hash": "8526ccaf70e08d5052bee4cb214fc1b62bd6fa3327f0ea08ee1a768cc8b3a08e",
+      "run_dir": "/workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000404_fixed",
+      "commands": {
+        "roscore": "source /opt/ros/noetic/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roscore -p 11503",
+        "controller": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roslaunch /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000404_fixed/controller.launch",
+        "sensor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO/Simulator && rosrun sensor_simulator sensor_simulator_cuda __name:=sensor_simulator_node _active_camera:=false _maze_type:=8 _seed:=404 _map_viz_resolution:=0.1 _uav_collision_radius:=0.45",
+        "planner": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && export CUDA_VISIBLE_DEVICES=0 && python3 YOPO/test_yopo_ros.py --weight /workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.pth --velocity 3.0 --max-depth 20.0 --arrive-dist 1.0 --sgm-time 1.4 --visualize 0 --active-camera false --odom-topic /sim/odom --depth-topic /depth_image --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-queue-size 30 --camera-sync-slop 0.03 --ctrl-topic /so3_control/pos_cmd",
+        "monitor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && python3 /workspace/YOPO/tools/benchmark_active_camera.py --monitor --run-dir /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000404_fixed --arm fixed --seed 404 --start=-20.0,0.0,2.0 --end=20.0,0.0,2.0 --repeats 1 --arrive-dist 1.0 --segment-timeout 70.0 --collision-radius 0.45 --collision-episode-gap 0.35 --map-wait 15.0 --map-topic /mock_map --odom-topic /sim/odom --camera-command-topic /yopo/camera/command --camera-state-topic /yopo/camera/orientation --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-slop 0.03 --min-depth-state-match-rate 0.98 --collision-counter-topic /yopo/collision_counter_total --camera-zero-tolerance 0.0001 --active-motion-threshold 0.01 --plot-map-max-points 50000 --require-map true --require-active-motion true"
+      },
+      "run_spec_hash": "a8ecd13925e4cdbe73e2171bb2f4924b13267490650ea38cf389b000e3578e63"
+    },
+    {
+      "sequence": 8,
+      "pair_id": "seed_000404",
+      "run_id": "seed_000404_active",
+      "seed": 404,
+      "arm": "active",
+      "treatment": {
+        "camera_enabled": true,
+        "checkpoint": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.pth",
+        "checkpoint_sha256": "bb59d23ad76e0ba165553f517d1ea05acec0753b256bf5f7d3011c790c638439",
+        "checkpoint_artifact": {
+          "checkpoint_sha256": "bb59d23ad76e0ba165553f517d1ea05acec0753b256bf5f7d3011c790c638439",
+          "checkpoint_sidecar": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.manifest.json",
+          "checkpoint_sidecar_sha256": "cdc1af661512387f35b771294fedf1354ea18a4248b6a55b45a205f6464d9b46",
+          "training_manifest": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.training_manifest.json",
+          "training_manifest_sha256": "e36c28ea3dc78f61e7705b83b7254c88588a78e1ad53d781c6487f7bc198452b",
+          "epoch": 100
+        }
+      },
+      "controlled_variables": {
+        "seed": 404,
+        "sensor": {
+          "model": "looper_insight_9",
+          "maze_type": 8,
+          "map_viz_resolution_m": 0.1,
+          "depth_topic": "/depth_image",
+          "odom_topic": "/sim/odom",
+          "map_topic": "/mock_map",
+          "collision_counter_topic": "/yopo/collision_counter_total",
+          "max_depth_m": 20.0
+        },
+        "flight": {
+          "start": [
+            -20.0,
+            0.0,
+            2.0
+          ],
+          "end": [
+            20.0,
+            0.0,
+            2.0
+          ],
+          "repeats": 1,
+          "velocity_mps": 3.0,
+          "arrive_distance_m": 1.0,
+          "segment_timeout_s": 70.0,
+          "fixed_body_yaw": false
+        },
+        "planner": {
+          "sgm_time_s": 1.4,
+          "radius_min_m": null,
+          "radius_max_m": null,
+          "visualize": false,
+          "control_topic": "/so3_control/pos_cmd"
+        },
+        "collision_metric": {
+          "vehicle_radius_m": 0.45,
+          "episode_gap_s": 0.35,
+          "map_wait_s": 15.0,
+          "require_map": true
+        },
+        "camera_contract": {
+          "command_topic": "/yopo/camera/command",
+          "state_topic": "/yopo/camera/orientation",
+          "stamped_state_topic": "/yopo/camera/orientation_stamped",
+          "zero_tolerance_rad": 0.0001,
+          "active_motion_threshold_rad": 0.01,
+          "require_active_motion": true,
+          "depth_state_sync_slop_s": 0.03,
+          "minimum_depth_state_match_rate": 0.98
+        },
+        "controller": {
+          "odom_rate_hz": 100.0,
+          "hover_thrust": 0.375,
+          "disturbance_observer": true
+        }
+      },
+      "controlled_hash": "8526ccaf70e08d5052bee4cb214fc1b62bd6fa3327f0ea08ee1a768cc8b3a08e",
+      "run_dir": "/workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000404_active",
+      "commands": {
+        "roscore": "source /opt/ros/noetic/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roscore -p 11503",
+        "controller": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roslaunch /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000404_active/controller.launch",
+        "sensor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO/Simulator && rosrun sensor_simulator sensor_simulator_cuda __name:=sensor_simulator_node _active_camera:=true _maze_type:=8 _seed:=404 _map_viz_resolution:=0.1 _uav_collision_radius:=0.45",
+        "planner": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && export CUDA_VISIBLE_DEVICES=0 && python3 YOPO/test_yopo_ros.py --weight /workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.pth --velocity 3.0 --max-depth 20.0 --arrive-dist 1.0 --sgm-time 1.4 --visualize 0 --active-camera true --odom-topic /sim/odom --depth-topic /depth_image --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-queue-size 30 --camera-sync-slop 0.03 --ctrl-topic /so3_control/pos_cmd",
+        "monitor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && python3 /workspace/YOPO/tools/benchmark_active_camera.py --monitor --run-dir /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000404_active --arm active --seed 404 --start=-20.0,0.0,2.0 --end=20.0,0.0,2.0 --repeats 1 --arrive-dist 1.0 --segment-timeout 70.0 --collision-radius 0.45 --collision-episode-gap 0.35 --map-wait 15.0 --map-topic /mock_map --odom-topic /sim/odom --camera-command-topic /yopo/camera/command --camera-state-topic /yopo/camera/orientation --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-slop 0.03 --min-depth-state-match-rate 0.98 --collision-counter-topic /yopo/collision_counter_total --camera-zero-tolerance 0.0001 --active-motion-threshold 0.01 --plot-map-max-points 50000 --require-map true --require-active-motion true"
+      },
+      "run_spec_hash": "d3d3980df44a94b61d13a5fdeca30161f119b57b08ffce8a4a273436f917dd5c"
+    },
+    {
+      "sequence": 9,
+      "pair_id": "seed_000405",
+      "run_id": "seed_000405_active",
+      "seed": 405,
+      "arm": "active",
+      "treatment": {
+        "camera_enabled": true,
+        "checkpoint": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.pth",
+        "checkpoint_sha256": "bb59d23ad76e0ba165553f517d1ea05acec0753b256bf5f7d3011c790c638439",
+        "checkpoint_artifact": {
+          "checkpoint_sha256": "bb59d23ad76e0ba165553f517d1ea05acec0753b256bf5f7d3011c790c638439",
+          "checkpoint_sidecar": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.manifest.json",
+          "checkpoint_sidecar_sha256": "cdc1af661512387f35b771294fedf1354ea18a4248b6a55b45a205f6464d9b46",
+          "training_manifest": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.training_manifest.json",
+          "training_manifest_sha256": "e36c28ea3dc78f61e7705b83b7254c88588a78e1ad53d781c6487f7bc198452b",
+          "epoch": 100
+        }
+      },
+      "controlled_variables": {
+        "seed": 405,
+        "sensor": {
+          "model": "looper_insight_9",
+          "maze_type": 8,
+          "map_viz_resolution_m": 0.1,
+          "depth_topic": "/depth_image",
+          "odom_topic": "/sim/odom",
+          "map_topic": "/mock_map",
+          "collision_counter_topic": "/yopo/collision_counter_total",
+          "max_depth_m": 20.0
+        },
+        "flight": {
+          "start": [
+            -20.0,
+            0.0,
+            2.0
+          ],
+          "end": [
+            20.0,
+            0.0,
+            2.0
+          ],
+          "repeats": 1,
+          "velocity_mps": 3.0,
+          "arrive_distance_m": 1.0,
+          "segment_timeout_s": 70.0,
+          "fixed_body_yaw": false
+        },
+        "planner": {
+          "sgm_time_s": 1.4,
+          "radius_min_m": null,
+          "radius_max_m": null,
+          "visualize": false,
+          "control_topic": "/so3_control/pos_cmd"
+        },
+        "collision_metric": {
+          "vehicle_radius_m": 0.45,
+          "episode_gap_s": 0.35,
+          "map_wait_s": 15.0,
+          "require_map": true
+        },
+        "camera_contract": {
+          "command_topic": "/yopo/camera/command",
+          "state_topic": "/yopo/camera/orientation",
+          "stamped_state_topic": "/yopo/camera/orientation_stamped",
+          "zero_tolerance_rad": 0.0001,
+          "active_motion_threshold_rad": 0.01,
+          "require_active_motion": true,
+          "depth_state_sync_slop_s": 0.03,
+          "minimum_depth_state_match_rate": 0.98
+        },
+        "controller": {
+          "odom_rate_hz": 100.0,
+          "hover_thrust": 0.375,
+          "disturbance_observer": true
+        }
+      },
+      "controlled_hash": "a9cac345cc8a69f64541cd57dff559729dedd74b41a708d728762619fa4bd122",
+      "run_dir": "/workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000405_active",
+      "commands": {
+        "roscore": "source /opt/ros/noetic/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roscore -p 11503",
+        "controller": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roslaunch /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000405_active/controller.launch",
+        "sensor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO/Simulator && rosrun sensor_simulator sensor_simulator_cuda __name:=sensor_simulator_node _active_camera:=true _maze_type:=8 _seed:=405 _map_viz_resolution:=0.1 _uav_collision_radius:=0.45",
+        "planner": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && export CUDA_VISIBLE_DEVICES=0 && python3 YOPO/test_yopo_ros.py --weight /workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.pth --velocity 3.0 --max-depth 20.0 --arrive-dist 1.0 --sgm-time 1.4 --visualize 0 --active-camera true --odom-topic /sim/odom --depth-topic /depth_image --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-queue-size 30 --camera-sync-slop 0.03 --ctrl-topic /so3_control/pos_cmd",
+        "monitor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && python3 /workspace/YOPO/tools/benchmark_active_camera.py --monitor --run-dir /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000405_active --arm active --seed 405 --start=-20.0,0.0,2.0 --end=20.0,0.0,2.0 --repeats 1 --arrive-dist 1.0 --segment-timeout 70.0 --collision-radius 0.45 --collision-episode-gap 0.35 --map-wait 15.0 --map-topic /mock_map --odom-topic /sim/odom --camera-command-topic /yopo/camera/command --camera-state-topic /yopo/camera/orientation --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-slop 0.03 --min-depth-state-match-rate 0.98 --collision-counter-topic /yopo/collision_counter_total --camera-zero-tolerance 0.0001 --active-motion-threshold 0.01 --plot-map-max-points 50000 --require-map true --require-active-motion true"
+      },
+      "run_spec_hash": "3b7e51d6e852d6f5cd497ab16b9a88c58faf3e4076c97ff542b5e9e3b24f9426"
+    },
+    {
+      "sequence": 10,
+      "pair_id": "seed_000405",
+      "run_id": "seed_000405_fixed",
+      "seed": 405,
+      "arm": "fixed",
+      "treatment": {
+        "camera_enabled": false,
+        "checkpoint": "/workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.pth",
+        "checkpoint_sha256": "6e970cb69c4d8b45e23470205caff5ba1c920651f7bbc408f8962a2f21293afb",
+        "checkpoint_artifact": {
+          "checkpoint_sha256": "6e970cb69c4d8b45e23470205caff5ba1c920651f7bbc408f8962a2f21293afb",
+          "checkpoint_sidecar": "/workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.manifest.json",
+          "checkpoint_sidecar_sha256": "365e04c0ad6d6b2cf78c7f81adfc96b1e882ccf732da43551769e74dd89d0053",
+          "training_manifest": "/workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.training_manifest.json",
+          "training_manifest_sha256": "dc712f84c302a9d4489ee512a99e43ccc5ddd7259225ff546b949bc023cfd506",
+          "epoch": 100
+        }
+      },
+      "controlled_variables": {
+        "seed": 405,
+        "sensor": {
+          "model": "looper_insight_9",
+          "maze_type": 8,
+          "map_viz_resolution_m": 0.1,
+          "depth_topic": "/depth_image",
+          "odom_topic": "/sim/odom",
+          "map_topic": "/mock_map",
+          "collision_counter_topic": "/yopo/collision_counter_total",
+          "max_depth_m": 20.0
+        },
+        "flight": {
+          "start": [
+            -20.0,
+            0.0,
+            2.0
+          ],
+          "end": [
+            20.0,
+            0.0,
+            2.0
+          ],
+          "repeats": 1,
+          "velocity_mps": 3.0,
+          "arrive_distance_m": 1.0,
+          "segment_timeout_s": 70.0,
+          "fixed_body_yaw": false
+        },
+        "planner": {
+          "sgm_time_s": 1.4,
+          "radius_min_m": null,
+          "radius_max_m": null,
+          "visualize": false,
+          "control_topic": "/so3_control/pos_cmd"
+        },
+        "collision_metric": {
+          "vehicle_radius_m": 0.45,
+          "episode_gap_s": 0.35,
+          "map_wait_s": 15.0,
+          "require_map": true
+        },
+        "camera_contract": {
+          "command_topic": "/yopo/camera/command",
+          "state_topic": "/yopo/camera/orientation",
+          "stamped_state_topic": "/yopo/camera/orientation_stamped",
+          "zero_tolerance_rad": 0.0001,
+          "active_motion_threshold_rad": 0.01,
+          "require_active_motion": true,
+          "depth_state_sync_slop_s": 0.03,
+          "minimum_depth_state_match_rate": 0.98
+        },
+        "controller": {
+          "odom_rate_hz": 100.0,
+          "hover_thrust": 0.375,
+          "disturbance_observer": true
+        }
+      },
+      "controlled_hash": "a9cac345cc8a69f64541cd57dff559729dedd74b41a708d728762619fa4bd122",
+      "run_dir": "/workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000405_fixed",
+      "commands": {
+        "roscore": "source /opt/ros/noetic/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roscore -p 11503",
+        "controller": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roslaunch /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000405_fixed/controller.launch",
+        "sensor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO/Simulator && rosrun sensor_simulator sensor_simulator_cuda __name:=sensor_simulator_node _active_camera:=false _maze_type:=8 _seed:=405 _map_viz_resolution:=0.1 _uav_collision_radius:=0.45",
+        "planner": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && export CUDA_VISIBLE_DEVICES=0 && python3 YOPO/test_yopo_ros.py --weight /workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.pth --velocity 3.0 --max-depth 20.0 --arrive-dist 1.0 --sgm-time 1.4 --visualize 0 --active-camera false --odom-topic /sim/odom --depth-topic /depth_image --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-queue-size 30 --camera-sync-slop 0.03 --ctrl-topic /so3_control/pos_cmd",
+        "monitor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && python3 /workspace/YOPO/tools/benchmark_active_camera.py --monitor --run-dir /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000405_fixed --arm fixed --seed 405 --start=-20.0,0.0,2.0 --end=20.0,0.0,2.0 --repeats 1 --arrive-dist 1.0 --segment-timeout 70.0 --collision-radius 0.45 --collision-episode-gap 0.35 --map-wait 15.0 --map-topic /mock_map --odom-topic /sim/odom --camera-command-topic /yopo/camera/command --camera-state-topic /yopo/camera/orientation --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-slop 0.03 --min-depth-state-match-rate 0.98 --collision-counter-topic /yopo/collision_counter_total --camera-zero-tolerance 0.0001 --active-motion-threshold 0.01 --plot-map-max-points 50000 --require-map true --require-active-motion true"
+      },
+      "run_spec_hash": "f21ed00af7973b298442d8a6d9e543b318e62ee8aad859a61265f62cf8bfddb6"
+    },
+    {
+      "sequence": 11,
+      "pair_id": "seed_000406",
+      "run_id": "seed_000406_fixed",
+      "seed": 406,
+      "arm": "fixed",
+      "treatment": {
+        "camera_enabled": false,
+        "checkpoint": "/workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.pth",
+        "checkpoint_sha256": "6e970cb69c4d8b45e23470205caff5ba1c920651f7bbc408f8962a2f21293afb",
+        "checkpoint_artifact": {
+          "checkpoint_sha256": "6e970cb69c4d8b45e23470205caff5ba1c920651f7bbc408f8962a2f21293afb",
+          "checkpoint_sidecar": "/workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.manifest.json",
+          "checkpoint_sidecar_sha256": "365e04c0ad6d6b2cf78c7f81adfc96b1e882ccf732da43551769e74dd89d0053",
+          "training_manifest": "/workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.training_manifest.json",
+          "training_manifest_sha256": "dc712f84c302a9d4489ee512a99e43ccc5ddd7259225ff546b949bc023cfd506",
+          "epoch": 100
+        }
+      },
+      "controlled_variables": {
+        "seed": 406,
+        "sensor": {
+          "model": "looper_insight_9",
+          "maze_type": 8,
+          "map_viz_resolution_m": 0.1,
+          "depth_topic": "/depth_image",
+          "odom_topic": "/sim/odom",
+          "map_topic": "/mock_map",
+          "collision_counter_topic": "/yopo/collision_counter_total",
+          "max_depth_m": 20.0
+        },
+        "flight": {
+          "start": [
+            -20.0,
+            0.0,
+            2.0
+          ],
+          "end": [
+            20.0,
+            0.0,
+            2.0
+          ],
+          "repeats": 1,
+          "velocity_mps": 3.0,
+          "arrive_distance_m": 1.0,
+          "segment_timeout_s": 70.0,
+          "fixed_body_yaw": false
+        },
+        "planner": {
+          "sgm_time_s": 1.4,
+          "radius_min_m": null,
+          "radius_max_m": null,
+          "visualize": false,
+          "control_topic": "/so3_control/pos_cmd"
+        },
+        "collision_metric": {
+          "vehicle_radius_m": 0.45,
+          "episode_gap_s": 0.35,
+          "map_wait_s": 15.0,
+          "require_map": true
+        },
+        "camera_contract": {
+          "command_topic": "/yopo/camera/command",
+          "state_topic": "/yopo/camera/orientation",
+          "stamped_state_topic": "/yopo/camera/orientation_stamped",
+          "zero_tolerance_rad": 0.0001,
+          "active_motion_threshold_rad": 0.01,
+          "require_active_motion": true,
+          "depth_state_sync_slop_s": 0.03,
+          "minimum_depth_state_match_rate": 0.98
+        },
+        "controller": {
+          "odom_rate_hz": 100.0,
+          "hover_thrust": 0.375,
+          "disturbance_observer": true
+        }
+      },
+      "controlled_hash": "50ed634a0a241d1fd6139afeb68985a3224f5417a1800abf50ef85116e5ba00f",
+      "run_dir": "/workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000406_fixed",
+      "commands": {
+        "roscore": "source /opt/ros/noetic/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roscore -p 11503",
+        "controller": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roslaunch /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000406_fixed/controller.launch",
+        "sensor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO/Simulator && rosrun sensor_simulator sensor_simulator_cuda __name:=sensor_simulator_node _active_camera:=false _maze_type:=8 _seed:=406 _map_viz_resolution:=0.1 _uav_collision_radius:=0.45",
+        "planner": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && export CUDA_VISIBLE_DEVICES=0 && python3 YOPO/test_yopo_ros.py --weight /workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.pth --velocity 3.0 --max-depth 20.0 --arrive-dist 1.0 --sgm-time 1.4 --visualize 0 --active-camera false --odom-topic /sim/odom --depth-topic /depth_image --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-queue-size 30 --camera-sync-slop 0.03 --ctrl-topic /so3_control/pos_cmd",
+        "monitor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && python3 /workspace/YOPO/tools/benchmark_active_camera.py --monitor --run-dir /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000406_fixed --arm fixed --seed 406 --start=-20.0,0.0,2.0 --end=20.0,0.0,2.0 --repeats 1 --arrive-dist 1.0 --segment-timeout 70.0 --collision-radius 0.45 --collision-episode-gap 0.35 --map-wait 15.0 --map-topic /mock_map --odom-topic /sim/odom --camera-command-topic /yopo/camera/command --camera-state-topic /yopo/camera/orientation --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-slop 0.03 --min-depth-state-match-rate 0.98 --collision-counter-topic /yopo/collision_counter_total --camera-zero-tolerance 0.0001 --active-motion-threshold 0.01 --plot-map-max-points 50000 --require-map true --require-active-motion true"
+      },
+      "run_spec_hash": "4c85df6b7211dffbc9b4fcbc7e533986016dc3378ade915e6787eff32126b9c7"
+    },
+    {
+      "sequence": 12,
+      "pair_id": "seed_000406",
+      "run_id": "seed_000406_active",
+      "seed": 406,
+      "arm": "active",
+      "treatment": {
+        "camera_enabled": true,
+        "checkpoint": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.pth",
+        "checkpoint_sha256": "bb59d23ad76e0ba165553f517d1ea05acec0753b256bf5f7d3011c790c638439",
+        "checkpoint_artifact": {
+          "checkpoint_sha256": "bb59d23ad76e0ba165553f517d1ea05acec0753b256bf5f7d3011c790c638439",
+          "checkpoint_sidecar": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.manifest.json",
+          "checkpoint_sidecar_sha256": "cdc1af661512387f35b771294fedf1354ea18a4248b6a55b45a205f6464d9b46",
+          "training_manifest": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.training_manifest.json",
+          "training_manifest_sha256": "e36c28ea3dc78f61e7705b83b7254c88588a78e1ad53d781c6487f7bc198452b",
+          "epoch": 100
+        }
+      },
+      "controlled_variables": {
+        "seed": 406,
+        "sensor": {
+          "model": "looper_insight_9",
+          "maze_type": 8,
+          "map_viz_resolution_m": 0.1,
+          "depth_topic": "/depth_image",
+          "odom_topic": "/sim/odom",
+          "map_topic": "/mock_map",
+          "collision_counter_topic": "/yopo/collision_counter_total",
+          "max_depth_m": 20.0
+        },
+        "flight": {
+          "start": [
+            -20.0,
+            0.0,
+            2.0
+          ],
+          "end": [
+            20.0,
+            0.0,
+            2.0
+          ],
+          "repeats": 1,
+          "velocity_mps": 3.0,
+          "arrive_distance_m": 1.0,
+          "segment_timeout_s": 70.0,
+          "fixed_body_yaw": false
+        },
+        "planner": {
+          "sgm_time_s": 1.4,
+          "radius_min_m": null,
+          "radius_max_m": null,
+          "visualize": false,
+          "control_topic": "/so3_control/pos_cmd"
+        },
+        "collision_metric": {
+          "vehicle_radius_m": 0.45,
+          "episode_gap_s": 0.35,
+          "map_wait_s": 15.0,
+          "require_map": true
+        },
+        "camera_contract": {
+          "command_topic": "/yopo/camera/command",
+          "state_topic": "/yopo/camera/orientation",
+          "stamped_state_topic": "/yopo/camera/orientation_stamped",
+          "zero_tolerance_rad": 0.0001,
+          "active_motion_threshold_rad": 0.01,
+          "require_active_motion": true,
+          "depth_state_sync_slop_s": 0.03,
+          "minimum_depth_state_match_rate": 0.98
+        },
+        "controller": {
+          "odom_rate_hz": 100.0,
+          "hover_thrust": 0.375,
+          "disturbance_observer": true
+        }
+      },
+      "controlled_hash": "50ed634a0a241d1fd6139afeb68985a3224f5417a1800abf50ef85116e5ba00f",
+      "run_dir": "/workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000406_active",
+      "commands": {
+        "roscore": "source /opt/ros/noetic/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roscore -p 11503",
+        "controller": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roslaunch /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000406_active/controller.launch",
+        "sensor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO/Simulator && rosrun sensor_simulator sensor_simulator_cuda __name:=sensor_simulator_node _active_camera:=true _maze_type:=8 _seed:=406 _map_viz_resolution:=0.1 _uav_collision_radius:=0.45",
+        "planner": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && export CUDA_VISIBLE_DEVICES=0 && python3 YOPO/test_yopo_ros.py --weight /workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.pth --velocity 3.0 --max-depth 20.0 --arrive-dist 1.0 --sgm-time 1.4 --visualize 0 --active-camera true --odom-topic /sim/odom --depth-topic /depth_image --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-queue-size 30 --camera-sync-slop 0.03 --ctrl-topic /so3_control/pos_cmd",
+        "monitor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && python3 /workspace/YOPO/tools/benchmark_active_camera.py --monitor --run-dir /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000406_active --arm active --seed 406 --start=-20.0,0.0,2.0 --end=20.0,0.0,2.0 --repeats 1 --arrive-dist 1.0 --segment-timeout 70.0 --collision-radius 0.45 --collision-episode-gap 0.35 --map-wait 15.0 --map-topic /mock_map --odom-topic /sim/odom --camera-command-topic /yopo/camera/command --camera-state-topic /yopo/camera/orientation --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-slop 0.03 --min-depth-state-match-rate 0.98 --collision-counter-topic /yopo/collision_counter_total --camera-zero-tolerance 0.0001 --active-motion-threshold 0.01 --plot-map-max-points 50000 --require-map true --require-active-motion true"
+      },
+      "run_spec_hash": "53fd6dd3be8c4f4587a084ae7d3415290c842cb7a564559fcdd6277fa4a6227d"
+    },
+    {
+      "sequence": 13,
+      "pair_id": "seed_000407",
+      "run_id": "seed_000407_active",
+      "seed": 407,
+      "arm": "active",
+      "treatment": {
+        "camera_enabled": true,
+        "checkpoint": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.pth",
+        "checkpoint_sha256": "bb59d23ad76e0ba165553f517d1ea05acec0753b256bf5f7d3011c790c638439",
+        "checkpoint_artifact": {
+          "checkpoint_sha256": "bb59d23ad76e0ba165553f517d1ea05acec0753b256bf5f7d3011c790c638439",
+          "checkpoint_sidecar": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.manifest.json",
+          "checkpoint_sidecar_sha256": "cdc1af661512387f35b771294fedf1354ea18a4248b6a55b45a205f6464d9b46",
+          "training_manifest": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.training_manifest.json",
+          "training_manifest_sha256": "e36c28ea3dc78f61e7705b83b7254c88588a78e1ad53d781c6487f7bc198452b",
+          "epoch": 100
+        }
+      },
+      "controlled_variables": {
+        "seed": 407,
+        "sensor": {
+          "model": "looper_insight_9",
+          "maze_type": 8,
+          "map_viz_resolution_m": 0.1,
+          "depth_topic": "/depth_image",
+          "odom_topic": "/sim/odom",
+          "map_topic": "/mock_map",
+          "collision_counter_topic": "/yopo/collision_counter_total",
+          "max_depth_m": 20.0
+        },
+        "flight": {
+          "start": [
+            -20.0,
+            0.0,
+            2.0
+          ],
+          "end": [
+            20.0,
+            0.0,
+            2.0
+          ],
+          "repeats": 1,
+          "velocity_mps": 3.0,
+          "arrive_distance_m": 1.0,
+          "segment_timeout_s": 70.0,
+          "fixed_body_yaw": false
+        },
+        "planner": {
+          "sgm_time_s": 1.4,
+          "radius_min_m": null,
+          "radius_max_m": null,
+          "visualize": false,
+          "control_topic": "/so3_control/pos_cmd"
+        },
+        "collision_metric": {
+          "vehicle_radius_m": 0.45,
+          "episode_gap_s": 0.35,
+          "map_wait_s": 15.0,
+          "require_map": true
+        },
+        "camera_contract": {
+          "command_topic": "/yopo/camera/command",
+          "state_topic": "/yopo/camera/orientation",
+          "stamped_state_topic": "/yopo/camera/orientation_stamped",
+          "zero_tolerance_rad": 0.0001,
+          "active_motion_threshold_rad": 0.01,
+          "require_active_motion": true,
+          "depth_state_sync_slop_s": 0.03,
+          "minimum_depth_state_match_rate": 0.98
+        },
+        "controller": {
+          "odom_rate_hz": 100.0,
+          "hover_thrust": 0.375,
+          "disturbance_observer": true
+        }
+      },
+      "controlled_hash": "2c13a9b1b687c6577f0b2ee1db790fa390027452dff6631e8518ba5752307346",
+      "run_dir": "/workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000407_active",
+      "commands": {
+        "roscore": "source /opt/ros/noetic/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roscore -p 11503",
+        "controller": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roslaunch /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000407_active/controller.launch",
+        "sensor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO/Simulator && rosrun sensor_simulator sensor_simulator_cuda __name:=sensor_simulator_node _active_camera:=true _maze_type:=8 _seed:=407 _map_viz_resolution:=0.1 _uav_collision_radius:=0.45",
+        "planner": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && export CUDA_VISIBLE_DEVICES=0 && python3 YOPO/test_yopo_ros.py --weight /workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.pth --velocity 3.0 --max-depth 20.0 --arrive-dist 1.0 --sgm-time 1.4 --visualize 0 --active-camera true --odom-topic /sim/odom --depth-topic /depth_image --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-queue-size 30 --camera-sync-slop 0.03 --ctrl-topic /so3_control/pos_cmd",
+        "monitor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && python3 /workspace/YOPO/tools/benchmark_active_camera.py --monitor --run-dir /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000407_active --arm active --seed 407 --start=-20.0,0.0,2.0 --end=20.0,0.0,2.0 --repeats 1 --arrive-dist 1.0 --segment-timeout 70.0 --collision-radius 0.45 --collision-episode-gap 0.35 --map-wait 15.0 --map-topic /mock_map --odom-topic /sim/odom --camera-command-topic /yopo/camera/command --camera-state-topic /yopo/camera/orientation --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-slop 0.03 --min-depth-state-match-rate 0.98 --collision-counter-topic /yopo/collision_counter_total --camera-zero-tolerance 0.0001 --active-motion-threshold 0.01 --plot-map-max-points 50000 --require-map true --require-active-motion true"
+      },
+      "run_spec_hash": "0f3313041ea9b5cdb6b8a2d06e8395bc6dd1fc554ec10793987267cd7a65f4a7"
+    },
+    {
+      "sequence": 14,
+      "pair_id": "seed_000407",
+      "run_id": "seed_000407_fixed",
+      "seed": 407,
+      "arm": "fixed",
+      "treatment": {
+        "camera_enabled": false,
+        "checkpoint": "/workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.pth",
+        "checkpoint_sha256": "6e970cb69c4d8b45e23470205caff5ba1c920651f7bbc408f8962a2f21293afb",
+        "checkpoint_artifact": {
+          "checkpoint_sha256": "6e970cb69c4d8b45e23470205caff5ba1c920651f7bbc408f8962a2f21293afb",
+          "checkpoint_sidecar": "/workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.manifest.json",
+          "checkpoint_sidecar_sha256": "365e04c0ad6d6b2cf78c7f81adfc96b1e882ccf732da43551769e74dd89d0053",
+          "training_manifest": "/workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.training_manifest.json",
+          "training_manifest_sha256": "dc712f84c302a9d4489ee512a99e43ccc5ddd7259225ff546b949bc023cfd506",
+          "epoch": 100
+        }
+      },
+      "controlled_variables": {
+        "seed": 407,
+        "sensor": {
+          "model": "looper_insight_9",
+          "maze_type": 8,
+          "map_viz_resolution_m": 0.1,
+          "depth_topic": "/depth_image",
+          "odom_topic": "/sim/odom",
+          "map_topic": "/mock_map",
+          "collision_counter_topic": "/yopo/collision_counter_total",
+          "max_depth_m": 20.0
+        },
+        "flight": {
+          "start": [
+            -20.0,
+            0.0,
+            2.0
+          ],
+          "end": [
+            20.0,
+            0.0,
+            2.0
+          ],
+          "repeats": 1,
+          "velocity_mps": 3.0,
+          "arrive_distance_m": 1.0,
+          "segment_timeout_s": 70.0,
+          "fixed_body_yaw": false
+        },
+        "planner": {
+          "sgm_time_s": 1.4,
+          "radius_min_m": null,
+          "radius_max_m": null,
+          "visualize": false,
+          "control_topic": "/so3_control/pos_cmd"
+        },
+        "collision_metric": {
+          "vehicle_radius_m": 0.45,
+          "episode_gap_s": 0.35,
+          "map_wait_s": 15.0,
+          "require_map": true
+        },
+        "camera_contract": {
+          "command_topic": "/yopo/camera/command",
+          "state_topic": "/yopo/camera/orientation",
+          "stamped_state_topic": "/yopo/camera/orientation_stamped",
+          "zero_tolerance_rad": 0.0001,
+          "active_motion_threshold_rad": 0.01,
+          "require_active_motion": true,
+          "depth_state_sync_slop_s": 0.03,
+          "minimum_depth_state_match_rate": 0.98
+        },
+        "controller": {
+          "odom_rate_hz": 100.0,
+          "hover_thrust": 0.375,
+          "disturbance_observer": true
+        }
+      },
+      "controlled_hash": "2c13a9b1b687c6577f0b2ee1db790fa390027452dff6631e8518ba5752307346",
+      "run_dir": "/workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000407_fixed",
+      "commands": {
+        "roscore": "source /opt/ros/noetic/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roscore -p 11503",
+        "controller": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roslaunch /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000407_fixed/controller.launch",
+        "sensor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO/Simulator && rosrun sensor_simulator sensor_simulator_cuda __name:=sensor_simulator_node _active_camera:=false _maze_type:=8 _seed:=407 _map_viz_resolution:=0.1 _uav_collision_radius:=0.45",
+        "planner": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && export CUDA_VISIBLE_DEVICES=0 && python3 YOPO/test_yopo_ros.py --weight /workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.pth --velocity 3.0 --max-depth 20.0 --arrive-dist 1.0 --sgm-time 1.4 --visualize 0 --active-camera false --odom-topic /sim/odom --depth-topic /depth_image --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-queue-size 30 --camera-sync-slop 0.03 --ctrl-topic /so3_control/pos_cmd",
+        "monitor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && python3 /workspace/YOPO/tools/benchmark_active_camera.py --monitor --run-dir /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000407_fixed --arm fixed --seed 407 --start=-20.0,0.0,2.0 --end=20.0,0.0,2.0 --repeats 1 --arrive-dist 1.0 --segment-timeout 70.0 --collision-radius 0.45 --collision-episode-gap 0.35 --map-wait 15.0 --map-topic /mock_map --odom-topic /sim/odom --camera-command-topic /yopo/camera/command --camera-state-topic /yopo/camera/orientation --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-slop 0.03 --min-depth-state-match-rate 0.98 --collision-counter-topic /yopo/collision_counter_total --camera-zero-tolerance 0.0001 --active-motion-threshold 0.01 --plot-map-max-points 50000 --require-map true --require-active-motion true"
+      },
+      "run_spec_hash": "710daa09943a114f1522f1362da9b938d527f22834c3cba97bb44eea829a15d3"
+    },
+    {
+      "sequence": 15,
+      "pair_id": "seed_000408",
+      "run_id": "seed_000408_fixed",
+      "seed": 408,
+      "arm": "fixed",
+      "treatment": {
+        "camera_enabled": false,
+        "checkpoint": "/workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.pth",
+        "checkpoint_sha256": "6e970cb69c4d8b45e23470205caff5ba1c920651f7bbc408f8962a2f21293afb",
+        "checkpoint_artifact": {
+          "checkpoint_sha256": "6e970cb69c4d8b45e23470205caff5ba1c920651f7bbc408f8962a2f21293afb",
+          "checkpoint_sidecar": "/workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.manifest.json",
+          "checkpoint_sidecar_sha256": "365e04c0ad6d6b2cf78c7f81adfc96b1e882ccf732da43551769e74dd89d0053",
+          "training_manifest": "/workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.training_manifest.json",
+          "training_manifest_sha256": "dc712f84c302a9d4489ee512a99e43ccc5ddd7259225ff546b949bc023cfd506",
+          "epoch": 100
+        }
+      },
+      "controlled_variables": {
+        "seed": 408,
+        "sensor": {
+          "model": "looper_insight_9",
+          "maze_type": 8,
+          "map_viz_resolution_m": 0.1,
+          "depth_topic": "/depth_image",
+          "odom_topic": "/sim/odom",
+          "map_topic": "/mock_map",
+          "collision_counter_topic": "/yopo/collision_counter_total",
+          "max_depth_m": 20.0
+        },
+        "flight": {
+          "start": [
+            -20.0,
+            0.0,
+            2.0
+          ],
+          "end": [
+            20.0,
+            0.0,
+            2.0
+          ],
+          "repeats": 1,
+          "velocity_mps": 3.0,
+          "arrive_distance_m": 1.0,
+          "segment_timeout_s": 70.0,
+          "fixed_body_yaw": false
+        },
+        "planner": {
+          "sgm_time_s": 1.4,
+          "radius_min_m": null,
+          "radius_max_m": null,
+          "visualize": false,
+          "control_topic": "/so3_control/pos_cmd"
+        },
+        "collision_metric": {
+          "vehicle_radius_m": 0.45,
+          "episode_gap_s": 0.35,
+          "map_wait_s": 15.0,
+          "require_map": true
+        },
+        "camera_contract": {
+          "command_topic": "/yopo/camera/command",
+          "state_topic": "/yopo/camera/orientation",
+          "stamped_state_topic": "/yopo/camera/orientation_stamped",
+          "zero_tolerance_rad": 0.0001,
+          "active_motion_threshold_rad": 0.01,
+          "require_active_motion": true,
+          "depth_state_sync_slop_s": 0.03,
+          "minimum_depth_state_match_rate": 0.98
+        },
+        "controller": {
+          "odom_rate_hz": 100.0,
+          "hover_thrust": 0.375,
+          "disturbance_observer": true
+        }
+      },
+      "controlled_hash": "823426016249ff4fdc6f051b2b5388039a46a8cc5cd9689c9ac7596b0dc118b9",
+      "run_dir": "/workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000408_fixed",
+      "commands": {
+        "roscore": "source /opt/ros/noetic/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roscore -p 11503",
+        "controller": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roslaunch /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000408_fixed/controller.launch",
+        "sensor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO/Simulator && rosrun sensor_simulator sensor_simulator_cuda __name:=sensor_simulator_node _active_camera:=false _maze_type:=8 _seed:=408 _map_viz_resolution:=0.1 _uav_collision_radius:=0.45",
+        "planner": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && export CUDA_VISIBLE_DEVICES=0 && python3 YOPO/test_yopo_ros.py --weight /workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.pth --velocity 3.0 --max-depth 20.0 --arrive-dist 1.0 --sgm-time 1.4 --visualize 0 --active-camera false --odom-topic /sim/odom --depth-topic /depth_image --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-queue-size 30 --camera-sync-slop 0.03 --ctrl-topic /so3_control/pos_cmd",
+        "monitor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && python3 /workspace/YOPO/tools/benchmark_active_camera.py --monitor --run-dir /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000408_fixed --arm fixed --seed 408 --start=-20.0,0.0,2.0 --end=20.0,0.0,2.0 --repeats 1 --arrive-dist 1.0 --segment-timeout 70.0 --collision-radius 0.45 --collision-episode-gap 0.35 --map-wait 15.0 --map-topic /mock_map --odom-topic /sim/odom --camera-command-topic /yopo/camera/command --camera-state-topic /yopo/camera/orientation --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-slop 0.03 --min-depth-state-match-rate 0.98 --collision-counter-topic /yopo/collision_counter_total --camera-zero-tolerance 0.0001 --active-motion-threshold 0.01 --plot-map-max-points 50000 --require-map true --require-active-motion true"
+      },
+      "run_spec_hash": "c9f52ff296949ab1406e5188ce966882b8b6ffdec9886563b0aa2e27e9cf0727"
+    },
+    {
+      "sequence": 16,
+      "pair_id": "seed_000408",
+      "run_id": "seed_000408_active",
+      "seed": 408,
+      "arm": "active",
+      "treatment": {
+        "camera_enabled": true,
+        "checkpoint": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.pth",
+        "checkpoint_sha256": "bb59d23ad76e0ba165553f517d1ea05acec0753b256bf5f7d3011c790c638439",
+        "checkpoint_artifact": {
+          "checkpoint_sha256": "bb59d23ad76e0ba165553f517d1ea05acec0753b256bf5f7d3011c790c638439",
+          "checkpoint_sidecar": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.manifest.json",
+          "checkpoint_sidecar_sha256": "cdc1af661512387f35b771294fedf1354ea18a4248b6a55b45a205f6464d9b46",
+          "training_manifest": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.training_manifest.json",
+          "training_manifest_sha256": "e36c28ea3dc78f61e7705b83b7254c88588a78e1ad53d781c6487f7bc198452b",
+          "epoch": 100
+        }
+      },
+      "controlled_variables": {
+        "seed": 408,
+        "sensor": {
+          "model": "looper_insight_9",
+          "maze_type": 8,
+          "map_viz_resolution_m": 0.1,
+          "depth_topic": "/depth_image",
+          "odom_topic": "/sim/odom",
+          "map_topic": "/mock_map",
+          "collision_counter_topic": "/yopo/collision_counter_total",
+          "max_depth_m": 20.0
+        },
+        "flight": {
+          "start": [
+            -20.0,
+            0.0,
+            2.0
+          ],
+          "end": [
+            20.0,
+            0.0,
+            2.0
+          ],
+          "repeats": 1,
+          "velocity_mps": 3.0,
+          "arrive_distance_m": 1.0,
+          "segment_timeout_s": 70.0,
+          "fixed_body_yaw": false
+        },
+        "planner": {
+          "sgm_time_s": 1.4,
+          "radius_min_m": null,
+          "radius_max_m": null,
+          "visualize": false,
+          "control_topic": "/so3_control/pos_cmd"
+        },
+        "collision_metric": {
+          "vehicle_radius_m": 0.45,
+          "episode_gap_s": 0.35,
+          "map_wait_s": 15.0,
+          "require_map": true
+        },
+        "camera_contract": {
+          "command_topic": "/yopo/camera/command",
+          "state_topic": "/yopo/camera/orientation",
+          "stamped_state_topic": "/yopo/camera/orientation_stamped",
+          "zero_tolerance_rad": 0.0001,
+          "active_motion_threshold_rad": 0.01,
+          "require_active_motion": true,
+          "depth_state_sync_slop_s": 0.03,
+          "minimum_depth_state_match_rate": 0.98
+        },
+        "controller": {
+          "odom_rate_hz": 100.0,
+          "hover_thrust": 0.375,
+          "disturbance_observer": true
+        }
+      },
+      "controlled_hash": "823426016249ff4fdc6f051b2b5388039a46a8cc5cd9689c9ac7596b0dc118b9",
+      "run_dir": "/workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000408_active",
+      "commands": {
+        "roscore": "source /opt/ros/noetic/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roscore -p 11503",
+        "controller": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roslaunch /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000408_active/controller.launch",
+        "sensor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO/Simulator && rosrun sensor_simulator sensor_simulator_cuda __name:=sensor_simulator_node _active_camera:=true _maze_type:=8 _seed:=408 _map_viz_resolution:=0.1 _uav_collision_radius:=0.45",
+        "planner": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && export CUDA_VISIBLE_DEVICES=0 && python3 YOPO/test_yopo_ros.py --weight /workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.pth --velocity 3.0 --max-depth 20.0 --arrive-dist 1.0 --sgm-time 1.4 --visualize 0 --active-camera true --odom-topic /sim/odom --depth-topic /depth_image --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-queue-size 30 --camera-sync-slop 0.03 --ctrl-topic /so3_control/pos_cmd",
+        "monitor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && python3 /workspace/YOPO/tools/benchmark_active_camera.py --monitor --run-dir /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000408_active --arm active --seed 408 --start=-20.0,0.0,2.0 --end=20.0,0.0,2.0 --repeats 1 --arrive-dist 1.0 --segment-timeout 70.0 --collision-radius 0.45 --collision-episode-gap 0.35 --map-wait 15.0 --map-topic /mock_map --odom-topic /sim/odom --camera-command-topic /yopo/camera/command --camera-state-topic /yopo/camera/orientation --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-slop 0.03 --min-depth-state-match-rate 0.98 --collision-counter-topic /yopo/collision_counter_total --camera-zero-tolerance 0.0001 --active-motion-threshold 0.01 --plot-map-max-points 50000 --require-map true --require-active-motion true"
+      },
+      "run_spec_hash": "fc3dc31aea47b413c04bdc01cce0a50e36f15f60925957f7f5547eb2abbe4f2f"
+    },
+    {
+      "sequence": 17,
+      "pair_id": "seed_000409",
+      "run_id": "seed_000409_active",
+      "seed": 409,
+      "arm": "active",
+      "treatment": {
+        "camera_enabled": true,
+        "checkpoint": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.pth",
+        "checkpoint_sha256": "bb59d23ad76e0ba165553f517d1ea05acec0753b256bf5f7d3011c790c638439",
+        "checkpoint_artifact": {
+          "checkpoint_sha256": "bb59d23ad76e0ba165553f517d1ea05acec0753b256bf5f7d3011c790c638439",
+          "checkpoint_sidecar": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.manifest.json",
+          "checkpoint_sidecar_sha256": "cdc1af661512387f35b771294fedf1354ea18a4248b6a55b45a205f6464d9b46",
+          "training_manifest": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.training_manifest.json",
+          "training_manifest_sha256": "e36c28ea3dc78f61e7705b83b7254c88588a78e1ad53d781c6487f7bc198452b",
+          "epoch": 100
+        }
+      },
+      "controlled_variables": {
+        "seed": 409,
+        "sensor": {
+          "model": "looper_insight_9",
+          "maze_type": 8,
+          "map_viz_resolution_m": 0.1,
+          "depth_topic": "/depth_image",
+          "odom_topic": "/sim/odom",
+          "map_topic": "/mock_map",
+          "collision_counter_topic": "/yopo/collision_counter_total",
+          "max_depth_m": 20.0
+        },
+        "flight": {
+          "start": [
+            -20.0,
+            0.0,
+            2.0
+          ],
+          "end": [
+            20.0,
+            0.0,
+            2.0
+          ],
+          "repeats": 1,
+          "velocity_mps": 3.0,
+          "arrive_distance_m": 1.0,
+          "segment_timeout_s": 70.0,
+          "fixed_body_yaw": false
+        },
+        "planner": {
+          "sgm_time_s": 1.4,
+          "radius_min_m": null,
+          "radius_max_m": null,
+          "visualize": false,
+          "control_topic": "/so3_control/pos_cmd"
+        },
+        "collision_metric": {
+          "vehicle_radius_m": 0.45,
+          "episode_gap_s": 0.35,
+          "map_wait_s": 15.0,
+          "require_map": true
+        },
+        "camera_contract": {
+          "command_topic": "/yopo/camera/command",
+          "state_topic": "/yopo/camera/orientation",
+          "stamped_state_topic": "/yopo/camera/orientation_stamped",
+          "zero_tolerance_rad": 0.0001,
+          "active_motion_threshold_rad": 0.01,
+          "require_active_motion": true,
+          "depth_state_sync_slop_s": 0.03,
+          "minimum_depth_state_match_rate": 0.98
+        },
+        "controller": {
+          "odom_rate_hz": 100.0,
+          "hover_thrust": 0.375,
+          "disturbance_observer": true
+        }
+      },
+      "controlled_hash": "7d8e622fbe73717bea5b79d77f969f489f165a135e5de136c9b4f30fb71822ed",
+      "run_dir": "/workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000409_active",
+      "commands": {
+        "roscore": "source /opt/ros/noetic/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roscore -p 11503",
+        "controller": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roslaunch /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000409_active/controller.launch",
+        "sensor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO/Simulator && rosrun sensor_simulator sensor_simulator_cuda __name:=sensor_simulator_node _active_camera:=true _maze_type:=8 _seed:=409 _map_viz_resolution:=0.1 _uav_collision_radius:=0.45",
+        "planner": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && export CUDA_VISIBLE_DEVICES=0 && python3 YOPO/test_yopo_ros.py --weight /workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.pth --velocity 3.0 --max-depth 20.0 --arrive-dist 1.0 --sgm-time 1.4 --visualize 0 --active-camera true --odom-topic /sim/odom --depth-topic /depth_image --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-queue-size 30 --camera-sync-slop 0.03 --ctrl-topic /so3_control/pos_cmd",
+        "monitor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && python3 /workspace/YOPO/tools/benchmark_active_camera.py --monitor --run-dir /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000409_active --arm active --seed 409 --start=-20.0,0.0,2.0 --end=20.0,0.0,2.0 --repeats 1 --arrive-dist 1.0 --segment-timeout 70.0 --collision-radius 0.45 --collision-episode-gap 0.35 --map-wait 15.0 --map-topic /mock_map --odom-topic /sim/odom --camera-command-topic /yopo/camera/command --camera-state-topic /yopo/camera/orientation --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-slop 0.03 --min-depth-state-match-rate 0.98 --collision-counter-topic /yopo/collision_counter_total --camera-zero-tolerance 0.0001 --active-motion-threshold 0.01 --plot-map-max-points 50000 --require-map true --require-active-motion true"
+      },
+      "run_spec_hash": "604b9fd90d7b2ae287cf4c4060d54db86e2e40c75c0360a23d4d54a5a32cfad8"
+    },
+    {
+      "sequence": 18,
+      "pair_id": "seed_000409",
+      "run_id": "seed_000409_fixed",
+      "seed": 409,
+      "arm": "fixed",
+      "treatment": {
+        "camera_enabled": false,
+        "checkpoint": "/workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.pth",
+        "checkpoint_sha256": "6e970cb69c4d8b45e23470205caff5ba1c920651f7bbc408f8962a2f21293afb",
+        "checkpoint_artifact": {
+          "checkpoint_sha256": "6e970cb69c4d8b45e23470205caff5ba1c920651f7bbc408f8962a2f21293afb",
+          "checkpoint_sidecar": "/workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.manifest.json",
+          "checkpoint_sidecar_sha256": "365e04c0ad6d6b2cf78c7f81adfc96b1e882ccf732da43551769e74dd89d0053",
+          "training_manifest": "/workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.training_manifest.json",
+          "training_manifest_sha256": "dc712f84c302a9d4489ee512a99e43ccc5ddd7259225ff546b949bc023cfd506",
+          "epoch": 100
+        }
+      },
+      "controlled_variables": {
+        "seed": 409,
+        "sensor": {
+          "model": "looper_insight_9",
+          "maze_type": 8,
+          "map_viz_resolution_m": 0.1,
+          "depth_topic": "/depth_image",
+          "odom_topic": "/sim/odom",
+          "map_topic": "/mock_map",
+          "collision_counter_topic": "/yopo/collision_counter_total",
+          "max_depth_m": 20.0
+        },
+        "flight": {
+          "start": [
+            -20.0,
+            0.0,
+            2.0
+          ],
+          "end": [
+            20.0,
+            0.0,
+            2.0
+          ],
+          "repeats": 1,
+          "velocity_mps": 3.0,
+          "arrive_distance_m": 1.0,
+          "segment_timeout_s": 70.0,
+          "fixed_body_yaw": false
+        },
+        "planner": {
+          "sgm_time_s": 1.4,
+          "radius_min_m": null,
+          "radius_max_m": null,
+          "visualize": false,
+          "control_topic": "/so3_control/pos_cmd"
+        },
+        "collision_metric": {
+          "vehicle_radius_m": 0.45,
+          "episode_gap_s": 0.35,
+          "map_wait_s": 15.0,
+          "require_map": true
+        },
+        "camera_contract": {
+          "command_topic": "/yopo/camera/command",
+          "state_topic": "/yopo/camera/orientation",
+          "stamped_state_topic": "/yopo/camera/orientation_stamped",
+          "zero_tolerance_rad": 0.0001,
+          "active_motion_threshold_rad": 0.01,
+          "require_active_motion": true,
+          "depth_state_sync_slop_s": 0.03,
+          "minimum_depth_state_match_rate": 0.98
+        },
+        "controller": {
+          "odom_rate_hz": 100.0,
+          "hover_thrust": 0.375,
+          "disturbance_observer": true
+        }
+      },
+      "controlled_hash": "7d8e622fbe73717bea5b79d77f969f489f165a135e5de136c9b4f30fb71822ed",
+      "run_dir": "/workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000409_fixed",
+      "commands": {
+        "roscore": "source /opt/ros/noetic/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roscore -p 11503",
+        "controller": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roslaunch /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000409_fixed/controller.launch",
+        "sensor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO/Simulator && rosrun sensor_simulator sensor_simulator_cuda __name:=sensor_simulator_node _active_camera:=false _maze_type:=8 _seed:=409 _map_viz_resolution:=0.1 _uav_collision_radius:=0.45",
+        "planner": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && export CUDA_VISIBLE_DEVICES=0 && python3 YOPO/test_yopo_ros.py --weight /workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.pth --velocity 3.0 --max-depth 20.0 --arrive-dist 1.0 --sgm-time 1.4 --visualize 0 --active-camera false --odom-topic /sim/odom --depth-topic /depth_image --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-queue-size 30 --camera-sync-slop 0.03 --ctrl-topic /so3_control/pos_cmd",
+        "monitor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && python3 /workspace/YOPO/tools/benchmark_active_camera.py --monitor --run-dir /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000409_fixed --arm fixed --seed 409 --start=-20.0,0.0,2.0 --end=20.0,0.0,2.0 --repeats 1 --arrive-dist 1.0 --segment-timeout 70.0 --collision-radius 0.45 --collision-episode-gap 0.35 --map-wait 15.0 --map-topic /mock_map --odom-topic /sim/odom --camera-command-topic /yopo/camera/command --camera-state-topic /yopo/camera/orientation --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-slop 0.03 --min-depth-state-match-rate 0.98 --collision-counter-topic /yopo/collision_counter_total --camera-zero-tolerance 0.0001 --active-motion-threshold 0.01 --plot-map-max-points 50000 --require-map true --require-active-motion true"
+      },
+      "run_spec_hash": "db36cb877282a5a0b692cacec384f9260d09d2e19e605fa163de42df2cfb19d6"
+    },
+    {
+      "sequence": 19,
+      "pair_id": "seed_000410",
+      "run_id": "seed_000410_fixed",
+      "seed": 410,
+      "arm": "fixed",
+      "treatment": {
+        "camera_enabled": false,
+        "checkpoint": "/workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.pth",
+        "checkpoint_sha256": "6e970cb69c4d8b45e23470205caff5ba1c920651f7bbc408f8962a2f21293afb",
+        "checkpoint_artifact": {
+          "checkpoint_sha256": "6e970cb69c4d8b45e23470205caff5ba1c920651f7bbc408f8962a2f21293afb",
+          "checkpoint_sidecar": "/workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.manifest.json",
+          "checkpoint_sidecar_sha256": "365e04c0ad6d6b2cf78c7f81adfc96b1e882ccf732da43551769e74dd89d0053",
+          "training_manifest": "/workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.training_manifest.json",
+          "training_manifest_sha256": "dc712f84c302a9d4489ee512a99e43ccc5ddd7259225ff546b949bc023cfd506",
+          "epoch": 100
+        }
+      },
+      "controlled_variables": {
+        "seed": 410,
+        "sensor": {
+          "model": "looper_insight_9",
+          "maze_type": 8,
+          "map_viz_resolution_m": 0.1,
+          "depth_topic": "/depth_image",
+          "odom_topic": "/sim/odom",
+          "map_topic": "/mock_map",
+          "collision_counter_topic": "/yopo/collision_counter_total",
+          "max_depth_m": 20.0
+        },
+        "flight": {
+          "start": [
+            -20.0,
+            0.0,
+            2.0
+          ],
+          "end": [
+            20.0,
+            0.0,
+            2.0
+          ],
+          "repeats": 1,
+          "velocity_mps": 3.0,
+          "arrive_distance_m": 1.0,
+          "segment_timeout_s": 70.0,
+          "fixed_body_yaw": false
+        },
+        "planner": {
+          "sgm_time_s": 1.4,
+          "radius_min_m": null,
+          "radius_max_m": null,
+          "visualize": false,
+          "control_topic": "/so3_control/pos_cmd"
+        },
+        "collision_metric": {
+          "vehicle_radius_m": 0.45,
+          "episode_gap_s": 0.35,
+          "map_wait_s": 15.0,
+          "require_map": true
+        },
+        "camera_contract": {
+          "command_topic": "/yopo/camera/command",
+          "state_topic": "/yopo/camera/orientation",
+          "stamped_state_topic": "/yopo/camera/orientation_stamped",
+          "zero_tolerance_rad": 0.0001,
+          "active_motion_threshold_rad": 0.01,
+          "require_active_motion": true,
+          "depth_state_sync_slop_s": 0.03,
+          "minimum_depth_state_match_rate": 0.98
+        },
+        "controller": {
+          "odom_rate_hz": 100.0,
+          "hover_thrust": 0.375,
+          "disturbance_observer": true
+        }
+      },
+      "controlled_hash": "36ec9cd8a9417f21d1a20df8d9ac3e9b78cfda2ac0c55ee982caabd775e9851e",
+      "run_dir": "/workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000410_fixed",
+      "commands": {
+        "roscore": "source /opt/ros/noetic/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roscore -p 11503",
+        "controller": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roslaunch /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000410_fixed/controller.launch",
+        "sensor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO/Simulator && rosrun sensor_simulator sensor_simulator_cuda __name:=sensor_simulator_node _active_camera:=false _maze_type:=8 _seed:=410 _map_viz_resolution:=0.1 _uav_collision_radius:=0.45",
+        "planner": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && export CUDA_VISIBLE_DEVICES=0 && python3 YOPO/test_yopo_ros.py --weight /workspace/YOPO/YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.pth --velocity 3.0 --max-depth 20.0 --arrive-dist 1.0 --sgm-time 1.4 --visualize 0 --active-camera false --odom-topic /sim/odom --depth-topic /depth_image --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-queue-size 30 --camera-sync-slop 0.03 --ctrl-topic /so3_control/pos_cmd",
+        "monitor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && python3 /workspace/YOPO/tools/benchmark_active_camera.py --monitor --run-dir /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000410_fixed --arm fixed --seed 410 --start=-20.0,0.0,2.0 --end=20.0,0.0,2.0 --repeats 1 --arrive-dist 1.0 --segment-timeout 70.0 --collision-radius 0.45 --collision-episode-gap 0.35 --map-wait 15.0 --map-topic /mock_map --odom-topic /sim/odom --camera-command-topic /yopo/camera/command --camera-state-topic /yopo/camera/orientation --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-slop 0.03 --min-depth-state-match-rate 0.98 --collision-counter-topic /yopo/collision_counter_total --camera-zero-tolerance 0.0001 --active-motion-threshold 0.01 --plot-map-max-points 50000 --require-map true --require-active-motion true"
+      },
+      "run_spec_hash": "6c6e572ca818d7a5d501e03cbd1a276274fca6ad41b72067139892d01d62a130"
+    },
+    {
+      "sequence": 20,
+      "pair_id": "seed_000410",
+      "run_id": "seed_000410_active",
+      "seed": 410,
+      "arm": "active",
+      "treatment": {
+        "camera_enabled": true,
+        "checkpoint": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.pth",
+        "checkpoint_sha256": "bb59d23ad76e0ba165553f517d1ea05acec0753b256bf5f7d3011c790c638439",
+        "checkpoint_artifact": {
+          "checkpoint_sha256": "bb59d23ad76e0ba165553f517d1ea05acec0753b256bf5f7d3011c790c638439",
+          "checkpoint_sidecar": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.manifest.json",
+          "checkpoint_sidecar_sha256": "cdc1af661512387f35b771294fedf1354ea18a4248b6a55b45a205f6464d9b46",
+          "training_manifest": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.training_manifest.json",
+          "training_manifest_sha256": "e36c28ea3dc78f61e7705b83b7254c88588a78e1ad53d781c6487f7bc198452b",
+          "epoch": 100
+        }
+      },
+      "controlled_variables": {
+        "seed": 410,
+        "sensor": {
+          "model": "looper_insight_9",
+          "maze_type": 8,
+          "map_viz_resolution_m": 0.1,
+          "depth_topic": "/depth_image",
+          "odom_topic": "/sim/odom",
+          "map_topic": "/mock_map",
+          "collision_counter_topic": "/yopo/collision_counter_total",
+          "max_depth_m": 20.0
+        },
+        "flight": {
+          "start": [
+            -20.0,
+            0.0,
+            2.0
+          ],
+          "end": [
+            20.0,
+            0.0,
+            2.0
+          ],
+          "repeats": 1,
+          "velocity_mps": 3.0,
+          "arrive_distance_m": 1.0,
+          "segment_timeout_s": 70.0,
+          "fixed_body_yaw": false
+        },
+        "planner": {
+          "sgm_time_s": 1.4,
+          "radius_min_m": null,
+          "radius_max_m": null,
+          "visualize": false,
+          "control_topic": "/so3_control/pos_cmd"
+        },
+        "collision_metric": {
+          "vehicle_radius_m": 0.45,
+          "episode_gap_s": 0.35,
+          "map_wait_s": 15.0,
+          "require_map": true
+        },
+        "camera_contract": {
+          "command_topic": "/yopo/camera/command",
+          "state_topic": "/yopo/camera/orientation",
+          "stamped_state_topic": "/yopo/camera/orientation_stamped",
+          "zero_tolerance_rad": 0.0001,
+          "active_motion_threshold_rad": 0.01,
+          "require_active_motion": true,
+          "depth_state_sync_slop_s": 0.03,
+          "minimum_depth_state_match_rate": 0.98
+        },
+        "controller": {
+          "odom_rate_hz": 100.0,
+          "hover_thrust": 0.375,
+          "disturbance_observer": true
+        }
+      },
+      "controlled_hash": "36ec9cd8a9417f21d1a20df8d9ac3e9b78cfda2ac0c55ee982caabd775e9851e",
+      "run_dir": "/workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000410_active",
+      "commands": {
+        "roscore": "source /opt/ros/noetic/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roscore -p 11503",
+        "controller": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && roslaunch /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000410_active/controller.launch",
+        "sensor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO/Simulator && rosrun sensor_simulator sensor_simulator_cuda __name:=sensor_simulator_node _active_camera:=true _maze_type:=8 _seed:=410 _map_viz_resolution:=0.1 _uav_collision_radius:=0.45",
+        "planner": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && export CUDA_VISIBLE_DEVICES=0 && python3 YOPO/test_yopo_ros.py --weight /workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.pth --velocity 3.0 --max-depth 20.0 --arrive-dist 1.0 --sgm-time 1.4 --visualize 0 --active-camera true --odom-topic /sim/odom --depth-topic /depth_image --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-queue-size 30 --camera-sync-slop 0.03 --ctrl-topic /so3_control/pos_cmd",
+        "monitor": "source /opt/ros/noetic/setup.bash && source /workspace/YOPO/Controller/devel/setup.bash && source /workspace/YOPO/Simulator/devel/setup.bash && export ROS_MASTER_URI=http://127.0.0.1:11503 && cd /workspace/YOPO && export PYTHONPATH=/opt/ros/noetic/lib/python3/dist-packages:/workspace/YOPO/Controller/devel/lib/python3/dist-packages:/workspace/YOPO/Simulator/devel/lib/python3/dist-packages:/workspace/YOPO/YOPO && python3 /workspace/YOPO/tools/benchmark_active_camera.py --monitor --run-dir /workspace/YOPO/reports/active_camera_ablation/epoch100_chicane_20260820/benchmark_normal_yaw_synced_401_410/runs/seed_000410_active --arm active --seed 410 --start=-20.0,0.0,2.0 --end=20.0,0.0,2.0 --repeats 1 --arrive-dist 1.0 --segment-timeout 70.0 --collision-radius 0.45 --collision-episode-gap 0.35 --map-wait 15.0 --map-topic /mock_map --odom-topic /sim/odom --camera-command-topic /yopo/camera/command --camera-state-topic /yopo/camera/orientation --camera-state-stamped-topic /yopo/camera/orientation_stamped --camera-sync-slop 0.03 --min-depth-state-match-rate 0.98 --collision-counter-topic /yopo/collision_counter_total --camera-zero-tolerance 0.0001 --active-motion-threshold 0.01 --plot-map-max-points 50000 --require-map true --require-active-motion true"
+      },
+      "run_spec_hash": "6604d9b5a73c2a932a94f6b74755b908888ad142aeba7cb6791e27815b7d5254"
+    }
+  ]
+}

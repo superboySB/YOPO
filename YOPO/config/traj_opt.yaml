@@ -15,11 +15,18 @@ wi: 2.0    # desired velocity intent
 wh: 2.0    # fixed-altitude flight stability (world-frame endpoint z/vz/az)
 
 # Dataset: one steerable Looper Robotics Insight 9 depth image. The sensor
-# publishes 544x640 Z16; simulation and network input use an aspect-preserving
-# 160x192 resize with the same optical field of view.
+# publishes nominal 544x640 Z16; simulation renders directly at 160x192 and
+# real inference resizes to 160x192 while retaining the full optical field of
+# view. This is a small (~1.96%) aspect-ratio stretch, not letterboxing.
 dataset_path: "../dataset_active_v2"
 image_height: 192
 image_width: 160
+# A/B treatment switch.  Both modes keep exactly the same 11-D state,
+# 12-D policy head and camera-loss weights; fixed mode uses zero camera labels.
+active_camera: true
+# Versioned preprocessing contract shared by dataset metadata, training,
+# simulation inference and real Insight 9 inference.
+depth_preprocess: "resize_nearest_full_fov_v1"
 insight9_native_height: 640
 insight9_native_width: 544
 insight9_horizontal_fov_deg: 96.8

@@ -4,6 +4,7 @@
 #include <pcl/common/common.h>
 #include <pcl/common/eigen.h>
 #include <pcl/filters/voxel_grid.h>
+#include <pcl/kdtree/kdtree_flann.h>
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include <opencv2/opencv.hpp>
@@ -12,12 +13,14 @@
 #include <sensor_msgs/Image.h>
 #include <std_msgs/Int32.h>
 #include <geometry_msgs/Vector3.h>
+#include <geometry_msgs/Vector3Stamped.h>
 #include <pcl_ros/point_cloud.h>
 #include <cv_bridge/cv_bridge.h>
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <random>
 #include <vector>
 #include <yaml-cpp/yaml.h>
@@ -62,8 +65,11 @@ void renderInsight9DepthImage(GridMap *grid_map,
         for (int col = 0; col < depth_image.cols; ++col)
         {
             float depth = std::clamp(depth_image.at<float>(row, col), min_depth, camera.max_depth_dist);
+            // Consume one draw for every (frame, pixel), including misses. A
+            // changed view cannot shift the paired run's later noise stream.
+            const float noise_sample = noise(generator);
             if (depth < camera.max_depth_dist - 1e-4f)
-                depth += std::max(0.001f, 0.25f * accuracy_ratio * depth) * noise(generator);
+                depth += std::max(0.001f, 0.25f * accuracy_ratio * depth) * noise_sample;
             depth_image.at<float>(row, col) = std::round(
                 std::clamp(depth, min_depth, camera.max_depth_dist) * 1000.0f) / 1000.0f;
         }
@@ -73,6 +79,17 @@ class SensorSimulator {
 public:
     SensorSimulator(ros::NodeHandle &nh) : nh_(nh) {
         YAML::Node config = YAML::LoadFile(CONFIG_FILE_PATH);
+        ros::NodeHandle private_nh("~");
+        active_camera_ = config["active_camera"] ? config["active_camera"].as<bool>() : true;
+        private_nh.param("active_camera", active_camera_, active_camera_);
+        uav_collision_radius_ = config["uav_collision_radius"]
+            ? config["uav_collision_radius"].as<float>() : 0.35f;
+        collision_hysteresis_ = config["collision_hysteresis"]
+            ? config["collision_hysteresis"].as<float>() : 0.10f;
+        private_nh.param("uav_collision_radius", uav_collision_radius_, uav_collision_radius_);
+        private_nh.param("collision_hysteresis", collision_hysteresis_, collision_hysteresis_);
+        uav_collision_radius_ = std::max(0.0f, uav_collision_radius_);
+        collision_hysteresis_ = std::max(0.0f, collision_hysteresis_);
         YAML::Node insight_config = config["insight9"];
         insight_camera = new CameraParams();
         *insight_camera = loadCameraParams(insight_config);
@@ -118,12 +135,15 @@ public:
         bool use_random_map = config["random_map"].as<bool>();
         float resolution = config["resolution"].as<float>();
         int occupy_threshold = config["occupy_threshold"].as<int>();
-        pcl_pub = nh.advertise<sensor_msgs::PointCloud2>("mock_map", 1);
+        pcl_pub = nh.advertise<sensor_msgs::PointCloud2>("mock_map", 1, true);
         int seed = config["seed"].as<int>();
         int sizeX = config["x_length"].as<int>();
         int sizeY = config["y_length"].as<int>();
         int sizeZ = config["z_length"].as<int>();
         int type = config["maze_type"].as<int>();
+        private_nh.param("seed", seed, seed);
+        private_nh.param("maze_type", type, type);
+        insight_noise_generator_.seed(seed);
         double scale = 1 / resolution;
         sizeX = sizeX * scale;
         sizeY = sizeY * scale;
@@ -152,6 +172,9 @@ public:
             }
         }
         float map_viz_resolution = config["map_viz_resolution"] ? config["map_viz_resolution"].as<float>() : 0.2f;
+        private_nh.param("map_viz_resolution", map_viz_resolution, map_viz_resolution);
+        map_viz_resolution = std::max(resolution, map_viz_resolution);
+        collision_kdtree_.setInputCloud(cloud);
         pcl::PointCloud<pcl::PointXYZ>::Ptr viz_cloud(new pcl::PointCloud<pcl::PointXYZ>());
         pcl::VoxelGrid<pcl::PointXYZ> voxel_filter;
         voxel_filter.setInputCloud(cloud);
@@ -159,9 +182,15 @@ public:
         voxel_filter.filter(*viz_cloud);
         pcl::toROSMsg(*viz_cloud, output);
         output.header.frame_id = "world";
+        output.header.stamp = ros::Time::now();
+        pcl_pub.publish(output);
 
         std::cout<<"Pointloud size:"<<cloud->points.size()<<std::endl;
         std::cout<<"Map visualization pointcloud size:"<<viz_cloud->points.size()<<std::endl;
+        ROS_INFO("CUDA sensor controls: active_camera=%s, maze_type=%d, seed=%d, map_viz_resolution=%.3f m",
+                 active_camera_ ? "true" : "false", type, seed, map_viz_resolution);
+        ROS_INFO("Collision counter semantics: free->collision entry events, UAV radius=%.3f m, release hysteresis=%.3f m",
+                 uav_collision_radius_, collision_hysteresis_);
         printf("2.Mapping... \n");
         grid_map = new GridMap(cloud, resolution, occupy_threshold);
         
@@ -171,13 +200,14 @@ public:
         // ROS
         image_pub_ = nh_.advertise<sensor_msgs::Image>(depth_topic, 1);
         camera_state_pub_ = nh_.advertise<geometry_msgs::Vector3>("/yopo/camera/orientation", 1);
+        camera_state_stamped_pub_ = nh_.advertise<geometry_msgs::Vector3Stamped>(
+            "/yopo/camera/orientation_stamped", 1);
         point_cloud_pub_ = nh_.advertise<sensor_msgs::PointCloud2>(lidar_topic, 1);
         collision_counter_total_pub_ = nh_.advertise<std_msgs::Int32>("/yopo/collision_counter_total", 1);
         odom_sub_ = nh_.subscribe(odom_topic, 1, &SensorSimulator::odomCallback, this, ros::TransportHints().tcpNoDelay());
         camera_command_sub_ = nh_.subscribe(
             "/yopo/camera/command", 1, &SensorSimulator::cameraCommandCallback, this,
             ros::TransportHints().tcpNoDelay());
-        timer_map_   = nh_.createTimer(ros::Duration(1), &SensorSimulator::timerMapCallback, this);
 
         printf("3.Simulation Ready! \n");
         ros::spin();
@@ -189,11 +219,11 @@ public:
 
     void renderLidarCallback(const ros::Time stamp);
 
-    void timerMapCallback(const ros::TimerEvent &);
-
     void publishCollisionCounterTotal();
 
     void cameraCommandCallback(const geometry_msgs::Vector3::ConstPtr &msg);
+
+    float nearestObstacleDistance();
 
 private:
     bool render_depth{false};
@@ -209,17 +239,22 @@ private:
     sensor_msgs::PointCloud2 output;
     
     ros::NodeHandle nh_;
-    ros::Publisher image_pub_, point_cloud_pub_, camera_state_pub_;
+    ros::Publisher image_pub_, point_cloud_pub_, camera_state_pub_, camera_state_stamped_pub_;
     ros::Publisher pcl_pub;
     ros::Publisher collision_counter_total_pub_;
     ros::Subscriber odom_sub_, camera_command_sub_;
-    ros::Timer timer_depth_, timer_lidar_, timer_map_;
+    ros::Timer timer_depth_, timer_lidar_;
 
     ros::Time next_depth_pub_time, next_lidar_pub_time;
     ros::Duration depth_pub_duration, lidar_pub_duration;
     double depth_time{0.0}, lidar_time{0.0};
     int depth_count{0}, lidar_count{0};
     int collision_counter_total_{0};
+    bool collision_active_{false};
+    bool active_camera_{true};
+    float uav_collision_radius_{0.35f};
+    float collision_hysteresis_{0.10f};
+    pcl::KdTreeFLANN<pcl::PointXYZ> collision_kdtree_;
     float insight_min_depth_{0.19f};
     float insight_accuracy_ratio_{0.02f};
     float camera_pitch_limit_{M_PI / 3.0f};
@@ -246,14 +281,24 @@ void SensorSimulator::renderDepthCallback(const ros::Time stamp) {
     if (!last_camera_update_.isZero())
         dt = std::clamp(static_cast<float>((update_stamp - last_camera_update_).toSec()), 0.0f, 0.2f);
     last_camera_update_ = update_stamp;
-    const auto servo_step = [this, dt](float current, float target, float limit) {
-        const float rate = std::clamp(
-            (target - current) / std::max(1e-3f, camera_servo_tau_),
-            -camera_servo_max_rate_, camera_servo_max_rate_);
-        return std::clamp(current + rate * dt, -limit, limit);
-    };
-    camera_pitch_ = servo_step(camera_pitch_, camera_target_pitch_, camera_pitch_limit_);
-    camera_yaw_ = servo_step(camera_yaw_, camera_target_yaw_, camera_yaw_limit_);
+    if (active_camera_)
+    {
+        const auto servo_step = [this, dt](float current, float target, float limit) {
+            const float rate = std::clamp(
+                (target - current) / std::max(1e-3f, camera_servo_tau_),
+                -camera_servo_max_rate_, camera_servo_max_rate_);
+            return std::clamp(current + rate * dt, -limit, limit);
+        };
+        camera_pitch_ = servo_step(camera_pitch_, camera_target_pitch_, camera_pitch_limit_);
+        camera_yaw_ = servo_step(camera_yaw_, camera_target_yaw_, camera_yaw_limit_);
+    }
+    else
+    {
+        camera_pitch_ = 0.0f;
+        camera_yaw_ = 0.0f;
+        camera_target_pitch_ = 0.0f;
+        camera_target_yaw_ = 0.0f;
+    }
 
     Eigen::AngleAxisf yaw_view(camera_yaw_, Eigen::Vector3f::UnitZ());
     Eigen::AngleAxisf pitch_view(camera_pitch_, Eigen::Vector3f::UnitY());
@@ -266,20 +311,31 @@ void SensorSimulator::renderDepthCallback(const ros::Time stamp) {
     renderInsight9DepthImage(grid_map, *insight_camera, T_wc, insight_min_depth_,
                              insight_accuracy_ratio_, insight_noise_generator_, depth_image);
 
-    sensor_msgs::Image ros_image;
-    cv_bridge::CvImage cv_image;
-    cv_image.header.stamp = stamp;
-    cv_image.header.frame_id = "insight9_optical_frame";
-    cv_image.encoding = sensor_msgs::image_encodings::TYPE_32FC1;
-    cv_image.image = depth_image;
-    cv_image.toImageMsg(ros_image);
-    image_pub_.publish(ros_image);
-
+    // Publish the camera state used by this raycast before publishing the
+    // corresponding image.  The stamped topic is the synchronization
+    // contract; the legacy Vector3 topic remains for existing visualizers and
+    // gimbal clients.
+    geometry_msgs::Vector3Stamped camera_state_stamped;
+    camera_state_stamped.header.stamp = update_stamp;
+    camera_state_stamped.header.frame_id = "insight9_optical_frame";
+    camera_state_stamped.vector.x = camera_pitch_;
+    camera_state_stamped.vector.y = camera_yaw_;
+    camera_state_stamped.vector.z = 0.0;
+    camera_state_stamped_pub_.publish(camera_state_stamped);
     geometry_msgs::Vector3 camera_state;
     camera_state.x = camera_pitch_;
     camera_state.y = camera_yaw_;
     camera_state.z = 0.0;
     camera_state_pub_.publish(camera_state);
+
+    sensor_msgs::Image ros_image;
+    cv_bridge::CvImage cv_image;
+    cv_image.header.stamp = update_stamp;
+    cv_image.header.frame_id = "insight9_optical_frame";
+    cv_image.encoding = sensor_msgs::image_encodings::TYPE_32FC1;
+    cv_image.image = depth_image;
+    cv_image.toImageMsg(ros_image);
+    image_pub_.publish(ros_image);
     
     auto end = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed = end - start;
@@ -290,21 +346,32 @@ void SensorSimulator::renderDepthCallback(const ros::Time stamp) {
 }
 
 void SensorSimulator::cameraCommandCallback(const geometry_msgs::Vector3::ConstPtr &msg) {
+    if (!active_camera_)
+    {
+        camera_pitch_ = 0.0f;
+        camera_yaw_ = 0.0f;
+        camera_target_pitch_ = 0.0f;
+        camera_target_yaw_ = 0.0f;
+        ROS_DEBUG_THROTTLE(2.0, "Ignoring /yopo/camera/command because active_camera=false");
+        return;
+    }
     camera_target_pitch_ = std::clamp(static_cast<float>(msg->x), -camera_pitch_limit_, camera_pitch_limit_);
     camera_target_yaw_ = std::clamp(static_cast<float>(msg->y), -camera_yaw_limit_, camera_yaw_limit_);
-}
-
-void SensorSimulator::timerMapCallback(const ros::TimerEvent&) {
-    if (pcl_pub.getNumSubscribers() > 0) {
-        output.header.stamp = ros::Time::now();
-        pcl_pub.publish(output);    
-    }
 }
 
 void SensorSimulator::publishCollisionCounterTotal() {
     std_msgs::Int32 total_msg;
     total_msg.data = collision_counter_total_;
     collision_counter_total_pub_.publish(total_msg);
+}
+
+float SensorSimulator::nearestObstacleDistance() {
+    pcl::PointXYZ query(pos.x(), pos.y(), pos.z());
+    std::vector<int> indices(1);
+    std::vector<float> squared_distances(1);
+    if (collision_kdtree_.nearestKSearch(query, 1, indices, squared_distances) <= 0)
+        return std::numeric_limits<float>::infinity();
+    return std::sqrt(std::max(0.0f, squared_distances.front()));
 }
 
 void SensorSimulator::renderLidarCallback(const ros::Time stamp) {
@@ -341,10 +408,20 @@ void SensorSimulator::odomCallback(const nav_msgs::Odometry::ConstPtr& msg) {
     pos.y() = msg->pose.pose.position.y;
     pos.z() = msg->pose.pose.position.z;
 
-    const int occupied = grid_map->mapQueryHost(Vector3f(pos.x(), pos.y(), pos.z()));
-    if (occupied == 1) {
+    const float nearest_obstacle = nearestObstacleDistance();
+    const bool center_occupied = uav_collision_radius_ <= 0.0f &&
+        grid_map->mapQueryHost(Vector3f(pos.x(), pos.y(), pos.z())) == 1;
+    if (!collision_active_ &&
+        (center_occupied || nearest_obstacle <= uav_collision_radius_)) {
+        collision_active_ = true;
         collision_counter_total_ += 1;
-        ROS_WARN_THROTTLE(1.0, "UAV is inside occupied voxel. total=%d", collision_counter_total_);
+        ROS_WARN("UAV entered collision region (nearest obstacle %.3f m, radius %.3f m). total events=%d",
+                 nearest_obstacle, uav_collision_radius_, collision_counter_total_);
+    }
+    else if (collision_active_ && !center_occupied &&
+             nearest_obstacle > uav_collision_radius_ + collision_hysteresis_) {
+        collision_active_ = false;
+        ROS_INFO("UAV cleared collision region; next entry will count as a new event");
     }
     publishCollisionCounterTotal();
 

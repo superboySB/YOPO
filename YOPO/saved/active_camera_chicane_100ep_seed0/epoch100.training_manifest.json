@@ -1,0 +1,394 @@
+{
+  "artifacts": {
+    "checkpoints": {
+      "epoch10.pth": {
+        "epoch": 10,
+        "metrics_sha256": "e258a53ea964ee4799a8f8c815362fbbafbac0586d850a267d0d83e7b36a7fc8",
+        "path": "epoch10.pth",
+        "sha256": "bbd7e0ea702ff3ea90910ebaff15a39706d6f6bfc51430fa567c0322dd0ae42d"
+      },
+      "epoch100.pth": {
+        "epoch": 100,
+        "metrics_sha256": "178ec0ec347247d87ec579001e7d1c74c8194f5a05164f7a05e14f64436c545e",
+        "path": "epoch100.pth",
+        "sha256": "bb59d23ad76e0ba165553f517d1ea05acec0753b256bf5f7d3011c790c638439"
+      },
+      "epoch20.pth": {
+        "epoch": 20,
+        "metrics_sha256": "298c1266e5a96938ec279cdad06f0b89d7f787c6da3d3cd59c07d7af296abcad",
+        "path": "epoch20.pth",
+        "sha256": "d74c6e1047af6181483241fd4a4d7777ca989342974027d65fba28dc3165e014"
+      },
+      "epoch30.pth": {
+        "epoch": 30,
+        "metrics_sha256": "871c3770f835b6ab87d971cc66baa4cee586e5801c7e7f37d74e71f2b21fb56c",
+        "path": "epoch30.pth",
+        "sha256": "7d9653d2a439c99814125951cb0f54e4b5e604fc7a23f9b224af879ae784adec"
+      },
+      "epoch40.pth": {
+        "epoch": 40,
+        "metrics_sha256": "2214661f9cedb6349c67463af8518702374446041fe2ade70baa63231ca3f290",
+        "path": "epoch40.pth",
+        "sha256": "3fb05cb843dc8bcd4d880f79f033f139822dfe5d716fa9db1ffc0fc25743dd1d"
+      },
+      "epoch50.pth": {
+        "epoch": 50,
+        "metrics_sha256": "db7fb0ee120038f9a12187d1fe91018749263c43deca71cdcd03dd6ab7453b38",
+        "path": "epoch50.pth",
+        "sha256": "e2c2290407210aca6283e8235cfa1275cbae68e815fa91e745c117040b8eaac1"
+      },
+      "epoch60.pth": {
+        "epoch": 60,
+        "metrics_sha256": "7f051ef59374ae16c8d6f1b9cd0d48b4866220c52aa5ec2716c61743a5617edb",
+        "path": "epoch60.pth",
+        "sha256": "31386b50d7729c4d66ee1ab7b17d899acb23810c3c8992f8d16d516427bca5a7"
+      },
+      "epoch70.pth": {
+        "epoch": 70,
+        "metrics_sha256": "856621249e893ffb1e353d9da4425de7dabe22120b06461da301dfb14ab5572e",
+        "path": "epoch70.pth",
+        "sha256": "931bd82c1f7900261c77addcd78faf5231b61a7745b3bc9e84ed1a84fef21488"
+      },
+      "epoch80.pth": {
+        "epoch": 80,
+        "metrics_sha256": "efa8b049dd1fdb95bc7d4f5875fab190e80912dd22be462fec15cb8a88db8cb2",
+        "path": "epoch80.pth",
+        "sha256": "1261a0a5b153d6e8a73493cbe23c80cf8e0e623500de9724389fcfa8c0f525ab"
+      },
+      "epoch90.pth": {
+        "epoch": 90,
+        "metrics_sha256": "2f4e1d1dc46c7c0dabd67c571067af538324235ef38f6b85177ab3207a7cd4d1",
+        "path": "epoch90.pth",
+        "sha256": "89fec9a9cc5208c242de4444ea25fc87735c5544b942a89c174d669a73f8425b"
+      }
+    },
+    "metrics_sha256": "178ec0ec347247d87ec579001e7d1c74c8194f5a05164f7a05e14f64436c545e",
+    "output_dir": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0",
+    "resolved_config": "/workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0/resolved_config.yaml",
+    "resolved_config_sha256": "955721a5e962852805c63c107fc7422698e343cc94549ae2eb205207320355c7"
+  },
+  "config": {
+    "acc_max_train": 6.0,
+    "active_camera": true,
+    "ax_mean_unit": 0.0,
+    "ax_std_unit": 0.5,
+    "ay_mean_unit": 0.0,
+    "ay_std_unit": 0.5,
+    "az_mean_unit": 0.0,
+    "az_std_unit": 0.3,
+    "camera_gaze_lookahead_m": 4.0,
+    "camera_pitch_limit_deg": 60.0,
+    "camera_servo_max_rate_deg_s": 120.0,
+    "camera_servo_tau_s": 0.25,
+    "camera_yaw_limit_deg": 45.0,
+    "d0": 1.2,
+    "dataset_path": "../dataset_chicane_active_100ep",
+    "depth_preprocess": "resize_nearest_full_fov_v1",
+    "goal_length": 10.0,
+    "goal_pitch_std": 10.0,
+    "goal_yaw_std": 20.0,
+    "horizon_anchor_fov": 30.0,
+    "horizon_camera_fov": 90.0,
+    "horizon_num": 5,
+    "image_height": 192,
+    "image_width": 160,
+    "insight9_depth_fps": 15,
+    "insight9_diagonal_fov_deg": 157.2,
+    "insight9_horizontal_fov_deg": 96.8,
+    "insight9_max_depth_m": 30.0,
+    "insight9_min_depth_m": 0.19,
+    "insight9_native_height": 640,
+    "insight9_native_width": 544,
+    "insight9_train_max_depth_m": 20.0,
+    "insight9_vertical_fov_deg": 115.6,
+    "map_expand_max": [
+      0,
+      0,
+      6.0
+    ],
+    "map_expand_min": [
+      0,
+      0,
+      0.2
+    ],
+    "omni_acc_noise_std": 0.45,
+    "omni_amp": true,
+    "omni_d_model": 128,
+    "omni_decoder_layers": 2,
+    "omni_depth_cache_size": 64,
+    "omni_dropout": 0.1,
+    "omni_explore_beta": 16.0,
+    "omni_ffn_dim": 512,
+    "omni_guide_points": 32,
+    "omni_intent_min_progress": 1.2,
+    "omni_loss_eval_points": 30,
+    "omni_max_grad_norm": 1.0,
+    "omni_num_heads": 4,
+    "omni_num_workers": 4,
+    "omni_pitch_max_deg": 35.0,
+    "omni_radius_max": 9.0,
+    "omni_radius_min": 1.0,
+    "omni_rank_margin": 0.1,
+    "omni_rank_min_gap": 0.2,
+    "omni_topology_num": 8,
+    "omni_vdes_speed_max": 6.0,
+    "omni_vdes_speed_min": 3.0,
+    "omni_vel_noise_std": 0.4,
+    "r": 0.6,
+    "radio_num": 1,
+    "radio_range": 5.0,
+    "sgm_time": 1.4,
+    "train": true,
+    "traj_num": 15,
+    "use_guidance_loss": true,
+    "vel_max_train": 6.0,
+    "velocity": 3.0,
+    "vertical_anchor_fov": 30.0,
+    "vertical_camera_fov": 60.0,
+    "vertical_num": 3,
+    "vx_mean_unit": 0.4,
+    "vx_std_unit": 2.0,
+    "vy_mean_unit": 0.0,
+    "vy_std_unit": 0.45,
+    "vz_mean_unit": 0.0,
+    "vz_std_unit": 0.3,
+    "w_camera": 2.0,
+    "w_camera_smooth": 0.15,
+    "w_explore": 0.3,
+    "w_guide_path": 1.0,
+    "w_rank": 0.0,
+    "w_score": 1.0,
+    "wa": 1.2,
+    "wc": 1.4,
+    "wg": 0.15,
+    "wh": 2.0,
+    "wi": 2.0,
+    "ws": 12.0
+  },
+  "created_utc": "2026-08-20T11:46:47.117082+00:00",
+  "dataset": {
+    "metadata": {
+      "active_camera": true,
+      "dataset": {
+        "camera_pitch_range_deg": [
+          -60,
+          60
+        ],
+        "camera_yaw_range_deg": [
+          -45,
+          45
+        ],
+        "cross_track_half_width_m": 1.35,
+        "directions_per_image": 8,
+        "environment_count": 10,
+        "images_per_environment": 10000,
+        "pitch_range_deg": [
+          -30,
+          30
+        ],
+        "roll_range_deg": [
+          -30,
+          30
+        ],
+        "safe_dist_m": 0.5,
+        "samples_per_environment": 80000,
+        "sampling_component": "benchmark_start_goal_corridor",
+        "x_range_m": [
+          -20,
+          20
+        ],
+        "xy_sampling": "main_route_uniform_arc_length_plus_cross_track",
+        "y_range_m": [
+          -20,
+          20
+        ],
+        "yaw_range_deg": [
+          0,
+          360
+        ],
+        "z_range_m": [
+          0.5,
+          4
+        ]
+      },
+      "depth_preprocess": "resize_nearest_full_fov_v1",
+      "direction_num": 8,
+      "env_num": 10,
+      "guidance": {
+        "astar_local_radius_m": 16,
+        "camera_gaze_lookahead_m": 4,
+        "dijkstra_inflation_m": 0.5,
+        "dijkstra_resolution_m": 0.5,
+        "goal_length_m": 10,
+        "goal_search_radius_m": 3
+      },
+      "image_height": 192,
+      "image_num": 10000,
+      "image_width": 160,
+      "map": {
+        "base_seed": 3,
+        "benchmark_goal_xyz_m": [
+          20,
+          0,
+          2
+        ],
+        "benchmark_start_xyz_m": [
+          -20,
+          0,
+          2
+        ],
+        "branch_length_m": 6,
+        "ceiling": true,
+        "corridor_width_m": 4,
+        "jitter_m": 0.25,
+        "lateral_offset_m": 6,
+        "maze_type": 8,
+        "name": "active_perception_chicane",
+        "recommended_evaluation_seeds": "101..105",
+        "recommended_train_seeds": "3..12",
+        "resolution_m": 0.1,
+        "seed_rule": "base_seed + environment_index",
+        "wall_height_m": 5,
+        "wall_thickness_m": 0.3,
+        "x_length_m": 60,
+        "y_length_m": 60,
+        "z_length_m": 15
+      },
+      "max_depth_m": 20,
+      "maze_type": 8,
+      "pairing": {
+        "camera_draws_when_inactive": "consumed_then_zeroed",
+        "control_variable": "active_camera",
+        "inactive_camera_columns": "all_exact_zero",
+        "structural_rng": "independent_from_depth_noise_rng"
+      },
+      "preprocess": {
+        "depth_before_encoding": "clamp_meters_then_round_to_millimeter",
+        "generator_input": "direct_network_resolution_raycast",
+        "png_encoding": "round(depth_m / max_depth_m * 65535)",
+        "preserve_full_fov": true,
+        "real_sensor_resize": "nearest",
+        "version": "resize_nearest_full_fov_v1"
+      },
+      "schema": {
+        "angles_unit": "radian",
+        "depth_storage": "uint16_png",
+        "guide_columns": [
+          "sample_id",
+          "point_idx",
+          "x",
+          "y",
+          "z"
+        ],
+        "guide_file_pattern": "guides-{env}.csv",
+        "image_file_pattern": "{env}/img_{pose_id}_depth.png",
+        "pose_columns": [
+          "px",
+          "py",
+          "pz",
+          "qw",
+          "qx",
+          "qy",
+          "qz"
+        ],
+        "pose_file_pattern": "pose-{env}.csv",
+        "sample_columns": [
+          "sample_id",
+          "pose_id",
+          "dir_idx",
+          "px",
+          "py",
+          "pz",
+          "qw",
+          "qx",
+          "qy",
+          "qz",
+          "vdes_bx",
+          "vdes_by",
+          "vdes_bz",
+          "goal_wx",
+          "goal_wy",
+          "goal_wz",
+          "guide_offset",
+          "guide_len",
+          "guide_mask",
+          "guide_cost",
+          "selected_topology",
+          "camera_pitch",
+          "camera_yaw",
+          "camera_target_pitch",
+          "camera_target_yaw"
+        ],
+        "sample_file_pattern": "samples-{env}.csv"
+      },
+      "schema_version": 1,
+      "seed": 3,
+      "sensor": {
+        "depth_accuracy_ratio": 0.02,
+        "horizontal_fov_deg": 96.8,
+        "max_depth_m": 20,
+        "min_depth_m": 0.19,
+        "model": "looper_insight_9",
+        "mount_xyz_m": [
+          0.1,
+          0,
+          0.03
+        ],
+        "native_height": 640,
+        "native_width": 544,
+        "network_height": 192,
+        "network_width": 160,
+        "pitch_limit_deg": 60,
+        "servo_max_rate_deg_s": 120,
+        "servo_tau_s": 0.25,
+        "vertical_fov_deg": 115.6,
+        "yaw_limit_deg": 45
+      },
+      "sensor_model": "looper_insight_9"
+    },
+    "metadata_sha256": "31aa14d0221d232279fac648b2427b9476da55ff0ce26f6c87a4bafbe26f69c0",
+    "path": "/workspace/YOPO/dataset_chicane_active_100ep"
+  },
+  "model_contract": {
+    "camera_loss_weight": 2.0,
+    "camera_smooth_loss_weight": 0.15,
+    "depth_preprocess": "resize_nearest_full_fov_v1",
+    "image_height": 192,
+    "image_width": 160,
+    "max_depth_m": 20.0,
+    "policy_head_dim": 12,
+    "sensor_model": "looper_insight_9",
+    "state_dim": 11
+  },
+  "optimization": {
+    "batch_size": 16,
+    "completed_epochs": 100,
+    "deterministic_algorithms": true,
+    "deterministic_debug_mode": 1,
+    "learning_rate": 0.00015,
+    "seed": 0,
+    "train_epoch": 100
+  },
+  "runtime": {
+    "amp_enabled": true,
+    "cuda_version": "11.8",
+    "device": "cuda",
+    "torch_version": "2.4.1+cu118"
+  },
+  "schema": "yopo.training-run.v1",
+  "source": {
+    "files_sha256": {
+      "loss/loss_function.py": "16cbedda7195914821acb05e93a2d05eda7cf43b5827a7065d318c46db2a1325",
+      "policy/models/backbone.py": "1943b5658cad2d7a47aefbec01261084b183adcbdd641f4ed7663cb43c860266",
+      "policy/yopo_dataset.py": "c9cb9b47bb5ba9bafe28836a63a6ade754a00810aa9ae0ab3ac6c6a677ac7ecc",
+      "policy/yopo_network.py": "911ecfb20e3b1986d8f9b0a2a1e00b404ebeaf0057e97ff5278d0db2a4c1f2c2",
+      "policy/yopo_trainer.py": "6db75c09932610111c3d2a9b1d91a30b0667434856d168ee83f7e2395ec3c52e",
+      "train_yopo.py": "d207e1c935b9dda0a9c628b53d0b45dbe904815e67b48da9a7fc860ca4de554b"
+    },
+    "git_head": null
+  },
+  "treatment": {
+    "active_camera": true,
+    "camera_mode": "active"
+  }
+}

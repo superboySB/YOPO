@@ -14,8 +14,10 @@
 #include <fstream>
 #include <functional>
 #include <iomanip>
+#include <initializer_list>
 #include <limits>
 #include <queue>
+#include <stdexcept>
 #include <vector>
 #include "sensor_simulator.cuh"
 #include "maps.hpp"
@@ -420,7 +422,7 @@ void prepareSavePath(const std::string &path, bool print=false)
 void savePointCloudAsPLY(const pcl::PointCloud<pcl::PointXYZ>::Ptr &cloud, const std::string &path)
 {
     if (pcl::io::savePLYFileBinary(path, *cloud) == -1)
-        std::cerr << "Failed to save ply file to " << path << std::endl;
+        throw std::runtime_error("Failed to save ply file to " + path);
 }
 
 void saveDepthAs16BitPNG(const cv::Mat &depth_float, float max_depth_dist, const std::string &filepath)
@@ -435,7 +437,8 @@ void saveDepthAs16BitPNG(const cv::Mat &depth_float, float max_depth_dist, const
     // 转成uint16
     depth_scaled.convertTo(depth_scaled, CV_16UC1, 65535.0);
 
-    cv::imwrite(filepath, depth_scaled);
+    if (!cv::imwrite(filepath, depth_scaled))
+        throw std::runtime_error("Failed to write depth PNG " + filepath);
 }
 
 void renderInsight9DepthImage(GridMap *grid_map,
@@ -452,17 +455,253 @@ void renderInsight9DepthImage(GridMap *grid_map,
         for (int col = 0; col < depth_image.cols; ++col)
         {
             float depth = std::clamp(depth_image.at<float>(row, col), min_depth, camera.max_depth_dist);
+            // Draw once for every pixel, including max-range misses.  Active
+            // and fixed-camera runs therefore consume an identical noise RNG
+            // sequence even though their viewpoints (and hit masks) differ.
+            const float noise_sample = noise(generator);
             if (depth < camera.max_depth_dist - 1e-4f)
             {
                 // The product sheet specifies <2% error at 3m.  Use one
                 // quarter of that bound as Gaussian sigma so approximately
                 // 95% of simulated samples remain inside the stated error.
                 const float sigma = std::max(0.001f, 0.25f * accuracy_ratio * depth);
-                depth += sigma * noise(generator);
+                depth += sigma * noise_sample;
             }
             depth = std::clamp(depth, min_depth, camera.max_depth_dist);
             depth_image.at<float>(row, col) = std::round(depth * 1000.0f) / 1000.0f;
         }
+}
+
+YAML::Node stringSequence(std::initializer_list<const char *> values)
+{
+    YAML::Node result(YAML::NodeType::Sequence);
+    for (const char *value : values)
+        result.push_back(value);
+    return result;
+}
+
+YAML::Node numericRange(float lower, float upper)
+{
+    YAML::Node result(YAML::NodeType::Sequence);
+    result.push_back(lower);
+    result.push_back(upper);
+    return result;
+}
+
+struct ActiveRouteSegment
+{
+    Eigen::Vector2f start;
+    Eigen::Vector2f end;
+    float length;
+};
+
+std::vector<ActiveRouteSegment> buildActiveChicaneRoute(const YAML::Node &config, int map_seed)
+{
+    std::default_random_engine route_engine(map_seed);
+    const double jitter_limit = config["active_chicane_jitter"].as<double>();
+    std::uniform_real_distribution<double> jitter(-jitter_limit, jitter_limit);
+    const float mirror = map_seed % 2 == 0 ? -1.0f : 1.0f;
+    const float turn_left = -12.0f + static_cast<float>(jitter(route_engine));
+    const float turn_right = 12.0f + static_cast<float>(jitter(route_engine));
+    const float lateral_y = mirror * (
+        config["active_chicane_lateral_offset"].as<float>() +
+        static_cast<float>(jitter(route_engine)));
+
+    const std::vector<std::pair<Eigen::Vector2f, Eigen::Vector2f>> endpoints = {
+        {{-20.0f, 0.0f}, {turn_left, 0.0f}},
+        {{turn_left, 0.0f}, {turn_left, lateral_y}},
+        {{turn_left, lateral_y}, {turn_right, lateral_y}},
+        {{turn_right, lateral_y}, {turn_right, 0.0f}},
+        {{turn_right, 0.0f}, {20.0f, 0.0f}},
+    };
+    std::vector<ActiveRouteSegment> route;
+    route.reserve(endpoints.size());
+    for (const auto &endpoint : endpoints)
+        route.push_back({endpoint.first, endpoint.second,
+                         (endpoint.second - endpoint.first).norm()});
+    return route;
+}
+
+void sampleActiveChicaneXY(const std::vector<ActiveRouteSegment> &route,
+                           float cross_track_half_width,
+                           std::default_random_engine &generator,
+                           std::uniform_real_distribution<float> &uniform,
+                           Eigen::Vector3f &position)
+{
+    float total_length = 0.0f;
+    for (const auto &segment : route)
+        total_length += segment.length;
+    float arc_length = uniform(generator) * total_length;
+    const ActiveRouteSegment *selected = &route.back();
+    for (const auto &segment : route)
+    {
+        if (arc_length <= segment.length)
+        {
+            selected = &segment;
+            break;
+        }
+        arc_length -= segment.length;
+    }
+    const Eigen::Vector2f direction =
+        (selected->end - selected->start) / std::max(1e-6f, selected->length);
+    const Eigen::Vector2f normal(-direction.y(), direction.x());
+    const Eigen::Vector2f centre = selected->start + direction * arc_length;
+    const float cross_track = (2.0f * uniform(generator) - 1.0f) * cross_track_half_width;
+    const Eigen::Vector2f xy = centre + normal * cross_track;
+    position.x() = xy.x();
+    position.y() = xy.y();
+}
+
+void writeDatasetMetadata(const std::string &save_path,
+                          const YAML::Node &config,
+                          const CameraParams &camera,
+                          bool active_camera)
+{
+    YAML::Node metadata;
+    const YAML::Node insight = config["insight9"];
+    const YAML::Node omni = config["omni"];
+
+    // These top-level keys are intentionally stable: the Python loader treats
+    // them as the dataset compatibility contract.
+    metadata["schema_version"] = 1;
+    metadata["active_camera"] = active_camera;
+    metadata["image_width"] = camera.image_width;
+    metadata["image_height"] = camera.image_height;
+    metadata["max_depth_m"] = camera.max_depth_dist;
+    metadata["depth_preprocess"] = "resize_nearest_full_fov_v1";
+    metadata["sensor_model"] = insight["model"].as<std::string>();
+    metadata["maze_type"] = config["maze_type"].as<int>();
+    metadata["seed"] = config["seed"].as<int>();
+    metadata["env_num"] = config["env_num"].as<int>();
+    metadata["image_num"] = config["image_num"].as<int>();
+    metadata["direction_num"] = omni["direction_num"].as<int>();
+
+    metadata["schema"]["pose_file_pattern"] = "pose-{env}.csv";
+    metadata["schema"]["pose_columns"] =
+        stringSequence({"px", "py", "pz", "qw", "qx", "qy", "qz"});
+    metadata["schema"]["sample_file_pattern"] = "samples-{env}.csv";
+    metadata["schema"]["sample_columns"] = stringSequence({
+        "sample_id", "pose_id", "dir_idx", "px", "py", "pz",
+        "qw", "qx", "qy", "qz", "vdes_bx", "vdes_by", "vdes_bz",
+        "goal_wx", "goal_wy", "goal_wz", "guide_offset", "guide_len",
+        "guide_mask", "guide_cost", "selected_topology", "camera_pitch",
+        "camera_yaw", "camera_target_pitch", "camera_target_yaw"});
+    metadata["schema"]["guide_file_pattern"] = "guides-{env}.csv";
+    metadata["schema"]["guide_columns"] =
+        stringSequence({"sample_id", "point_idx", "x", "y", "z"});
+    metadata["schema"]["image_file_pattern"] = "{env}/img_{pose_id}_depth.png";
+    metadata["schema"]["angles_unit"] = "radian";
+    metadata["schema"]["depth_storage"] = "uint16_png";
+
+    metadata["sensor"]["model"] = insight["model"].as<std::string>();
+    metadata["sensor"]["native_width"] = insight["native_image_width"].as<int>();
+    metadata["sensor"]["native_height"] = insight["native_image_height"].as<int>();
+    metadata["sensor"]["network_width"] = camera.image_width;
+    metadata["sensor"]["network_height"] = camera.image_height;
+    metadata["sensor"]["horizontal_fov_deg"] = insight["horizontal_fov_deg"].as<float>();
+    metadata["sensor"]["vertical_fov_deg"] = insight["vertical_fov_deg"].as<float>();
+    metadata["sensor"]["min_depth_m"] = insight["min_depth_dist"].as<float>();
+    metadata["sensor"]["max_depth_m"] = camera.max_depth_dist;
+    metadata["sensor"]["depth_accuracy_ratio"] = insight["depth_accuracy_ratio"].as<float>();
+    metadata["sensor"]["mount_xyz_m"] = std::vector<float>{
+        insight["mount_x"].as<float>(), insight["mount_y"].as<float>(),
+        insight["mount_z"].as<float>()};
+    metadata["sensor"]["pitch_limit_deg"] = insight["pitch_limit_deg"].as<float>();
+    metadata["sensor"]["yaw_limit_deg"] = insight["yaw_limit_deg"].as<float>();
+    metadata["sensor"]["servo_tau_s"] = insight["servo_tau_s"].as<float>();
+    metadata["sensor"]["servo_max_rate_deg_s"] = insight["servo_max_rate_deg_s"].as<float>();
+
+    metadata["preprocess"]["version"] = "resize_nearest_full_fov_v1";
+    metadata["preprocess"]["generator_input"] = "direct_network_resolution_raycast";
+    metadata["preprocess"]["real_sensor_resize"] = "nearest";
+    metadata["preprocess"]["preserve_full_fov"] = true;
+    metadata["preprocess"]["depth_before_encoding"] = "clamp_meters_then_round_to_millimeter";
+    metadata["preprocess"]["png_encoding"] = "round(depth_m / max_depth_m * 65535)";
+
+    metadata["dataset"]["environment_count"] = config["env_num"].as<int>();
+    metadata["dataset"]["images_per_environment"] = config["image_num"].as<int>();
+    metadata["dataset"]["directions_per_image"] = omni["direction_num"].as<int>();
+    metadata["dataset"]["samples_per_environment"] =
+        config["image_num"].as<int>() * omni["direction_num"].as<int>();
+    const float x_range = config["x_range"].as<float>();
+    const float y_range = config["y_range"].as<float>();
+    const float roll_range = config["roll_range"].as<float>();
+    const float pitch_range = config["pitch_range"].as<float>();
+    metadata["dataset"]["x_range_m"] = numericRange(-0.5f * x_range, 0.5f * x_range);
+    metadata["dataset"]["y_range_m"] = numericRange(-0.5f * y_range, 0.5f * y_range);
+    metadata["dataset"]["z_range_m"] = config["z_range"];
+    metadata["dataset"]["roll_range_deg"] = numericRange(-roll_range, roll_range);
+    metadata["dataset"]["pitch_range_deg"] = numericRange(-pitch_range, pitch_range);
+    metadata["dataset"]["yaw_range_deg"] = numericRange(0.0f, 360.0f);
+    metadata["dataset"]["safe_dist_m"] = config["safe_dist"].as<float>();
+    metadata["dataset"]["camera_pitch_range_deg"] = active_camera
+        ? numericRange(-insight["pitch_limit_deg"].as<float>(), insight["pitch_limit_deg"].as<float>())
+        : numericRange(0.0f, 0.0f);
+    metadata["dataset"]["camera_yaw_range_deg"] = active_camera
+        ? numericRange(-insight["yaw_limit_deg"].as<float>(), insight["yaw_limit_deg"].as<float>())
+        : numericRange(0.0f, 0.0f);
+    if (config["maze_type"].as<int>() == 8)
+    {
+        const float half_width = 0.5f * config["active_chicane_corridor_width"].as<float>();
+        const float sampling_margin = std::max(0.65f, config["safe_dist"].as<float>() + 0.15f);
+        metadata["dataset"]["xy_sampling"] =
+            "main_route_uniform_arc_length_plus_cross_track";
+        metadata["dataset"]["cross_track_half_width_m"] =
+            std::max(0.05f, half_width - sampling_margin);
+        metadata["dataset"]["sampling_component"] = "benchmark_start_goal_corridor";
+    }
+    else
+    {
+        metadata["dataset"]["xy_sampling"] = "uniform_axis_aligned_box";
+    }
+
+    metadata["map"]["name"] = config["maze_type"].as<int>() == 8
+        ? "active_perception_chicane" : "legacy_maze_type";
+    metadata["map"]["maze_type"] = config["maze_type"].as<int>();
+    metadata["map"]["base_seed"] = config["seed"].as<int>();
+    metadata["map"]["seed_rule"] = "base_seed + environment_index";
+    metadata["map"]["x_length_m"] = config["x_length"].as<int>();
+    metadata["map"]["y_length_m"] = config["y_length"].as<int>();
+    metadata["map"]["z_length_m"] = config["z_length"].as<int>();
+    metadata["map"]["resolution_m"] = config["resolution"].as<float>();
+    if (config["maze_type"].as<int>() == 8)
+    {
+        metadata["map"]["benchmark_start_xyz_m"] = std::vector<float>{-20.0f, 0.0f, 2.0f};
+        metadata["map"]["benchmark_goal_xyz_m"] = std::vector<float>{20.0f, 0.0f, 2.0f};
+        metadata["map"]["recommended_train_seeds"] = "3..12";
+        metadata["map"]["recommended_evaluation_seeds"] = "101..105";
+        metadata["map"]["corridor_width_m"] =
+            config["active_chicane_corridor_width"].as<float>();
+        metadata["map"]["wall_height_m"] = config["active_chicane_wall_height"].as<float>();
+        metadata["map"]["wall_thickness_m"] =
+            config["active_chicane_wall_thickness"].as<float>();
+        metadata["map"]["lateral_offset_m"] =
+            config["active_chicane_lateral_offset"].as<float>();
+        metadata["map"]["branch_length_m"] =
+            config["active_chicane_branch_length"].as<float>();
+        metadata["map"]["jitter_m"] = config["active_chicane_jitter"].as<float>();
+        metadata["map"]["ceiling"] = config["active_chicane_ceiling"].as<bool>();
+    }
+
+    metadata["guidance"]["goal_length_m"] = omni["goal_length"].as<float>();
+    metadata["guidance"]["goal_search_radius_m"] = omni["goal_search_radius"].as<float>();
+    metadata["guidance"]["dijkstra_resolution_m"] = omni["dijkstra_resolution"].as<float>();
+    metadata["guidance"]["dijkstra_inflation_m"] = omni["dijkstra_inflation"].as<float>();
+    metadata["guidance"]["astar_local_radius_m"] = omni["astar_local_radius"].as<float>();
+    metadata["guidance"]["camera_gaze_lookahead_m"] = omni["camera_gaze_lookahead_m"].as<float>();
+
+    metadata["pairing"]["control_variable"] = "active_camera";
+    metadata["pairing"]["structural_rng"] = "independent_from_depth_noise_rng";
+    metadata["pairing"]["camera_draws_when_inactive"] = "consumed_then_zeroed";
+    metadata["pairing"]["inactive_camera_columns"] = "all_exact_zero";
+
+    std::ofstream output(save_path + "dataset_metadata.yaml");
+    if (!output)
+        throw std::runtime_error("Cannot write dataset metadata under " + save_path);
+    output << metadata;
+    output.close();
+    if (!output)
+        throw std::runtime_error("Dataset metadata write failed under " + save_path);
 }
 
 Eigen::Quaternionf RPY2Quat(float roll_deg, float pitch_deg, float yaw_deg)
@@ -498,6 +737,7 @@ void printProgressBar(int current, int total, int bar_width = 50)
 int main(int argc, char **argv)
 {
     YAML::Node config = YAML::LoadFile(CONFIG_FILE_PATH);
+    const bool active_camera = config["active_camera"] ? config["active_camera"].as<bool>() : true;
 
     // 1. Insight 9 learning-stereo depth model and two-axis mount.
     YAML::Node insight_config = config["insight9"];
@@ -517,6 +757,7 @@ int main(int argc, char **argv)
               << "x" << insight_config["vertical_fov_deg"].as<float>()
               << " deg, range [" << insight_min_depth << ", " << insight_camera.max_depth_dist
               << "] m" << std::endl;
+    std::cout << "Active camera data mode: " << (active_camera ? "true" : "false") << std::endl;
 
     // 3. 地图参数
     float resolution = config["resolution"].as<float>();
@@ -525,6 +766,7 @@ int main(int argc, char **argv)
     int sizeX = config["x_length"].as<int>();
     int sizeY = config["y_length"].as<int>();
     int sizeZ = config["z_length"].as<int>();
+    const int maze_type = config["maze_type"].as<int>();
     double scale = 1 / resolution;
     sizeX *= scale;
     sizeY *= scale;
@@ -581,10 +823,16 @@ int main(int argc, char **argv)
               << "Yaw: [0, 360]" << std::endl;
 
     // 收集所有数据
+    // Structural sampling and sensor noise use independent streams.  Thus a
+    // changed camera view cannot perturb any later pose/direction/guide draw.
     std::default_random_engine generator(seed);
+    std::default_random_engine depth_noise_generator(
+        static_cast<std::default_random_engine::result_type>(
+            static_cast<unsigned int>(seed) ^ 0x9e3779b9u));
     std::normal_distribution<float> normal_distribution(0.0f, 1.0f); // 均值0，标准差1
     std::uniform_real_distribution<float> uniform_uniform(0.0f, 1.0f);
     prepareSavePath(save_path, true);
+    writeDatasetMetadata(save_path, config, insight_camera, active_camera);
     for (int map_i = 0; map_i < env_num; ++map_i)
     {
         pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>());
@@ -599,7 +847,15 @@ int main(int argc, char **argv)
         mocka::Maps map;
         map.setParam(config);
         map.setInfo(info);
-        map.generate(config["maze_type"].as<int>());
+        map.generate(maze_type);
+
+        const std::vector<ActiveRouteSegment> active_route =
+            maze_type == 8 ? buildActiveChicaneRoute(config, info.seed)
+                           : std::vector<ActiveRouteSegment>();
+        const float active_cross_track_half_width = std::max(
+            0.05f,
+            0.5f * config["active_chicane_corridor_width"].as<float>() -
+                std::max(0.65f, safe_dist + 0.15f));
 
         // 构建 GridMap
         GridMap grid_map(cloud, resolution, occupy_threshold);
@@ -631,15 +887,29 @@ int main(int argc, char **argv)
                     << "guide_offset,guide_len,guide_mask,guide_cost,selected_topology,"
                     << "camera_pitch,camera_yaw,camera_target_pitch,camera_target_yaw\n";
         std::ofstream guide_file(save_path + "guides-" + std::to_string(map_i) + ".csv");
+        if (!pose_file || !sample_file || !guide_file)
+            throw std::runtime_error("Failed to open dataset CSV outputs for environment " +
+                                     std::to_string(map_i));
         guide_file << "sample_id,point_idx,x,y,z\n";
         int guide_offset = 0;
         for (int image_i = 0; image_i < image_num; ++image_i)
         {
             Eigen::Vector3f pos;
             float dist;
+            int sampling_attempts = 0;
             do{
-                pos.x() = x_min + uniform_uniform(generator) * x_range;
-                pos.y() = y_min + uniform_uniform(generator) * y_range;
+                if (++sampling_attempts > 100000)
+                    throw std::runtime_error(
+                        "Unable to sample a valid pose after 100000 attempts for environment " +
+                        std::to_string(map_i));
+                if (maze_type == 8)
+                    sampleActiveChicaneXY(active_route, active_cross_track_half_width,
+                                          generator, uniform_uniform, pos);
+                else
+                {
+                    pos.x() = x_min + uniform_uniform(generator) * x_range;
+                    pos.y() = y_min + uniform_uniform(generator) * y_range;
+                }
                 pos.z() = z_min + uniform_uniform(generator) * (z_max - z_min);
                 pcl::PointXYZ searchPoint(pos.x(), pos.y(), pos.z());
                 std::vector<int> pointIdxNKNSearch(1);
@@ -656,8 +926,14 @@ int main(int argc, char **argv)
             float roll = std::clamp(normal_distribution(generator) * roll_range / 3.0f, -roll_range, roll_range);
             float pitch = std::clamp(normal_distribution(generator) * pitch_range / 3.0f, -pitch_range, pitch_range);
             float yaw = uniform_uniform(generator) * 360.0f;
-            const float camera_pitch_deg = (2.0f * uniform_uniform(generator) - 1.0f) * camera_pitch_limit_deg;
-            const float camera_yaw_deg = (2.0f * uniform_uniform(generator) - 1.0f) * camera_yaw_limit_deg;
+            // Always consume both camera draws.  In fixed mode only their
+            // effective values are zeroed, preserving paired structural RNG.
+            const float sampled_camera_pitch_deg =
+                (2.0f * uniform_uniform(generator) - 1.0f) * camera_pitch_limit_deg;
+            const float sampled_camera_yaw_deg =
+                (2.0f * uniform_uniform(generator) - 1.0f) * camera_yaw_limit_deg;
+            const float camera_pitch_deg = active_camera ? sampled_camera_pitch_deg : 0.0f;
+            const float camera_yaw_deg = active_camera ? sampled_camera_yaw_deg : 0.0f;
             const float camera_pitch_rad = camera_pitch_deg * M_PI / 180.0f;
             const float camera_yaw_rad = camera_yaw_deg * M_PI / 180.0f;
 
@@ -674,7 +950,7 @@ int main(int argc, char **argv)
             cv::Mat depth_image;
             renderInsight9DepthImage(&grid_map, insight_camera, T_wc_camera,
                                      insight_min_depth, insight_accuracy_ratio,
-                                     generator, depth_image);
+                                     depth_noise_generator, depth_image);
             std::string filename = image_path + "/img_" + std::to_string(image_i) + "_depth.png";
             saveDepthAs16BitPNG(depth_image, insight_camera.max_depth_dist, filename);
 
@@ -732,6 +1008,11 @@ int main(int argc, char **argv)
                     camera_target_yaw,
                     -camera_yaw_limit_deg * static_cast<float>(M_PI) / 180.0f,
                     camera_yaw_limit_deg * static_cast<float>(M_PI) / 180.0f);
+                if (!active_camera)
+                {
+                    camera_target_pitch = 0.0f;
+                    camera_target_yaw = 0.0f;
+                }
 
                 sample_file << std::fixed << std::setprecision(6)
                             << sample_id << "," << image_i << "," << dir_i << ","
@@ -759,8 +1040,21 @@ int main(int argc, char **argv)
         pose_file.close();
         sample_file.close();
         guide_file.close();
+        if (!pose_file || !sample_file || !guide_file)
+            throw std::runtime_error("Dataset CSV write failed for environment " +
+                                     std::to_string(map_i));
         grid_map.freeGridMap();
     }
+
+    std::ofstream success_marker(save_path + "_SUCCESS");
+    if (!success_marker)
+        throw std::runtime_error("Failed to write dataset completion marker under " + save_path);
+    success_marker << "schema_version: 1\n"
+                   << "environment_count: " << env_num << "\n"
+                   << "images_per_environment: " << image_num << "\n";
+    success_marker.close();
+    if (!success_marker)
+        throw std::runtime_error("Dataset completion marker write failed under " + save_path);
 
     std::cout << "\nDataset generation completed!" << std::endl;
 

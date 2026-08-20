@@ -10,7 +10,9 @@
 
 #include <algorithm>
 #include <iostream>
+#include <limits>
 #include <random>
+#include <stdexcept>
 #include <vector>
 #include <Eigen/Core>
 #include "perlinnoise.hpp"
@@ -61,6 +63,14 @@ private:
   double _wall_thick;
   int    _wall_num;
   int    _wall_ceiling;
+  // active-perception chicane
+  double active_corridor_width{4.0};
+  double active_wall_height{5.0};
+  double active_wall_thickness{0.30};
+  double active_lateral_offset{6.0};
+  double active_branch_length{6.0};
+  double active_jitter{0.25};
+  bool active_ceiling{true};
 
   std::uniform_real_distribution<double> dis_window_x, dis_window_z, dis_window_size;
   std::default_random_engine window_eng;
@@ -70,6 +80,7 @@ private:
   void randomMapGenerate();
   void Maze3DGen();
   void wall();
+  void activePerceptionChicane();
   void recursiveDivision(int xl, int xh, int yl, int yh, Eigen::MatrixXi &maze);
   void recursizeDivisionMaze(Eigen::MatrixXi &maze);
   void optimizeMap();

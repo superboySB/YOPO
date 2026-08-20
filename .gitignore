@@ -12,7 +12,35 @@ Simulator/.catkin_tools/
 YOPO/saved/*
 dataset_omni/
 dataset_active*/
+dataset_chicane*/
 yopo_sim/
 
+# Reproducible reports keep manifests, metrics, maps, plots and trajectories.
+# Console/ROS logs are generated diagnostics and frequently contain progress-bar
+# control whitespace, so they stay local.
+reports/**/*.log
+
 !YOPO/saved/YOPO_0/
+
+# Release only the two final 100-epoch camera-ablation artifacts. Intermediate
+# checkpoints, TensorBoard events and every other training run stay ignored.
+!YOPO/saved/active_camera_chicane_100ep_seed0/
+YOPO/saved/active_camera_chicane_100ep_seed0/*
+!YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.pth
+!YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.manifest.json
+!YOPO/saved/active_camera_chicane_100ep_seed0/epoch100.training_manifest.json
+!YOPO/saved/active_camera_chicane_100ep_seed0/metrics.csv
+!YOPO/saved/active_camera_chicane_100ep_seed0/metrics.json
+!YOPO/saved/active_camera_chicane_100ep_seed0/resolved_config.yaml
+!YOPO/saved/active_camera_chicane_100ep_seed0/MODEL_CARD.md
+
+!YOPO/saved/fixed_camera_chicane_100ep_seed0/
+YOPO/saved/fixed_camera_chicane_100ep_seed0/*
+!YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.pth
+!YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.manifest.json
+!YOPO/saved/fixed_camera_chicane_100ep_seed0/epoch100.training_manifest.json
+!YOPO/saved/fixed_camera_chicane_100ep_seed0/metrics.csv
+!YOPO/saved/fixed_camera_chicane_100ep_seed0/metrics.json
+!YOPO/saved/fixed_camera_chicane_100ep_seed0/resolved_config.yaml
+!YOPO/saved/fixed_camera_chicane_100ep_seed0/MODEL_CARD.md
 *.pyc

@@ -1,0 +1,1 @@
+index,start_wall_time_s,end_wall_time_s,duration_s,start_x,start_y,start_z,end_x,end_y,end_z,min_center_obstacle_distance_m,min_clearance_m,sources,sim_counter_start,sim_counter_end,samples

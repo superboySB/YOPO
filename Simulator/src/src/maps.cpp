@@ -160,6 +160,175 @@ Maps::wall()
 }
 
 void
+Maps::activePerceptionChicane()
+{
+  // A deterministic, structured course for paired active/fixed-camera tests.
+  // The route is a union of corridor segments, so its centreline is guaranteed
+  // to remain open even after the seed-dependent mirror and small jitter.
+  const double resolution = 1.0 / info.scale;
+  const double map_x = info.sizeX / info.scale;
+  const double map_y = info.sizeY / info.scale;
+  const double half_width = 0.5 * active_corridor_width;
+  const double wall_height = std::min(active_wall_height, info.sizeZ / info.scale);
+  const double x_min = -0.5 * map_x;
+  const double x_max = 0.5 * map_x;
+  const double y_min = -0.5 * map_y;
+  const double y_max = 0.5 * map_y;
+
+  if (active_corridor_width <= 1.0 || active_wall_height <= 0.0 ||
+      active_wall_thickness <= 0.0 || active_lateral_offset <= 0.0 ||
+      active_branch_length <= 0.0 || active_jitter < 0.0)
+    throw std::invalid_argument("Invalid active_chicane geometry parameters");
+  const double required_x = 23.25 + active_wall_thickness;
+  const double required_y = active_lateral_offset + active_jitter +
+                            active_branch_length + 0.5 * active_corridor_width +
+                            active_wall_thickness;
+  if (x_min >= -required_x || x_max <= required_x ||
+      y_min >= -required_y || y_max <= required_y || wall_height < 4.5)
+    throw std::invalid_argument(
+      "Map bounds/wall height are too small for the active_chicane geometry");
+
+  std::default_random_engine eng(info.seed);
+  std::uniform_real_distribution<double> jitter_dist(-active_jitter, active_jitter);
+  const double mirror = (info.seed % 2 == 0) ? -1.0 : 1.0;
+  const double turn_left = -12.0 + jitter_dist(eng);
+  const double turn_right = 12.0 + jitter_dist(eng);
+  const double lateral_y = mirror * (active_lateral_offset + jitter_dist(eng));
+
+  struct Segment2D
+  {
+    Eigen::Vector2d a;
+    Eigen::Vector2d b;
+  };
+  const Eigen::Vector2d benchmark_start(-20.0, 0.0);
+  const Eigen::Vector2d benchmark_goal(20.0, 0.0);
+  std::vector<Segment2D> segments = {
+    {benchmark_start, Eigen::Vector2d(turn_left, 0.0)},
+    {Eigen::Vector2d(turn_left, 0.0), Eigen::Vector2d(turn_left, lateral_y)},
+    {Eigen::Vector2d(turn_left, lateral_y), Eigen::Vector2d(turn_right, lateral_y)},
+    {Eigen::Vector2d(turn_right, lateral_y), Eigen::Vector2d(turn_right, 0.0)},
+    {Eigen::Vector2d(turn_right, 0.0), benchmark_goal},
+    // A closed T branch exposes useful side-looking geometry without making
+    // the baseline route depend on entering a dead end.
+    {Eigen::Vector2d(0.0, lateral_y),
+     Eigen::Vector2d(0.0, lateral_y + mirror * active_branch_length)}
+  };
+
+  const auto point_segment_distance = [](const Eigen::Vector2d &p, const Segment2D &segment) {
+    const Eigen::Vector2d delta = segment.b - segment.a;
+    const double denom = delta.squaredNorm();
+    const double t = denom > 1e-9
+      ? std::clamp((p - segment.a).dot(delta) / denom, 0.0, 1.0)
+      : 0.0;
+    return (p - (segment.a + t * delta)).norm();
+  };
+
+  // Generate only a thin vertical boundary band around the union of corridor
+  // segments.  This keeps the cloud compact while retaining solid raycast and
+  // collision boundaries at the configured map resolution.
+  for (double x = x_min; x <= x_max + 0.5 * resolution; x += resolution)
+  {
+    for (double y = y_min; y <= y_max + 0.5 * resolution; y += resolution)
+    {
+      const Eigen::Vector2d p(x, y);
+      double distance = std::numeric_limits<double>::infinity();
+      for (const auto &segment : segments)
+        distance = std::min(distance, point_segment_distance(p, segment));
+
+      const bool endpoint_clear =
+        (p - benchmark_start).norm() < 3.25 || (p - benchmark_goal).norm() < 3.25;
+      if (endpoint_clear || distance < half_width ||
+          distance > half_width + active_wall_thickness)
+        continue;
+
+      for (double z = 0.0; z <= wall_height + 0.5 * resolution; z += resolution)
+        info.cloud->points.emplace_back(x, y, z);
+    }
+  }
+
+  // Add surface-sampled, axis-aligned construction elements.  Unlike generic
+  // floating boxes these have plausible supports: dividers/rods reach the
+  // ground, and the hanging beam spans between the two corridor walls.
+  const auto add_box_surface = [&](double cx, double cy, double cz,
+                                   double sx, double sy, double sz) {
+    const int nx = std::max(1, static_cast<int>(std::ceil(sx / resolution)));
+    const int ny = std::max(1, static_cast<int>(std::ceil(sy / resolution)));
+    const int nz = std::max(1, static_cast<int>(std::ceil(sz / resolution)));
+    for (int ix = 0; ix <= nx; ++ix)
+      for (int iy = 0; iy <= ny; ++iy)
+        for (int iz = 0; iz <= nz; ++iz)
+        {
+          if (ix != 0 && ix != nx && iy != 0 && iy != ny && iz != 0 && iz != nz)
+            continue;
+          info.cloud->points.emplace_back(
+            cx - 0.5 * sx + ix * sx / nx,
+            cy - 0.5 * sy + iy * sy / ny,
+            cz - 0.5 * sz + iz * sz / nz);
+        }
+  };
+
+  // Sealed, widened start/goal chambers keep every obstacle at least 3 m
+  // horizontally from the benchmark poses while preventing an outside-the-
+  // corridor shortcut around the S turns.
+  const double chamber_half_width = 3.25;
+  const double chamber_inner_x = 16.75;
+  const double chamber_outer_x = 23.25;
+  const double chamber_length = chamber_outer_x - chamber_inner_x;
+  for (double side : {-1.0, 1.0})
+  {
+    add_box_surface(-0.5 * (chamber_outer_x + chamber_inner_x),
+                    side * chamber_half_width, 0.5 * wall_height,
+                    chamber_length, active_wall_thickness, wall_height);
+    add_box_surface(0.5 * (chamber_outer_x + chamber_inner_x),
+                    side * chamber_half_width, 0.5 * wall_height,
+                    chamber_length, active_wall_thickness, wall_height);
+    const double connector_center_y = side * 0.5 * (chamber_half_width + half_width);
+    add_box_surface(-chamber_inner_x, connector_center_y, 0.5 * wall_height,
+                    active_wall_thickness, chamber_half_width - half_width, wall_height);
+    add_box_surface(chamber_inner_x, connector_center_y, 0.5 * wall_height,
+                    active_wall_thickness, chamber_half_width - half_width, wall_height);
+  }
+  add_box_surface(-chamber_outer_x, 0.0, 0.5 * wall_height,
+                  active_wall_thickness, 2.0 * chamber_half_width, wall_height);
+  add_box_surface(chamber_outer_x, 0.0, 0.5 * wall_height,
+                  active_wall_thickness, 2.0 * chamber_half_width, wall_height);
+
+  const double obstacle_jitter = jitter_dist(eng);
+  // Floor-mounted divider just beyond the first blind turn; the opposite side
+  // leaves more than a UAV diameter of clearance at z=2 m.
+  add_box_surface(turn_left + 4.0 + obstacle_jitter,
+                  lateral_y + mirror * 1.25, 1.6,
+                  0.22, 1.0, 3.2);
+  // Paired construction rods near the second turn.
+  add_box_surface(turn_right - 3.2, lateral_y - mirror * 1.25, 1.8,
+                  0.24, 0.24, 3.6);
+  add_box_surface(turn_right - 2.5, lateral_y - mirror * 1.25, 1.8,
+                  0.24, 0.24, 3.6);
+  // A wall-supported overhead cross-beam: clear below, obstructed above.
+  add_box_surface(3.0, lateral_y, 3.65,
+                  0.35, active_corridor_width, 0.35);
+  // The T branch contains a divider and rod that are invisible from a strictly
+  // forward view until the vehicle scans/approaches the junction.
+  add_box_surface(0.0, lateral_y + mirror * (0.62 * active_branch_length), 1.5,
+                  1.25, 0.22, 3.0);
+  add_box_surface(0.8, lateral_y + mirror * (0.45 * active_branch_length), 1.9,
+                  0.22, 0.22, 3.8);
+
+  pcl::PointCloud<pcl::PointXYZ>::Ptr ground_cloud =
+    generateGround(info.cloud, resolution);
+  *info.cloud += *ground_cloud;
+  if (active_ceiling)
+  {
+    pcl::PointCloud<pcl::PointXYZ>::Ptr ceiling_cloud =
+      generateGround(info.cloud, resolution, wall_height);
+    *info.cloud += *ceiling_cloud;
+  }
+  info.cloud->width = info.cloud->points.size();
+  info.cloud->height = 1;
+  info.cloud->is_dense = true;
+}
+
+void
 Maps::perlin3D()
 {
   info.cloud->width  = info.sizeX * info.sizeY * info.sizeZ;
@@ -765,6 +934,21 @@ Maps::setParam(const YAML::Node& config)
   _wall_thick = config["wall_thick"].as<double>();
   _wall_num = config["wall_number"].as<int>();
   _wall_ceiling = config["wall_ceiling"].as<int>();
+  // active-perception chicane (optional so older configs retain defaults)
+  if (config["active_chicane_corridor_width"])
+    active_corridor_width = config["active_chicane_corridor_width"].as<double>();
+  if (config["active_chicane_wall_height"])
+    active_wall_height = config["active_chicane_wall_height"].as<double>();
+  if (config["active_chicane_wall_thickness"])
+    active_wall_thickness = config["active_chicane_wall_thickness"].as<double>();
+  if (config["active_chicane_lateral_offset"])
+    active_lateral_offset = config["active_chicane_lateral_offset"].as<double>();
+  if (config["active_chicane_branch_length"])
+    active_branch_length = config["active_chicane_branch_length"].as<double>();
+  if (config["active_chicane_jitter"])
+    active_jitter = config["active_chicane_jitter"].as<double>();
+  if (config["active_chicane_ceiling"])
+    active_ceiling = config["active_chicane_ceiling"].as<bool>();
 }
 
 
@@ -796,6 +980,9 @@ Maps::generate(int type)
       break;
     case 7:
       wall();
+      break;
+    case 8:
+      activePerceptionChicane();
       break;
   }
 }

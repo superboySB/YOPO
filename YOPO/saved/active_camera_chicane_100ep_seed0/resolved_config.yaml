@@ -1,0 +1,284 @@
+# IMPORTANT: velocity in testing (modifiable)
+velocity: 3.0
+
+# IMPORTANT: vel_max and acc_max in training
+# not the actual values in testing, ensure consistency between testing and training, please refer to ../policy/primitive.py
+vel_max_train: 6.0
+acc_max_train: 6.0
+
+# IMPORTANT: weight of costs for unit speed (can be visualized in tensorboard)
+wg: 0.15   # guidance     (approaching the goal)
+ws: 12.0   # smoothness   (smaller jerk)
+wa: 1.2    # acceleration (smaller acceleration)
+wc: 1.4    # collision    (distance to obstacle)
+wi: 2.0    # desired velocity intent
+wh: 2.0    # fixed-altitude flight stability (world-frame endpoint z/vz/az)
+
+# Dataset: one steerable Looper Robotics Insight 9 depth image. The sensor
+# publishes nominal 544x640 Z16; simulation renders directly at 160x192 and
+# real inference resizes to 160x192 while retaining the full optical field of
+# view. This is a small (~1.96%) aspect-ratio stretch, not letterboxing.
+dataset_path: ../dataset_chicane_active_100ep
+image_height: 192
+image_width: 160
+# A/B treatment switch.  Both modes keep exactly the same 11-D state,
+# 12-D policy head and camera-loss weights; fixed mode uses zero camera labels.
+active_camera: true
+# Versioned preprocessing contract shared by dataset metadata, training,
+# simulation inference and real Insight 9 inference.
+depth_preprocess: resize_nearest_full_fov_v1
+insight9_native_height: 640
+insight9_native_width: 544
+insight9_horizontal_fov_deg: 96.8
+insight9_vertical_fov_deg: 115.6
+insight9_diagonal_fov_deg: 157.2
+insight9_min_depth_m: 0.19
+insight9_max_depth_m: 30.0
+insight9_train_max_depth_m: 20.0
+insight9_depth_fps: 15
+
+# Two-axis gimbal model, matched to the active-camera reference project.
+camera_pitch_limit_deg: 60.0
+camera_yaw_limit_deg: 45.0
+camera_servo_tau_s: 0.25
+camera_servo_max_rate_deg_s: 120.0
+camera_gaze_lookahead_m: 4.0
+
+# Active-perception topology/Transformer params
+omni_topology_num: 8
+omni_d_model: 128
+omni_num_heads: 4
+omni_decoder_layers: 2
+omni_ffn_dim: 512
+omni_dropout: 0.1
+omni_radius_min: 1.0
+omni_radius_max: 9.0
+omni_pitch_max_deg: 35.0
+omni_guide_points: 32
+omni_loss_eval_points: 30
+omni_intent_min_progress: 1.2
+omni_vdes_speed_min: 3.0
+omni_vdes_speed_max: 6.0
+omni_vel_noise_std: 0.4
+omni_acc_noise_std: 0.45
+omni_num_workers: 4
+omni_depth_cache_size: 64
+omni_amp: true
+omni_max_grad_norm: 1.0
+
+# Camera imitation and smooth motion weights.
+w_camera: 2.0
+w_camera_smooth: 0.15
+
+# Dijkstra guide is always generated in dataset, but this loss can be disabled.
+use_guidance_loss: true
+w_guide_path: 1.0
+w_explore: 0.3
+omni_explore_beta: 16.0
+w_score: 1.0
+w_rank: 0.0
+omni_rank_margin: 0.1
+omni_rank_min_gap: 0.2
+
+# trajectory and primitive param (Note: traj_time = 2 * radio / vel_max) (can be visualized in rviz)
+horizon_num: 5
+vertical_num: 3
+horizon_camera_fov: 90.0
+vertical_camera_fov: 60.0
+horizon_anchor_fov: 30.0
+vertical_anchor_fov: 30.0
+radio_range: 5.0    # planning horizon: 2 * radio_range
+sgm_time: 1.4       # default glook_exp_mid trajectory time
+radio_num: 1        # only support 1 currently
+
+# safety penalties
+d0: 1.2
+r: 0.6
+
+# distribution for unit state sampling (can be visualized by 'python ./policy/yopo_dataset.py')
+vx_mean_unit: 0.4
+vy_mean_unit: 0.0
+vz_mean_unit: 0.0
+vx_std_unit: 2.0
+vy_std_unit: 0.45
+vz_std_unit: 0.3
+ax_mean_unit: 0.0
+ay_mean_unit: 0.0
+az_mean_unit: 0.0
+ax_std_unit: 0.5
+ay_std_unit: 0.5
+az_std_unit: 0.3
+goal_pitch_std: 10.0  # clip goal_length to: 2 * radio_range; 10% probability [0, 2 * radio_range]
+goal_yaw_std: 20.0
+
+# extend the map to avoid trajectory exceeding bounds (especially in z-axis) and treating the sky outside the map as obstacle
+map_expand_min: [0, 0, 0.2]
+map_expand_max: [0, 0, 6.0]
+train: true
+goal_length: 10.0
+traj_num: 15
+seed: 0
+train_epoch: 100
+batch_size: 16
+learning_rate: 0.00015
+checkpoint_init: ''
+device: cuda
+amp_enabled: true
+output_dir: /workspace/YOPO/YOPO/saved/active_camera_chicane_100ep_seed0
+dataset_metadata:
+  schema_version: 1
+  active_camera: true
+  image_width: 160
+  image_height: 192
+  max_depth_m: 20
+  depth_preprocess: resize_nearest_full_fov_v1
+  sensor_model: looper_insight_9
+  maze_type: 8
+  seed: 3
+  env_num: 10
+  image_num: 10000
+  direction_num: 8
+  schema:
+    pose_file_pattern: pose-{env}.csv
+    pose_columns:
+    - px
+    - py
+    - pz
+    - qw
+    - qx
+    - qy
+    - qz
+    sample_file_pattern: samples-{env}.csv
+    sample_columns:
+    - sample_id
+    - pose_id
+    - dir_idx
+    - px
+    - py
+    - pz
+    - qw
+    - qx
+    - qy
+    - qz
+    - vdes_bx
+    - vdes_by
+    - vdes_bz
+    - goal_wx
+    - goal_wy
+    - goal_wz
+    - guide_offset
+    - guide_len
+    - guide_mask
+    - guide_cost
+    - selected_topology
+    - camera_pitch
+    - camera_yaw
+    - camera_target_pitch
+    - camera_target_yaw
+    guide_file_pattern: guides-{env}.csv
+    guide_columns:
+    - sample_id
+    - point_idx
+    - x
+    - y
+    - z
+    image_file_pattern: '{env}/img_{pose_id}_depth.png'
+    angles_unit: radian
+    depth_storage: uint16_png
+  sensor:
+    model: looper_insight_9
+    native_width: 544
+    native_height: 640
+    network_width: 160
+    network_height: 192
+    horizontal_fov_deg: 96.8
+    vertical_fov_deg: 115.6
+    min_depth_m: 0.19
+    max_depth_m: 20
+    depth_accuracy_ratio: 0.02
+    mount_xyz_m:
+    - 0.1
+    - 0
+    - 0.03
+    pitch_limit_deg: 60
+    yaw_limit_deg: 45
+    servo_tau_s: 0.25
+    servo_max_rate_deg_s: 120
+  preprocess:
+    version: resize_nearest_full_fov_v1
+    generator_input: direct_network_resolution_raycast
+    real_sensor_resize: nearest
+    preserve_full_fov: true
+    depth_before_encoding: clamp_meters_then_round_to_millimeter
+    png_encoding: round(depth_m / max_depth_m * 65535)
+  dataset:
+    environment_count: 10
+    images_per_environment: 10000
+    directions_per_image: 8
+    samples_per_environment: 80000
+    x_range_m:
+    - -20
+    - 20
+    y_range_m:
+    - -20
+    - 20
+    z_range_m:
+    - 0.5
+    - 4
+    roll_range_deg:
+    - -30
+    - 30
+    pitch_range_deg:
+    - -30
+    - 30
+    yaw_range_deg:
+    - 0
+    - 360
+    safe_dist_m: 0.5
+    camera_pitch_range_deg:
+    - -60
+    - 60
+    camera_yaw_range_deg:
+    - -45
+    - 45
+    xy_sampling: main_route_uniform_arc_length_plus_cross_track
+    cross_track_half_width_m: 1.35
+    sampling_component: benchmark_start_goal_corridor
+  map:
+    name: active_perception_chicane
+    maze_type: 8
+    base_seed: 3
+    seed_rule: base_seed + environment_index
+    x_length_m: 60
+    y_length_m: 60
+    z_length_m: 15
+    resolution_m: 0.1
+    benchmark_start_xyz_m:
+    - -20
+    - 0
+    - 2
+    benchmark_goal_xyz_m:
+    - 20
+    - 0
+    - 2
+    recommended_train_seeds: 3..12
+    recommended_evaluation_seeds: 101..105
+    corridor_width_m: 4
+    wall_height_m: 5
+    wall_thickness_m: 0.3
+    lateral_offset_m: 6
+    branch_length_m: 6
+    jitter_m: 0.25
+    ceiling: true
+  guidance:
+    goal_length_m: 10
+    goal_search_radius_m: 3
+    dijkstra_resolution_m: 0.5
+    dijkstra_inflation_m: 0.5
+    astar_local_radius_m: 16
+    camera_gaze_lookahead_m: 4
+  pairing:
+    control_variable: active_camera
+    structural_rng: independent_from_depth_noise_rng
+    camera_draws_when_inactive: consumed_then_zeroed
+    inactive_camera_columns: all_exact_zero

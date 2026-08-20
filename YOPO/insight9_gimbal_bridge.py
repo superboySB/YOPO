@@ -13,7 +13,7 @@ from threading import Lock
 
 import numpy as np
 import rospy
-from geometry_msgs.msg import Vector3
+from geometry_msgs.msg import Vector3, Vector3Stamped
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64
 
@@ -31,11 +31,15 @@ class Insight9GimbalBridge:
         self.target = np.zeros(2, dtype=np.float64)
         self.actual = np.zeros(2, dtype=np.float64)
         self.feedback_time = rospy.Time(0)
+        self.actual_stamp = rospy.Time(0)
         self.lock = Lock()
 
         self.pitch_pub = rospy.Publisher(args.pitch_topic, Float64, queue_size=1)
         self.yaw_pub = rospy.Publisher(args.yaw_topic, Float64, queue_size=1)
         self.state_pub = rospy.Publisher("/yopo/camera/orientation", Vector3, queue_size=1)
+        self.state_stamped_pub = rospy.Publisher(
+            "/yopo/camera/orientation_stamped", Vector3Stamped, queue_size=1
+        )
         self.command_sub = rospy.Subscriber(
             "/yopo/camera/command", Vector3, self.command_callback, queue_size=1,
             tcp_nodelay=True,
@@ -62,18 +66,34 @@ class Insight9GimbalBridge:
         with self.lock:
             self.actual[:] = [positions[self.pitch_joint], positions[self.yaw_joint]]
             self.feedback_time = rospy.Time.now()
+            self.actual_stamp = (
+                message.header.stamp
+                if message.header.stamp.to_sec() > 0.0
+                else self.feedback_time
+            )
 
     def update(self, _event):
         with self.lock:
             max_step = self.max_rate * self.dt
-            if (rospy.Time.now() - self.feedback_time).to_sec() > 0.25:
+            now = rospy.Time.now()
+            if (now - self.feedback_time).to_sec() > 0.25:
                 first_order_step = (self.target - self.actual) * self.dt / self.servo_tau
                 self.actual += np.clip(first_order_step, -max_step, max_step)
+                self.actual_stamp = now
             pitch, yaw = self.actual.copy()
             pitch_command, yaw_command = self.target.copy()
+            actual_stamp = self.actual_stamp if self.actual_stamp.to_sec() > 0.0 else now
         self.pitch_pub.publish(Float64(data=float(pitch_command)))
         self.yaw_pub.publish(Float64(data=float(yaw_command)))
-        self.state_pub.publish(Vector3(x=float(pitch), y=float(yaw), z=0.0))
+        state = Vector3(x=float(pitch), y=float(yaw), z=0.0)
+        stamped_state = Vector3Stamped()
+        stamped_state.header.stamp = actual_stamp
+        stamped_state.header.frame_id = "insight9_optical_frame"
+        stamped_state.vector = state
+        self.state_stamped_pub.publish(stamped_state)
+        # Keep the historical headerless topic for existing visualization and
+        # board integrations.  Active inference consumes only the stamped one.
+        self.state_pub.publish(state)
 
 
 def parse_args():

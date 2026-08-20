@@ -20,6 +20,7 @@ RVIZ_SOFTWARE_GL="0"
 RVIZ_OPENGL="210"
 FIXED_YAW="0"
 FIXED_YAW_VALUE=""
+ACTIVE_CAMERA="true"
 
 usage() {
   cat <<EOF
@@ -37,6 +38,7 @@ Options:
   --radius-max VALUE  Override omni_radius_max for checkpoint-consistent decoding.
   --radio-range VALUE Override radio_range and recompute sgm_time unless --sgm-time is also set.
   --sgm-time VALUE    Override trajectory segment time. Must match training for fair tests.
+  --active-camera B   Enable active camera (true) or force fixed zero view (false).
   --fixed-yaw         Keep yaw fixed instead of turning toward the goal.
   --fixed-yaw-value R Fixed yaw in radians. If omitted with --fixed-yaw, lock to initial odometry yaw.
   --no-rviz           Do not start RViz.
@@ -91,6 +93,18 @@ while [[ $# -gt 0 ]]; do
       ;;
     --sgm-time)
       SGM_TIME="$2"
+      shift 2
+      ;;
+    --active-camera)
+      case "$2" in
+        true|false)
+          ACTIVE_CAMERA="$2"
+          ;;
+        *)
+          echo "--active-camera expects true or false, got: $2" >&2
+          exit 2
+          ;;
+      esac
       shift 2
       ;;
     --fixed-yaw)
@@ -164,8 +178,8 @@ YOPO_PYTHONPATH="/opt/ros/noetic/lib/python3/dist-packages:${ROOT_DIR}/Controlle
 
 ROSCORE_CMD="${ROS_SETUP} && roscore"
 CTRL_CMD="cd ${ROOT_DIR}/Controller && ${ROS_SETUP} && ${CTRL_SETUP} && roslaunch so3_quadrotor_simulator simulator_attitude_control.launch"
-SIM_CMD="cd ${ROOT_DIR}/Simulator && ${ROS_SETUP} && ${SIM_SETUP} && rosrun sensor_simulator sensor_simulator_cuda"
-PLANNER_CMD="cd ${ROOT_DIR} && ${ROS_SETUP} && ${CTRL_SETUP} && ${SIM_SETUP} && PYTHONPATH=${YOPO_PYTHONPATH} CUDA_VISIBLE_DEVICES=${GPU_ID} ${PYTHON_BIN} YOPO/test_yopo_ros.py --weight ${WEIGHT} --velocity ${VELOCITY} --max-depth ${MAX_DEPTH} --arrive-dist ${ARRIVE_DIST} --goal-height ${GOAL_HEIGHT} --visualize ${VISUALIZE}"
+SIM_CMD="cd ${ROOT_DIR}/Simulator && ${ROS_SETUP} && ${SIM_SETUP} && rosrun sensor_simulator sensor_simulator_cuda _active_camera:=${ACTIVE_CAMERA}"
+PLANNER_CMD="cd ${ROOT_DIR} && ${ROS_SETUP} && ${CTRL_SETUP} && ${SIM_SETUP} && PYTHONPATH=${YOPO_PYTHONPATH} CUDA_VISIBLE_DEVICES=${GPU_ID} ${PYTHON_BIN} YOPO/test_yopo_ros.py --weight ${WEIGHT} --velocity ${VELOCITY} --max-depth ${MAX_DEPTH} --arrive-dist ${ARRIVE_DIST} --goal-height ${GOAL_HEIGHT} --visualize ${VISUALIZE} --active-camera ${ACTIVE_CAMERA}"
 if [[ -n "${RADIUS_MIN}" ]]; then
   PLANNER_CMD="${PLANNER_CMD} --radius-min ${RADIUS_MIN}"
 fi
@@ -212,6 +226,9 @@ Stop all:
 
 Planner checkpoint:
   ${WEIGHT}
+
+Camera A/B mode:
+  active_camera=${ACTIVE_CAMERA}
 
 Insight 9 topics:
   /depth_image

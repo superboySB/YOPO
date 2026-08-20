@@ -1,0 +1,42 @@
+{
+  "ok": true,
+  "schema": "yopo.active-camera-ablation.v1",
+  "manifest_hash": "e49a3b2c5d1a999cc19a9258908e5be9cab6ed2702b13e0ff3b8e4c7e66f0046",
+  "evaluation_seeds": [
+    501,
+    502,
+    503,
+    504,
+    505,
+    506,
+    507,
+    508,
+    509,
+    510
+  ],
+  "pair_count": 10,
+  "errors": [],
+  "warnings": [],
+  "result_checks": {
+    "runs_in_summary": 20,
+    "complete_pairs": 10,
+    "fixed_camera_contract_checked": 10,
+    "active_camera_contract_checked": 10,
+    "camera_sync_contract_checked": 20
+  },
+  "training_manifest_differences": [],
+  "training_checkpoint_bindings": {
+    "active": {
+      "checkpoint_name": "epoch100.pth",
+      "checkpoint_sha256": "bb59d23ad76e0ba165553f517d1ea05acec0753b256bf5f7d3011c790c638439",
+      "epoch": 100,
+      "training_manifest_sha256": "e36c28ea3dc78f61e7705b83b7254c88588a78e1ad53d781c6487f7bc198452b"
+    },
+    "fixed": {
+      "checkpoint_name": "epoch100.pth",
+      "checkpoint_sha256": "6e970cb69c4d8b45e23470205caff5ba1c920651f7bbc408f8962a2f21293afb",
+      "epoch": 100,
+      "training_manifest_sha256": "dc712f84c302a9d4489ee512a99e43ccc5ddd7259225ff546b949bc023cfd506"
+    }
+  }
+}

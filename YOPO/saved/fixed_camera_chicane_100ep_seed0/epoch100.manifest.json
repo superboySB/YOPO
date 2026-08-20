@@ -1,0 +1,17 @@
+{
+  "active_camera": false,
+  "camera_mode": "fixed",
+  "checkpoint": {
+    "epoch": 100,
+    "metrics_sha256": "320cf585bab5ee8c1c3ecf6edb3fe3e20e1cc216dc08e5c7e146e65ced931ac6",
+    "path": "epoch100.pth",
+    "sha256": "6e970cb69c4d8b45e23470205caff5ba1c920651f7bbc408f8962a2f21293afb"
+  },
+  "resolved_config": "resolved_config.yaml",
+  "resolved_config_sha256": "b62ab8af618e45ef6a1e97674ede840a4489791929b3edbe0f3ff19e72b2f939",
+  "run_training_manifest": "training_manifest.json",
+  "schema": "yopo.checkpoint.v2",
+  "training_manifest": "epoch100.training_manifest.json",
+  "training_manifest_immutable": true,
+  "training_manifest_sha256": "dc712f84c302a9d4489ee512a99e43ccc5ddd7259225ff546b949bc023cfd506"
+}

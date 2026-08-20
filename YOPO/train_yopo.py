@@ -21,13 +21,20 @@ def str2bool(value):
 
 
 def configure_random_seed(seed):
+    os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     random.seed(seed)
     os.environ["PYTHONHASHSEED"] = str(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    # SafetyLoss uses CUDA grid_sampler_3d_backward, for which PyTorch 2.4 has
+    # no deterministic CUDA implementation. Keep every seed/cudnn control and
+    # make that single backend limitation explicit instead of aborting midway.
+    torch.use_deterministic_algorithms(True, warn_only=True)
 
 
 def parser():
@@ -38,6 +45,9 @@ def parser():
     parser.add_argument("--epoch", type=int, default=50, help="epoch of pre-trained model")
     parser.add_argument("--train-epoch", type=int, default=50, help="training epochs")
     parser.add_argument("--batch-size", type=int, default=16, help="pose-level batch size")
+    parser.add_argument("--seed", type=int, default=0, help="Random seed for model, data loading and sampling.")
+    parser.add_argument("--active-camera", type=str2bool, default=None,
+                        help="Use active (true) or fixed (false) Insight 9 camera training data.")
     parser.add_argument("--learning-rate", type=float, default=1.5e-4, help="AdamW learning rate.")
     parser.add_argument("--guidance-loss", type=str2bool, default=None,
                         help="Override use_guidance_loss.")
@@ -86,8 +96,10 @@ def parser():
 
 if __name__ == "__main__":
     args = parser().parse_args()
-    configure_random_seed(0)
+    configure_random_seed(args.seed)
 
+    if args.active_camera is not None:
+        cfg["active_camera"] = args.active_camera
     if args.guidance_loss is not None:
         cfg["use_guidance_loss"] = args.guidance_loss
     if args.rank_loss is not None:
@@ -145,10 +157,13 @@ if __name__ == "__main__":
         tensorboard_path=log_dir,
         checkpoint_path=checkpoint_path,
         run_name=args.run_name,
-        save_on_exit=True,
+        save_on_exit=False,
+        seed=args.seed,
+        train_epoch=args.train_epoch,
     )
     try:
         trainer.train(epoch=args.train_epoch, save_interval=10)
     finally:
         trainer.close()
-    print("Run YOPO active-perception training finish!")
+    camera_mode = "active" if bool(cfg["active_camera"]) else "fixed"
+    print(f"Run YOPO {camera_mode}-camera training finish!")

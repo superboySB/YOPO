@@ -1,9 +1,11 @@
 import os
 import sys
+import math
 from collections import OrderedDict
 
 import cv2
 import numpy as np
+from ruamel.yaml import YAML
 from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset
 
@@ -13,12 +15,25 @@ from config.config import cfg
 
 class YOPOOmniDataset(Dataset):
     _DATA_CACHE = {}
+    _METADATA_FILE = "dataset_metadata.yaml"
+    _METADATA_KEYS = (
+        "schema_version",
+        "active_camera",
+        "image_width",
+        "image_height",
+        "max_depth_m",
+        "depth_preprocess",
+        "sensor_model",
+    )
 
     def __init__(self, mode="train", val_ratio=0.1, pose_level=False):
         super().__init__()
         self.pose_level = pose_level
         self.height = int(cfg["image_height"])
         self.width = int(cfg["image_width"])
+        self.active_camera = bool(cfg["active_camera"])
+        self.max_depth_m = float(cfg["insight9_train_max_depth_m"])
+        self.depth_preprocess = str(cfg["depth_preprocess"])
         self.guide_points = int(cfg["omni_guide_points"])
         self.vel_max = float(cfg["vel_max_train"])
         self.acc_max = float(cfg["acc_max_train"])
@@ -31,9 +46,11 @@ class YOPOOmniDataset(Dataset):
 
         base_dir = os.path.dirname(os.path.abspath(__file__))
         self.data_dir = os.path.abspath(os.path.join(base_dir, "../", cfg["dataset_path"]))
+        self.metadata = self._load_and_validate_metadata(self.data_dir)
         cache = self._load_or_get_cache(self.data_dir)
         self.arrays = cache["arrays"]
         self.guides = cache["guides"]
+        self._validate_camera_labels()
 
         group_key = self.arrays["map_id"].astype(np.int64) * 1_000_000_000 + self.arrays["pose_id"].astype(np.int64)
         unique_keys, group_starts, group_counts = np.unique(group_key, return_index=True, return_counts=True)
@@ -56,12 +73,85 @@ class YOPOOmniDataset(Dataset):
 
         unit_name = "Poses" if self.pose_level else "Samples"
         unit_count = len(self.indices)
-        print(f"=============== YOPO Active {mode.capitalize()} Data Summary ===============")
+        camera_mode = "active" if self.active_camera else "fixed"
+        print(f"=============== YOPO {camera_mode.capitalize()} {mode.capitalize()} Data Summary ===============")
         print(f"{unit_name:<12} | Count: {unit_count:<6} | Insight 9: 1 | Shape: {self.width},{self.height}")
         if self.pose_level:
             print(f"{'Directions':<12} | Per pose: {self.direction_num:<3} | Effective samples: {unit_count * self.direction_num}")
         print(f"{'Guides':<12} | Points/sample: {self.guide_points:<3} | Depth cache: {self.depth_cache_size}")
+        print(f"{'Preprocess':<12} | {self.depth_preprocess} | Max depth: {self.max_depth_m:g} m")
         print("==================================================")
+
+    def _load_and_validate_metadata(self, data_dir):
+        success_path = os.path.join(data_dir, "_SUCCESS")
+        if not os.path.isfile(success_path):
+            raise FileNotFoundError(
+                f"Dataset is incomplete (missing completion marker): {success_path}"
+            )
+        metadata_path = os.path.join(data_dir, self._METADATA_FILE)
+        if not os.path.isfile(metadata_path):
+            raise FileNotFoundError(
+                f"Missing required dataset metadata: {metadata_path}. "
+                "Regenerate the dataset with the active-camera-aware generator."
+            )
+
+        with open(metadata_path, "r", encoding="utf-8") as stream:
+            metadata = YAML(typ="safe").load(stream)
+        if not isinstance(metadata, dict):
+            raise ValueError(f"Dataset metadata must be a YAML mapping: {metadata_path}")
+
+        missing = [key for key in self._METADATA_KEYS if key not in metadata]
+        if missing:
+            raise ValueError(f"Dataset metadata {metadata_path} is missing required keys: {missing}")
+        if not isinstance(metadata["active_camera"], bool):
+            raise ValueError(
+                f"dataset_metadata.active_camera must be a YAML boolean, got "
+                f"{metadata['active_camera']!r}"
+            )
+
+        expected = {
+            "schema_version": 1,
+            "active_camera": self.active_camera,
+            "image_width": self.width,
+            "image_height": self.height,
+            "max_depth_m": self.max_depth_m,
+            "depth_preprocess": self.depth_preprocess,
+            "sensor_model": "looper_insight_9",
+        }
+        mismatches = []
+        for key, expected_value in expected.items():
+            actual_value = metadata[key]
+            if key == "max_depth_m":
+                try:
+                    matches = math.isclose(float(actual_value), expected_value, rel_tol=0.0, abs_tol=1e-6)
+                except (TypeError, ValueError):
+                    matches = False
+            elif key in ("schema_version", "image_width", "image_height"):
+                matches = isinstance(actual_value, int) and not isinstance(actual_value, bool) and actual_value == expected_value
+            else:
+                matches = actual_value == expected_value
+            if not matches:
+                mismatches.append(f"{key}: dataset={actual_value!r}, config={expected_value!r}")
+        if mismatches:
+            raise ValueError(
+                "Dataset/config contract mismatch in " + metadata_path + ": " + "; ".join(mismatches)
+            )
+        return metadata
+
+    def _validate_camera_labels(self):
+        for name in ("camera_orientation", "camera_target"):
+            if not np.all(np.isfinite(self.arrays[name])):
+                raise ValueError(f"Dataset contains non-finite {name} labels")
+        if self.active_camera:
+            return
+        orientation_max = float(np.max(np.abs(self.arrays["camera_orientation"]), initial=0.0))
+        target_max = float(np.max(np.abs(self.arrays["camera_target"]), initial=0.0))
+        tolerance = 1e-6
+        if orientation_max > tolerance or target_max > tolerance:
+            raise ValueError(
+                "Fixed-camera dataset must contain zero camera orientation/target labels, "
+                f"got max |orientation|={orientation_max:.3g}, max |target|={target_max:.3g}"
+            )
 
     @classmethod
     def _load_or_get_cache(cls, data_dir):
@@ -197,11 +287,12 @@ class YOPOOmniDataset(Dataset):
         pos = self.arrays["pos"][idx]
         rot_wb = self.arrays["rot_wb"][idx]
 
-        speed = np.random.uniform(self.vdes_min, self.vdes_max)
+        rng = np.random if self.shuffle_each_epoch else np.random.default_rng(int(self.indices[item]))
+        speed = rng.uniform(self.vdes_min, self.vdes_max)
         vdes_b = speed * self.arrays["vdes_unit"][idx]
-        vel_b = np.clip(vdes_b + np.random.randn(3).astype(np.float32) * self.vel_noise_std,
+        vel_b = np.clip(vdes_b + rng.normal(size=3).astype(np.float32) * self.vel_noise_std,
                         -self.vel_max, self.vel_max)
-        acc_b = np.clip(np.random.randn(3).astype(np.float32) * self.acc_noise_std,
+        acc_b = np.clip(rng.normal(size=3).astype(np.float32) * self.acc_noise_std,
                         -self.acc_max, self.acc_max)
         camera_orientation = self.arrays["camera_orientation"][idx]
         camera_target = self.arrays["camera_target"][idx]
@@ -248,11 +339,12 @@ class YOPOOmniDataset(Dataset):
         pos = self.arrays["pos"][idxs[0]]
         rot_wb = self.arrays["rot_wb"][idxs[0]]
 
-        speed = np.random.uniform(self.vdes_min, self.vdes_max, size=(count, 1)).astype(np.float32)
+        rng = np.random if self.shuffle_each_epoch else np.random.default_rng(key & 0xFFFFFFFF)
+        speed = rng.uniform(self.vdes_min, self.vdes_max, size=(count, 1)).astype(np.float32)
         vdes_b = speed * self.arrays["vdes_unit"][idxs]
-        vel_b = np.clip(vdes_b + np.random.randn(count, 3).astype(np.float32) * self.vel_noise_std,
+        vel_b = np.clip(vdes_b + rng.normal(size=(count, 3)).astype(np.float32) * self.vel_noise_std,
                         -self.vel_max, self.vel_max)
-        acc_b = np.clip(np.random.randn(count, 3).astype(np.float32) * self.acc_noise_std,
+        acc_b = np.clip(rng.normal(size=(count, 3)).astype(np.float32) * self.acc_noise_std,
                         -self.acc_max, self.acc_max)
         camera_orientation = self.arrays["camera_orientation"][idxs]
         camera_target = self.arrays["camera_target"][idxs]
@@ -288,8 +380,13 @@ class YOPOOmniDataset(Dataset):
         image = cv2.imread(image_path, -1)
         if image is None:
             raise FileNotFoundError(f"Missing Insight 9 depth image: {image_path}")
+        if image.dtype != np.uint16 or image.ndim != 2:
+            raise ValueError(
+                f"Insight 9 depth PNG must be single-channel uint16, got "
+                f"shape={image.shape}, dtype={image.dtype}: {image_path}"
+            )
         if image.shape[0] != self.height or image.shape[1] != self.width:
-            image = cv2.resize(image, (self.width, self.height), interpolation=cv2.INTER_AREA)
+            image = cv2.resize(image, (self.width, self.height), interpolation=cv2.INTER_NEAREST)
         depth = (image.astype(np.float32) / 65535.0)[None, ...]
         if self.depth_cache_size > 0:
             self.depth_cache[key] = depth

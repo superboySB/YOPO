@@ -1,6 +1,11 @@
 import argparse
+import hashlib
+import json
+import math
 import os
 import time
+from collections import deque
+from pathlib import Path
 from threading import Lock
 
 import cv2
@@ -8,12 +13,13 @@ import numpy as np
 import rospy
 import std_msgs.msg
 import torch
-from geometry_msgs.msg import PoseStamped, Vector3
+from geometry_msgs.msg import PoseStamped, Vector3, Vector3Stamped
 from nav_msgs.msg import Odometry
 from scipy.spatial.transform import Rotation as R
 from sensor_msgs import point_cloud2
 from sensor_msgs.msg import Image, PointCloud2, PointField
 from visualization_msgs.msg import Marker, MarkerArray
+from ruamel.yaml import YAML
 
 from config.config import cfg
 from control_msg import PositionCommand
@@ -21,7 +27,19 @@ from policy.poly_solver import Poly5Solver, Polys5Solver, calculate_yaw
 from policy.yopo_network import YOPOOmniNetwork
 
 
+def str2bool(value):
+    if isinstance(value, bool):
+        return value
+    lowered = value.lower()
+    if lowered in ("1", "true", "yes", "y", "on"):
+        return True
+    if lowered in ("0", "false", "no", "n", "off"):
+        return False
+    raise argparse.ArgumentTypeError(f"Invalid boolean value: {value}")
+
+
 def apply_runtime_overrides(args):
+    cfg["active_camera"] = bool(args.active_camera)
     if args.radius_min is not None:
         cfg["omni_radius_min"] = args.radius_min
     if args.radius_max is not None:
@@ -34,6 +52,82 @@ def apply_runtime_overrides(args):
         cfg["sgm_time"] = args.sgm_time
 
 
+def validate_checkpoint_contract(weight, active_camera, max_depth):
+    """Reject accidental active/fixed or preprocessing checkpoint swaps."""
+    checkpoint = Path(weight).resolve()
+    sidecar_path = checkpoint.with_suffix(".manifest.json")
+    if sidecar_path.is_file():
+        sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
+        digest = hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+        if digest != sidecar.get("checkpoint", {}).get("sha256"):
+            raise ValueError(f"Checkpoint SHA does not match {sidecar_path}")
+        manifest_path = checkpoint.parent / sidecar.get("training_manifest", "")
+        if not manifest_path.is_file():
+            raise ValueError(f"Missing checkpoint-bound training manifest: {manifest_path}")
+        manifest_digest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+        if manifest_digest != sidecar.get("training_manifest_sha256"):
+            raise ValueError(f"Training manifest SHA does not match {sidecar_path}")
+        training_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        checkpoint_epoch = int(sidecar.get("checkpoint", {}).get("epoch") or 0)
+        if int(training_manifest.get("optimization", {}).get("completed_epochs") or 0) < checkpoint_epoch:
+            raise ValueError(f"Checkpoint was saved before its epoch completed: {sidecar_path}")
+        if bool(sidecar.get("active_camera")) != bool(active_camera):
+            raise ValueError(
+                f"Checkpoint camera treatment mismatch: sidecar={sidecar.get('active_camera')}, "
+                f"runtime={bool(active_camera)}"
+            )
+        print(f"Checkpoint hash binding: {sidecar_path} (validated)")
+    else:
+        print(f"WARNING: checkpoint has no hash-binding sidecar {sidecar_path.name}")
+
+    resolved_path = checkpoint.parent / "resolved_config.yaml"
+    if not resolved_path.is_file():
+        print(
+            f"WARNING: checkpoint has no {resolved_path.name}; camera/preprocess mode cannot be audited "
+            "(legacy checkpoint compatibility mode)."
+        )
+        return None
+
+    with resolved_path.open("r", encoding="utf-8") as stream:
+        resolved = YAML(typ="safe").load(stream)
+    if not isinstance(resolved, dict):
+        raise ValueError(f"Checkpoint resolved config must be a YAML mapping: {resolved_path}")
+
+    required = (
+        "active_camera",
+        "image_width",
+        "image_height",
+        "insight9_train_max_depth_m",
+        "depth_preprocess",
+    )
+    missing = [key for key in required if key not in resolved]
+    if missing:
+        raise ValueError(f"Checkpoint resolved config {resolved_path} is missing keys: {missing}")
+    expected = {
+        "active_camera": bool(active_camera),
+        "image_width": int(cfg["image_width"]),
+        "image_height": int(cfg["image_height"]),
+        "insight9_train_max_depth_m": float(max_depth),
+        "depth_preprocess": str(cfg["depth_preprocess"]),
+    }
+    mismatches = []
+    for key, expected_value in expected.items():
+        actual_value = resolved[key]
+        if key == "insight9_train_max_depth_m":
+            try:
+                matches = math.isclose(float(actual_value), expected_value, rel_tol=0.0, abs_tol=1e-6)
+            except (TypeError, ValueError):
+                matches = False
+        else:
+            matches = actual_value == expected_value
+        if not matches:
+            mismatches.append(f"{key}: checkpoint={actual_value!r}, runtime={expected_value!r}")
+    if mismatches:
+        raise ValueError("Checkpoint/runtime contract mismatch: " + "; ".join(mismatches))
+    print(f"Checkpoint contract: {resolved_path} (validated)")
+    return resolved
+
+
 class YopoActiveNet:
     def __init__(self, settings, weight):
         rospy.init_node("yopo_net", anonymous=False)
@@ -44,6 +138,8 @@ class YopoActiveNet:
         self.height = int(cfg["image_height"])
         self.width = int(cfg["image_width"])
         self.max_depth = float(settings["max_depth"])
+        self.active_camera = bool(settings["active_camera"])
+        self.depth_preprocess = str(cfg["depth_preprocess"])
         self.velocity = float(settings["velocity"])
         self.traj_time = float(cfg["sgm_time"])
         self.ctrl_dt = float(settings["ctrl_dt"])
@@ -58,7 +154,11 @@ class YopoActiveNet:
         self.camera_orientation = np.zeros(2, dtype=np.float32)
         self.camera_target = np.zeros(2, dtype=np.float32)
         self.camera_mount = np.asarray([0.10, 0.0, 0.03], dtype=np.float32)
+        self.camera_state_stamped_topic = str(settings["camera_state_stamped_topic"])
+        self.camera_sync_queue_size = int(settings["camera_sync_queue_size"])
+        self.camera_sync_slop_s = float(settings["camera_sync_slop_s"])
 
+        validate_checkpoint_contract(weight, self.active_camera, self.max_depth)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.policy = YOPOOmniNetwork().to(self.device)
         state_dict = torch.load(weight, map_location=self.device, weights_only=True)
@@ -81,6 +181,19 @@ class YopoActiveNet:
         self.optimal_poly_z = None
         self.last_control_msg = None
         self.lock = Lock()
+        self.sync_lock = Lock()
+        self.inference_lock = Lock()
+        self.sync_depth_queue = deque()
+        self.sync_camera_queue = deque()
+        self.sync_stats = {
+            "depth_received": 0,
+            "camera_received": 0,
+            "matched": 0,
+            "depth_dropped": 0,
+            "camera_dropped": 0,
+            "invalid_stamp": 0,
+            "max_stamp_error_s": 0.0,
+        }
 
         self.time_forward = 0.0
         self.time_process = 0.0
@@ -94,23 +207,52 @@ class YopoActiveNet:
         self.all_trajs_pub = rospy.Publisher("/yopo/trajs_visual", PointCloud2, queue_size=1)
         self.speed_text_pub = rospy.Publisher("/yopo/speed_text_visual", Marker, queue_size=1)
         self.active_camera_pub = rospy.Publisher("/yopo/active_camera_visual", MarkerArray, queue_size=1)
-        self.camera_command_pub = rospy.Publisher("/yopo/camera/command", Vector3, queue_size=1)
+        self.camera_command_pub = rospy.Publisher("/yopo/camera/command", Vector3, queue_size=1, latch=True)
         self.ctrl_pub = rospy.Publisher(settings["ctrl_topic"], PositionCommand, queue_size=1)
 
         self.odom_sub = rospy.Subscriber(settings["odom_topic"], Odometry, self.callback_odometry, queue_size=1, tcp_nodelay=True)
-        self.depth_sub = rospy.Subscriber(
-            settings["depth_topic"], Image, self.callback_depth, queue_size=1, tcp_nodelay=True
-        )
-        self.camera_state_sub = rospy.Subscriber(
-            "/yopo/camera/orientation", Vector3, self.callback_camera_state, queue_size=1,
-            tcp_nodelay=True,
-        )
+        if self.active_camera:
+            # The active policy never reads a mutable "latest camera state".
+            # Each inference receives a bounded-queue match carrying its own
+            # depth and gimbal timestamps; unmatched messages are dropped and
+            # reported explicitly.
+            self.depth_sub = rospy.Subscriber(
+                settings["depth_topic"], Image, self.callback_depth_for_sync,
+                queue_size=self.camera_sync_queue_size, tcp_nodelay=True,
+            )
+            self.camera_state_sub = rospy.Subscriber(
+                self.camera_state_stamped_topic, Vector3Stamped,
+                self.callback_camera_state_for_sync,
+                queue_size=self.camera_sync_queue_size, tcp_nodelay=True,
+            )
+            rospy.on_shutdown(self.report_camera_sync_stats)
+        else:
+            self.depth_sub = rospy.Subscriber(
+                settings["depth_topic"], Image, self.callback_depth_fixed,
+                queue_size=1, tcp_nodelay=True,
+            )
+            self.camera_state_sub = None
         self.goal_sub = rospy.Subscriber("/move_base_simple/goal", PoseStamped, self.callback_set_goal, queue_size=1)
         self.timer_ctrl = rospy.Timer(rospy.Duration(self.ctrl_dt), self.control_pub)
+        if not self.active_camera:
+            self.camera_command_pub.publish(Vector3(x=0.0, y=0.0, z=0.0))
 
-        print("YOPO active-perception node ready!")
+        camera_mode = "active" if self.active_camera else "fixed"
+        print(f"YOPO {camera_mode}-camera node ready!")
         print("Waiting for /move_base_simple/goal; the UAV will hold after takeoff until a target is received.")
         print("Insight 9 depth topic:", settings["depth_topic"])
+        print(
+            f"Camera A/B mode: {camera_mode}; preprocess={self.depth_preprocess}; "
+            f"network input={self.height}x{self.width} (HxW)"
+        )
+        if self.active_camera:
+            print(
+                "Depth/camera sync: "
+                f"topic={self.camera_state_stamped_topic}, "
+                f"queue={self.camera_sync_queue_size}, slop={self.camera_sync_slop_s:.3f}s"
+            )
+        else:
+            print("Depth/camera sync: fixed mode injects exact [0, 0] camera state")
         print("load weight from:", weight)
         print(
             "Runtime decode:",
@@ -127,14 +269,138 @@ class YopoActiveNet:
             self.policy(depth, state)
 
     def callback_set_goal(self, data):
-        z = self.goal[2] if len(self.goal) >= 3 else 2.0
+        z = float(data.pose.position.z)
+        if not np.isfinite(z):
+            z = self.goal[2] if len(self.goal) >= 3 else 2.0
         self.goal = np.asarray([data.pose.position.x, data.pose.position.y, z], dtype=np.float32)
         self.goal_init = True
         self.arrive = False
         print(f"New Goal: ({self.goal[0]:.1f}, {self.goal[1]:.1f}, {self.goal[2]:.1f})")
 
-    def callback_camera_state(self, data):
-        self.camera_orientation[:] = [data.x, data.y]
+    @staticmethod
+    def message_stamp_s(message):
+        stamp = getattr(getattr(message, "header", None), "stamp", None)
+        return None if stamp is None else float(stamp.to_sec())
+
+    def callback_depth_for_sync(self, message):
+        self.enqueue_camera_sync_message("depth", message)
+
+    def callback_camera_state_for_sync(self, message):
+        self.enqueue_camera_sync_message("camera", message)
+
+    def enqueue_camera_sync_message(self, kind, message):
+        stamp_s = self.message_stamp_s(message)
+        if stamp_s is None or not np.isfinite(stamp_s) or stamp_s <= 0.0:
+            with self.sync_lock:
+                self.sync_stats["invalid_stamp"] += 1
+            rospy.logerr_throttle(
+                2.0, "Dropping %s message with missing/zero/non-finite timestamp", kind
+            )
+            return
+
+        pairs = []
+        dropped_depth = 0
+        dropped_camera = 0
+        with self.sync_lock:
+            if kind == "depth":
+                self.sync_stats["depth_received"] += 1
+                self.sync_depth_queue.append((stamp_s, message))
+                queue = self.sync_depth_queue
+                drop_key = "depth_dropped"
+            elif kind == "camera":
+                self.sync_stats["camera_received"] += 1
+                self.sync_camera_queue.append((stamp_s, message))
+                queue = self.sync_camera_queue
+                drop_key = "camera_dropped"
+            else:
+                raise ValueError(f"Unknown sync message kind: {kind}")
+            # Timestamps normally arrive in order, but sorting makes bag replay
+            # and separate TCPROS connections deterministic as well.
+            ordered = sorted(queue, key=lambda item: item[0])
+            queue.clear()
+            queue.extend(ordered)
+            while len(queue) > self.camera_sync_queue_size:
+                queue.popleft()
+                self.sync_stats[drop_key] += 1
+                if kind == "depth":
+                    dropped_depth += 1
+                else:
+                    dropped_camera += 1
+
+            while self.sync_depth_queue and self.sync_camera_queue:
+                best = None
+                for depth_index, (depth_stamp, _) in enumerate(self.sync_depth_queue):
+                    for camera_index, (camera_stamp, _) in enumerate(self.sync_camera_queue):
+                        error = abs(depth_stamp - camera_stamp)
+                        if best is None or error < best[0]:
+                            best = (error, depth_index, camera_index)
+                if best is not None and best[0] <= self.camera_sync_slop_s:
+                    error, depth_index, camera_index = best
+                    depth_item = self.sync_depth_queue[depth_index]
+                    camera_item = self.sync_camera_queue[camera_index]
+                    del self.sync_depth_queue[depth_index]
+                    del self.sync_camera_queue[camera_index]
+                    self.sync_stats["matched"] += 1
+                    self.sync_stats["max_stamp_error_s"] = max(
+                        self.sync_stats["max_stamp_error_s"], error
+                    )
+                    pairs.append((depth_item[1], camera_item[1], error))
+                    continue
+
+                oldest_depth = self.sync_depth_queue[0][0]
+                newest_depth = self.sync_depth_queue[-1][0]
+                oldest_camera = self.sync_camera_queue[0][0]
+                newest_camera = self.sync_camera_queue[-1][0]
+                if oldest_depth < newest_camera - self.camera_sync_slop_s:
+                    self.sync_depth_queue.popleft()
+                    self.sync_stats["depth_dropped"] += 1
+                    dropped_depth += 1
+                    continue
+                if oldest_camera < newest_depth - self.camera_sync_slop_s:
+                    self.sync_camera_queue.popleft()
+                    self.sync_stats["camera_dropped"] += 1
+                    dropped_camera += 1
+                    continue
+                break
+
+        if dropped_depth or dropped_camera:
+            rospy.logwarn_throttle(
+                2.0,
+                "Depth/camera sync dropped messages (depth=%d, camera=%d); no stale-state fallback",
+                dropped_depth,
+                dropped_camera,
+            )
+        for depth_message, camera_message, stamp_error_s in pairs:
+            camera = camera_message.vector
+            orientation = np.asarray([camera.x, camera.y], dtype=np.float32)
+            if not np.all(np.isfinite(orientation)):
+                rospy.logerr_throttle(2.0, "Dropping synchronized non-finite camera orientation")
+                continue
+            with self.inference_lock:
+                self.camera_orientation[:] = orientation
+                self.callback_depth(depth_message, orientation, stamp_error_s)
+
+    def callback_depth_fixed(self, message):
+        orientation = np.zeros(2, dtype=np.float32)
+        with self.inference_lock:
+            self.camera_orientation.fill(0.0)
+            self.callback_depth(message, orientation, 0.0)
+
+    def report_camera_sync_stats(self):
+        if not self.active_camera:
+            return
+        with self.sync_lock:
+            stats = dict(self.sync_stats)
+            pending_depth = len(self.sync_depth_queue)
+            pending_camera = len(self.sync_camera_queue)
+        rospy.loginfo(
+            "Depth/camera sync summary: depth=%d camera=%d matched=%d "
+            "dropped_depth=%d dropped_camera=%d pending_depth=%d pending_camera=%d "
+            "invalid_stamp=%d max_stamp_error=%.6fs",
+            stats["depth_received"], stats["camera_received"], stats["matched"],
+            stats["depth_dropped"], stats["camera_dropped"], pending_depth,
+            pending_camera, stats["invalid_stamp"], stats["max_stamp_error_s"],
+        )
 
     def callback_odometry(self, data):
         self.odom = data
@@ -255,6 +521,7 @@ class YopoActiveNet:
         self.speed_text_pub.publish(marker)
 
     def preprocess_depth(self, data):
+        source_height, source_width = int(data.height), int(data.width)
         if data.encoding == "32FC1":
             # Simulator convention: floating-point metric depth in metres.
             depth = np.frombuffer(data.data, dtype=np.float32).reshape(data.height, data.width)
@@ -269,7 +536,8 @@ class YopoActiveNet:
         else:
             raise ValueError(f"Unsupported depth encoding: {data.encoding}")
 
-        if depth.shape[0] != self.height or depth.shape[1] != self.width:
+        resized = depth.shape[0] != self.height or depth.shape[1] != self.width
+        if resized:
             depth = cv2.resize(depth, (self.width, self.height), interpolation=cv2.INTER_NEAREST)
 
         finite_depth = depth[np.isfinite(depth)]
@@ -282,12 +550,14 @@ class YopoActiveNet:
             print(
                 f"Depth input: encoding={data.encoding}, raw_max={max_value:.3f}, "
                 f"mode={source_unit} / {self.max_depth:g}, "
+                f"resize={source_height}x{source_width}->{self.height}x{self.width} (HxW), "
+                f"resized={resized}, preprocess={self.depth_preprocess}, "
                 f"normalized_range=[{depth_norm.min():.4f}, {depth_norm.max():.4f}]"
             )
             self.depth_unit_logged = True
         return depth_norm[None, ...]
 
-    def process_state(self):
+    def process_state(self, camera_orientation):
         q = self.odom.pose.pose.orientation
         rot_wb = R.from_quat([q.x, q.y, q.z, q.w]).as_matrix().astype(np.float32)
         rot_bw = rot_wb.T
@@ -315,19 +585,27 @@ class YopoActiveNet:
         vel_b = rot_bw @ vel_w
         acc_b = rot_bw @ acc_w
         vdes_b = rot_bw @ vdes_w
-        state_b = np.concatenate([vel_b, acc_b, vdes_b, self.camera_orientation]).astype(np.float32)
+        state_b = np.concatenate([vel_b, acc_b, vdes_b, camera_orientation]).astype(np.float32)
         return state_b, pos_w.astype(np.float32), vel_w.astype(np.float32), acc_w.astype(np.float32), rot_wb
 
     @torch.inference_mode()
-    def callback_depth(self, depth_msg):
+    def callback_depth(self, depth_msg, camera_orientation, stamp_error_s):
         if not self.odom_init or not self.goal_init:
+            return
+        if self.active_camera and stamp_error_s > self.camera_sync_slop_s:
+            rospy.logerr_throttle(
+                2.0,
+                "Rejecting depth/camera pair with %.6fs error above %.6fs slop",
+                stamp_error_s,
+                self.camera_sync_slop_s,
+            )
             return
 
         time0 = time.time()
         depth = self.preprocess_depth(depth_msg).reshape(1, 1, self.height, self.width)
         time1 = time.time()
 
-        state_b, start_pos, start_vel, start_acc, rot_wb = self.process_state()
+        state_b, start_pos, start_vel, start_acc, rot_wb = self.process_state(camera_orientation)
         depth_input = torch.from_numpy(depth).to(self.device, non_blocking=True)
         state_input = torch.from_numpy(state_b[None, :]).to(self.device, non_blocking=True)
         time2 = time.time()
@@ -339,7 +617,10 @@ class YopoActiveNet:
         time3 = time.time()
 
         action_id = int(np.argmin(score))
-        self.camera_target = camera_target.reshape(-1, 2)[action_id]
+        if self.active_camera:
+            self.camera_target = camera_target.reshape(-1, 2)[action_id]
+        else:
+            self.camera_target = np.zeros(2, dtype=np.float32)
         command = Vector3(
             x=float(self.camera_target[0]), y=float(self.camera_target[1]), z=0.0
         )
@@ -470,8 +751,9 @@ class YopoActiveNet:
         self.time_visualize += time5 - time4
         self.count += 1
         if self.verbose or self.count % 30 == 0:
+            camera_mode = "Active" if self.active_camera else "Fixed"
             print(
-                f"YOPO-Active avg ms | depth {1000*self.time_depth/self.count:.2f}, "
+                f"YOPO-{camera_mode} avg ms | depth {1000*self.time_depth/self.count:.2f}, "
                 f"prepare {1000*self.time_prepare/self.count:.2f}, "
                 f"forward {1000*self.time_forward/self.count:.2f}, "
                 f"process {1000*self.time_process/self.count:.2f}, "
@@ -483,16 +765,31 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--weight", default="", help="Path to YOPO active-perception checkpoint.")
     parser.add_argument("--trial", type=int, default=0, help="Trial number under YOPO/saved/YOPO_{trial}.")
-    parser.add_argument("--epoch", type=int, default=30, help="Checkpoint epoch.")
+    parser.add_argument("--epoch", type=int, default=50, help="Checkpoint epoch.")
     parser.add_argument("--velocity", type=float, default=float(cfg["velocity"]), help="Desired speed magnitude.")
     parser.add_argument("--goal-height", type=float, default=2.0,
                         help="Fixed YOPO-Simple target altitude in world coordinates.")
     parser.add_argument("--odom-topic", default="/sim/odom", help="Vehicle odometry topic.")
     parser.add_argument("--depth-topic", default="/depth_image", help="Insight 9 Z16/32FC1 depth topic.")
+    parser.add_argument(
+        "--camera-state-stamped-topic",
+        default="/yopo/camera/orientation_stamped",
+        help="Stamped gimbal state paired with depth in active-camera mode.",
+    )
+    parser.add_argument(
+        "--camera-sync-queue-size", type=int, default=30,
+        help="Bounded depth/gimbal synchronization queue size.",
+    )
+    parser.add_argument(
+        "--camera-sync-slop", type=float, default=0.03,
+        help="Maximum absolute depth/gimbal timestamp difference in seconds.",
+    )
     parser.add_argument("--ctrl-topic", default="/so3_control/pos_cmd",
                         help="quadrotor_msgs/PositionCommand output topic.")
     parser.add_argument("--max-depth", type=float, default=float(cfg["insight9_train_max_depth_m"]),
                         help="Insight 9 depth max range used for normalization.")
+    parser.add_argument("--active-camera", type=str2bool, default=bool(cfg["active_camera"]),
+                        help="Enable predicted camera motion (true) or force a zero fixed view (false).")
     parser.add_argument("--arrive-dist", type=float, default=2.0,
                         help="Braking trigger distance in meters; tuned for the simulator controller at 3 m/s.")
     parser.add_argument("--radius-min", type=float, default=None, help="Override omni_radius_min for checkpoint-consistent decoding.")
@@ -510,7 +807,12 @@ def parse_args():
         default=None,
         help="Fixed yaw in radians. If omitted with --fixed-yaw, lock to the initial odometry yaw.",
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.camera_sync_queue_size < 2:
+        parser.error("--camera-sync-queue-size must be at least 2")
+    if not math.isfinite(args.camera_sync_slop) or args.camera_sync_slop <= 0.0:
+        parser.error("--camera-sync-slop must be finite and positive")
+    return args
 
 
 if __name__ == "__main__":
@@ -523,10 +825,14 @@ if __name__ == "__main__":
         "goal": [50.0, 0.0, args.goal_height],
         "velocity": args.velocity,
         "max_depth": args.max_depth,
+        "active_camera": args.active_camera,
         "arrive_dist": args.arrive_dist,
         "ctrl_dt": 0.02,
         "odom_topic": args.odom_topic,
         "depth_topic": args.depth_topic,
+        "camera_state_stamped_topic": args.camera_state_stamped_topic,
+        "camera_sync_queue_size": args.camera_sync_queue_size,
+        "camera_sync_slop_s": args.camera_sync_slop,
         "ctrl_topic": args.ctrl_topic,
         "plan_from_reference": False,
         "verbose": bool(args.verbose),

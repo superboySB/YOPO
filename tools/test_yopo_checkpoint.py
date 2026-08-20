@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 import argparse
+import math
 import os
 import sys
 import time
+from pathlib import Path
 
 import cv2
 import torch
+from ruamel.yaml import YAML
 from torch.utils.data import DataLoader
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -18,6 +21,17 @@ from policy.yopo_dataset import YOPOOmniPoseDataset
 from policy.yopo_network import YOPOOmniNetwork
 
 
+def str2bool(value):
+    if isinstance(value, bool):
+        return value
+    lowered = value.lower()
+    if lowered in ("1", "true", "yes", "y", "on"):
+        return True
+    if lowered in ("0", "false", "no", "n", "off"):
+        return False
+    raise argparse.ArgumentTypeError(f"Invalid boolean value: {value}")
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Offline YOPO active-perception checkpoint test.")
     parser.add_argument("--weight", required=True, help="Path to YOPO active-perception .pth checkpoint.")
@@ -27,8 +41,46 @@ def parse_args():
     parser.add_argument("--num-batches", type=int, default=8, help="Number of batches to run.")
     parser.add_argument("--num-workers", type=int, default=0, help="DataLoader workers for the test.")
     parser.add_argument("--device", default="cuda", help="Torch device, e.g. cuda, cuda:0, cpu.")
+    parser.add_argument("--active-camera", type=str2bool, default=bool(cfg["active_camera"]),
+                        help="Expected dataset/checkpoint camera mode: true or false.")
     parser.add_argument("--strict-depth-range", action="store_true", help="Fail if normalized depth is outside [0, 1].")
     return parser.parse_args()
+
+
+def validate_checkpoint_config(weight, active_camera):
+    resolved_path = Path(weight).resolve().parent / "resolved_config.yaml"
+    if not resolved_path.is_file():
+        print(f"WARNING: legacy checkpoint without resolved config: {resolved_path}")
+        return
+    with resolved_path.open("r", encoding="utf-8") as stream:
+        resolved = YAML(typ="safe").load(stream)
+    if not isinstance(resolved, dict):
+        raise ValueError(f"Invalid resolved checkpoint config: {resolved_path}")
+    expected = {
+        "active_camera": bool(active_camera),
+        "image_width": int(cfg["image_width"]),
+        "image_height": int(cfg["image_height"]),
+        "insight9_train_max_depth_m": float(cfg["insight9_train_max_depth_m"]),
+        "depth_preprocess": str(cfg["depth_preprocess"]),
+    }
+    missing = [key for key in expected if key not in resolved]
+    if missing:
+        raise ValueError(f"Resolved checkpoint config is missing keys: {missing}")
+    mismatch = []
+    for key, value in expected.items():
+        actual = resolved[key]
+        if key == "insight9_train_max_depth_m":
+            try:
+                matches = math.isclose(float(actual), value, rel_tol=0.0, abs_tol=1e-6)
+            except (TypeError, ValueError):
+                matches = False
+        else:
+            matches = actual == value
+        if not matches:
+            mismatch.append(f"{key}: checkpoint={actual!r}, expected={value!r}")
+    if mismatch:
+        raise ValueError("Checkpoint contract mismatch: " + "; ".join(mismatch))
+    print(f"Resolved checkpoint config validated: {resolved_path}")
 
 
 def inspect_raw_depth(dataset, batch):
@@ -44,6 +96,7 @@ def inspect_raw_depth(dataset, batch):
 
 def main():
     args = parse_args()
+    cfg["active_camera"] = bool(args.active_camera)
     if args.dataset_path is not None:
         cfg["dataset_path"] = args.dataset_path
     device = torch.device(args.device if torch.cuda.is_available() or args.device == "cpu" else "cpu")
@@ -58,6 +111,7 @@ def main():
     )
 
     model = YOPOOmniNetwork().to(device)
+    validate_checkpoint_config(args.weight, args.active_camera)
     state_dict = torch.load(args.weight, map_location=device, weights_only=True)
     model.load_state_dict(state_dict, strict=True)
     model.eval()
@@ -65,6 +119,10 @@ def main():
     print(f"Loaded checkpoint: {args.weight}")
     print(f"Device: {device}")
     print(f"Dataset path: {dataset.data_dir}")
+    print(
+        f"Camera mode: {'active' if args.active_camera else 'fixed'}; "
+        f"preprocess={cfg['depth_preprocess']}"
+    )
     print(f"Depth normalization: cv2.imread(..., -1) uint16 -> float32 / 65535.0")
     print(f"Network expects normalized Insight 9 depth in [0, 1], shape [B,1,H,W].")
 
@@ -79,6 +137,14 @@ def main():
             if step >= args.num_batches:
                 break
             depth, _, _, state_b, _, _, guide_mask, selected_topology, camera_target, _ = batch
+            if not args.active_camera:
+                camera_state_max = float(state_b[..., 9:11].abs().max().item())
+                camera_target_max = float(camera_target.abs().max().item())
+                if camera_state_max > 1e-6 or camera_target_max > 1e-6:
+                    raise ValueError(
+                        "Fixed-camera batch contains non-zero camera labels: "
+                        f"state={camera_state_max:.3g}, target={camera_target_max:.3g}"
+                    )
             if step == 0:
                 image_path, raw_dtype, raw_min, raw_max = inspect_raw_depth(dataset, batch)
                 print(f"Raw depth sample: {image_path}")

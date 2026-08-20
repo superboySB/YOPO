@@ -1,0 +1,74 @@
+{
+  "schema": "yopo.active-camera-ablation-preregistration.v1",
+  "created_utc": "2026-08-20T10:36:42Z",
+  "status": "frozen_before_epoch100_checkpoints_and_evaluation",
+  "objective": "Compare active and fixed Insight 9 camera policies with active_camera as the only treatment variable.",
+  "training": {
+    "epochs": 100,
+    "seed": 0,
+    "batch_size": 16,
+    "num_workers": 4,
+    "dataset_map_seeds": [3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    "images_per_map": 10000,
+    "active_dataset": "dataset_chicane_active_100ep",
+    "fixed_dataset": "dataset_chicane_fixed_100ep",
+    "dataset_pair_audit_sha256": "2386e2e869679d476f155822dc3994bd0d7d2b9e296e5b5e06e30920da57e4ef"
+  },
+  "common_evaluation": {
+    "sensor": "looper_insight_9",
+    "network_image_width": 160,
+    "network_image_height": 192,
+    "maze_type": 8,
+    "map_resolution_m": 0.1,
+    "start_xyz_m": [-20.0, 0.0, 2.0],
+    "goal_xyz_m": [20.0, 0.0, 2.0],
+    "velocity_mps": 3.0,
+    "max_depth_m": 20.0,
+    "vehicle_collision_radius_m": 0.45,
+    "arrive_distance_m": 1.0,
+    "segment_timeout_s": 70.0,
+    "camera_sync_queue_size": 30,
+    "camera_sync_slop_s": 0.03,
+    "minimum_depth_state_match_rate": 0.98,
+    "order": "balanced",
+    "order_seed": 20260820
+  },
+  "strata": [
+    {
+      "name": "normal_body_yaw_primary",
+      "fixed_body_yaw": false,
+      "holdout_map_seeds": [401, 402, 403, 404, 405, 406, 407, 408, 409, 410],
+      "role": "confirmatory_primary"
+    },
+    {
+      "name": "fixed_body_yaw_diagnostic",
+      "fixed_body_yaw": true,
+      "holdout_map_seeds": [501, 502, 503, 504, 505, 506, 507, 508, 509, 510],
+      "role": "predeclared_mechanism_diagnostic"
+    }
+  ],
+  "outcomes": {
+    "primary": [
+      "run_level_collision_rate",
+      "run_level_success_rate",
+      "run_level_collision_free_success_rate"
+    ],
+    "secondary": [
+      "minimum_surface_clearance_m",
+      "path_length_m",
+      "successful_run_duration_s"
+    ],
+    "paired_effect_direction": "active_minus_fixed",
+    "confidence_interval": "Wilson 95% for binomial arm-level rates"
+  },
+  "validity": {
+    "require_complete_seed_pair": true,
+    "require_identical_runtime_map_hash_per_pair": true,
+    "require_checkpoint_manifest_binding": true,
+    "require_fixed_camera_exact_zero": true,
+    "require_active_camera_motion": true,
+    "reject_camera_sync_violation": true,
+    "timeouts_are_collisions": false,
+    "report_all_valid_runs_without_result_selection": true
+  }
+}

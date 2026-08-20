@@ -18,6 +18,7 @@ class YOPOOmniLoss(nn.Module):
         self.use_guidance_loss = bool(cfg["use_guidance_loss"])
         self.camera_weight = float(cfg["w_camera"])
         self.camera_smooth_weight = float(cfg["w_camera_smooth"])
+        self.active_camera = bool(cfg["active_camera"])
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self._L, self._RJ, self._RA = self.qp_generation()
@@ -30,7 +31,8 @@ class YOPOOmniLoss(nn.Module):
         self.safety_loss = SafetyLoss(self._L)
         self.safety_loss.traj_num = self.topology_num
 
-        print("------ YOPO Active Loss ------")
+        camera_mode = "active" if self.active_camera else "fixed-zero-label"
+        print("------ YOPO Camera-A/B Loss ------")
         print(f"| {'smooth':<12} = {self.smoothness_weight:6.4f} |")
         print(f"| {'safety':<12} = {self.safety_weight:6.4f} |")
         print(f"| {'intent':<12} = {self.intent_weight:6.4f} |")
@@ -38,6 +40,7 @@ class YOPOOmniLoss(nn.Module):
         print(f"| {'explore':<12} = {self.explore_weight:6.4f} | beta={self.explore_beta:.3g}")
         print(f"| {'guide':<12} = {self.guide_weight:6.4f} | enabled={self.use_guidance_loss}")
         print(f"| {'camera':<12} = {self.camera_weight:6.4f} | smooth={self.camera_smooth_weight:.4f}")
+        print(f"| {'camera mode':<12} = {camera_mode} | shared head/loss weights")
         print("----------------------------")
 
     def forward(self, start_state_w, end_state_w, endstate_b, state_b, guide_path_w,

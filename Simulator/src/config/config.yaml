@@ -9,10 +9,16 @@ depth_fps: 15          # Insight 9 depth output rate
 render_lidar: true
 lidar_fps: 10
 
+# Active-perception control variable.  Keep every other sensor/map/training
+# setting identical when comparing true against false.
+active_camera: true
+
 # 2. 仿真环境参数 =============================================================
 random_map: true       # 使用预先建立的点云地图还是随机地图
 resolution: 0.1        # 地图分辨率
 map_viz_resolution: 0.8 # RViz全局地图点云降采样分辨率
+uav_collision_radius: 0.35 # 碰撞按无人机球形外形而非仅中心点判定
+collision_hysteresis: 0.10 # 离开碰撞区后再次进入才计为新事件
 
 # 2.1 预先建立的点云地图 (此分支已弃用)
 ply_file: "src/pointcloud/forest.ply"
@@ -21,11 +27,11 @@ expand_y_times: 0      # y方向复制次数（cuda版不使用）
 occupy_threshold: 0    # 大于多少个点才认为占据（cpu版不使用）
 
 # 2.2 随机地图 ======
-seed: 3
+seed: 3                # 训练env_num=10时使用3..12；建议独立评测使用101..105
 x_length: 60           # 真正随机范围(XY更大范围处为其镜像)
 y_length: 60
 z_length: 15
-maze_type: 2           # 1: 溶洞 2: 柱子 3:迷宫 5:森林 6:房间 7:墙面  (当前策略支持1,2,5,7)
+maze_type: 2           # 1:溶洞 2:柱子 3:2D迷宫 4:3D迷宫 5:森林 6:房间 7:随机墙 8:主动感知S/T盲角赛道
 # 溶洞
 complexity: 0.02       # 复杂度 0.0-0.5
 fill: 0.1              # 填充率 0.0-0.4
@@ -55,12 +61,24 @@ wall_thick: 0.5
 wall_number: 100       # 墙面数量
 wall_ceiling: 1        # 是否添加天花板
 
+# 主动感知盲角赛道 (maze_type=8)
+# 基准航线 start=(-20,0,2), goal=(20,0,2)。两点都在默认训练采样范围内。
+# 直线被折流墙阻断，
+# 但中心线始终留有可通行的S形绕行；seed只会镜像且小幅扰动拐点。
+active_chicane_corridor_width: 4.0
+active_chicane_wall_height: 5.0
+active_chicane_wall_thickness: 0.30
+active_chicane_lateral_offset: 6.0
+active_chicane_branch_length: 6.0
+active_chicane_jitter: 0.25
+active_chicane_ceiling: true # 封闭越墙空域，避免从5m墙顶上方绕过盲角
+
 # 3. 传感器参数 ==============================================================
 insight9:              # Looper Robotics Insight 9 learning-stereo model
   model: "looper_insight_9"
   native_image_width: 544
   native_image_height: 640
-  image_width: 160     # aspect-preserving network/render resolution
+  image_width: 160     # full-FoV network/render width; see depth_preprocess contract
   image_height: 192
   horizontal_fov_deg: 96.8
   vertical_fov_deg: 115.6

@@ -1,0 +1,2 @@
+index,start_wall_time_s,end_wall_time_s,duration_s,start_x,start_y,start_z,end_x,end_y,end_z,min_center_obstacle_distance_m,min_clearance_m,sources,sim_counter_start,sim_counter_end,samples
+0,1787250444.1643584,1787250444.5243556,0.3599972724914551,-10.425094628549877,-0.8840558400712515,2.0159906533138026,-8.695270668865332,-0.8854805323942119,1.9804233357600043,0.033564227869728,-0.416435772130272,map_kdtree+sim_counter,0,1,36
