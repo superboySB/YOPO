@@ -1,3 +1,17 @@
+# YOPO-MINCO
+We adopt [MINCO](https://github.com/ZJU-FAST-Lab/GCOPTER) as YOPO's trajectory representation, using the intermediate waypoint as a homotopy anchor to cover distinct detour topologies, adding several barrier-form costs to ensure feasibility, and predicting safe flight corridors. This enables richer trajectory expression and mitigates suboptimal local minima from competing costs.
+
+- Comparison:
+<p align="center">
+    <img src="docs/compare.png" alt="compare" />
+</p>
+
+- Optimal Trajectory | All Trajectories | All Trajectories | Safe Corridor:
+<p align="center">
+    <img src="docs/minco_demo.gif" alt="demo" />
+</p>
+
+--------
 
 # You Only Plan Once
 
