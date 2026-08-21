@@ -10,8 +10,13 @@ Simulator/logs/
 Simulator/.catkin_tools/
 
 YOPO/saved/*
-dataset/
+!YOPO/saved/yopo-simple/
+!YOPO/saved/yopo-minco/
+YOPO/simple_runtime/saved/
+dataset*/
+results/*
+!results/minco_checkpoint_eval.json
 yopo_sim/
 
-!YOPO/saved/YOPO_1/
+__pycache__/
 *.pyc

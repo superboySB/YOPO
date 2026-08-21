@@ -85,6 +85,9 @@ main() {
   parse_args "$@"
 
   ensure_inside_container
+  set +u
+  source /opt/ros/noetic/setup.bash
+  set -u
   require_cmd tmux
   require_cmd roslaunch
   require_cmd rosrun

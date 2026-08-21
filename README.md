@@ -1,6 +1,11 @@
 # YOPO-MINCO
 We adopt [MINCO](https://github.com/ZJU-FAST-Lab/GCOPTER) as YOPO's trajectory representation, using the intermediate waypoint as a homotopy anchor to cover distinct detour topologies, adding several barrier-form costs to ensure feasibility, and predicting safe flight corridors. This enables richer trajectory expression and mitigates suboptimal local minima from competing costs.
 
+This `yopo-minco-test` integration keeps both YOPO-Simple and YOPO-MINCO and
+adds a shared-goal, two-aircraft RViz comparison.  See [note.md](note.md) for
+the reproducible Docker, build, data, training, evaluation, and comparison
+workflow.
+
 - Comparison:
 <p align="center">
     <img src="docs/compare.png" alt="compare" />
@@ -92,7 +97,9 @@ catkin_make
 
 ## Test the Policy
 
-You can test the policy using pre-trained weights we provide at `YOPO/saved/YOPO_1/epoch50.pth`. 
+You can test the MINCO policy using the official pre-trained weight at
+`YOPO/saved/yopo-minco/epoch50.pth`.  The retained YOPO-Simple checkpoint is
+`YOPO/saved/yopo-simple/epoch50.pth`.
 
 **1. Start the Controller and Dynamics Simulator** 
 
@@ -120,7 +127,7 @@ You can refer to [traj_opt.yaml](YOPO/config/traj_opt.yaml) for modification of 
 ```
 cd YOPO
 conda activate yopo
-python test_yopo_ros.py --trial=1 --epoch=50
+python test_yopo_ros.py --weight saved/yopo-minco/epoch50.pth
 ```
 
 **4. Visualization**

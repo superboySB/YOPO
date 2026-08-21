@@ -65,6 +65,11 @@ Eigen::Quaternionf RPY2Quat(float roll_deg, float pitch_deg, float yaw_deg)
 void printProgressBar(int current, int total, int bar_width = 50)
 {
     float progress = static_cast<float>(current) / total;
+    int percentage = static_cast<int>(progress * 100.0f);
+    static int last_percentage = -1;
+    if (percentage == last_percentage && current != total)
+        return;
+    last_percentage = percentage;
     int pos = static_cast<int>(bar_width * progress);
 
     std::cout << "\r[";
@@ -77,13 +82,28 @@ void printProgressBar(int current, int total, int bar_width = 50)
         else
             std::cout << " ";
     }
-    std::cout << "] " << int(progress * 100.0f) << "%";
+    std::cout << "] " << percentage << "%";
     std::cout.flush();
 }
 
 int main(int argc, char **argv)
 {
     YAML::Node config = YAML::LoadFile(CONFIG_FILE_PATH);
+    auto argument = [&](const std::string &name) -> std::string {
+        for (int i = 1; i + 1 < argc; ++i)
+            if (argv[i] == name) return argv[i + 1];
+        return "";
+    };
+    auto has_flag = [&](const std::string &name) {
+        for (int i = 1; i < argc; ++i)
+            if (argv[i] == name) return true;
+        return false;
+    };
+    if (has_flag("--help")) {
+        std::cout << "dataset_generator [--save-path PATH] [--env-num N] [--image-num N] "
+                     "[--seed N] [--overwrite]" << std::endl;
+        return 0;
+    }
 
     // 1. 相机参数
     CameraParams camera;
@@ -146,6 +166,20 @@ int main(int argc, char **argv)
     std::string save_path = config["save_path"].as<std::string>();
     int env_num = config["env_num"].as<int>();
     int image_num = config["image_num"].as<int>();
+    if (!argument("--save-path").empty()) save_path = argument("--save-path");
+    if (!argument("--env-num").empty()) env_num = std::stoi(argument("--env-num"));
+    if (!argument("--image-num").empty()) image_num = std::stoi(argument("--image-num"));
+    if (!argument("--seed").empty()) seed = std::stoi(argument("--seed"));
+    if (save_path.empty() || env_num <= 0 || image_num <= 0) {
+        std::cerr << "save path must be non-empty and sample counts must be positive" << std::endl;
+        return 2;
+    }
+    if (save_path.back() != '/') save_path.push_back('/');
+    if (fs::exists(save_path) && !has_flag("--overwrite")) {
+        std::cerr << "Dataset path already exists: " << save_path
+                  << " (pass --overwrite to replace it)" << std::endl;
+        return 3;
+    }
     float roll_range = config["roll_range"].as<float>();
     float pitch_range = config["pitch_range"].as<float>();
     float x_range = config["x_range"].as<float>();
@@ -176,7 +210,7 @@ int main(int argc, char **argv)
               << "Yaw: [0, 360]" << std::endl;
 
     // 收集所有数据
-    std::default_random_engine generator(std::random_device{}());
+    std::default_random_engine generator(seed);
     std::normal_distribution<float> normal_distribution(0.0f, 1.0f); // 均值0，标准差1
     std::uniform_real_distribution<float> uniform_uniform(0.0f, 1.0f);
     prepareSavePath(save_path, true);

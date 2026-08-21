@@ -1,0 +1,59 @@
+{
+  "batch_size": 16,
+  "checkpoints": {
+    "official": {
+      "metrics": {
+        "best/Acc": 0.05268906255960464,
+        "best/Feasible": 0.6427023331999778,
+        "best/Goal": 0.9186538448810577,
+        "best/Safety": 2.7104345554351807,
+        "best/Smooth": 0.4922550585269928,
+        "best/Time": 2.877934150314331,
+        "inner_reg_loss": 0.03818470095992088,
+        "mean/Acc": 0.08271624663472175,
+        "mean/Feasible": 1.6283969306468964,
+        "mean/Goal": 2.120926134300232,
+        "mean/Safety": 3.384638384246826,
+        "mean/Smooth": 0.6853192205905915,
+        "mean/Time": 3.1188980716705323,
+        "mean_traj_loss": 11.020894999694825,
+        "perf/AvgSpeed": 4.800887274551392,
+        "perf/Duration": 1.9186227645874023,
+        "perf/MaxSpeed": 5.816137543487549,
+        "perf/MinDist": 0.4653343697309494,
+        "perf/PathLength": 9.16483617401123,
+        "radius_loss": -1.453200205230713,
+        "rank_loss": 1.4316075952529908
+      },
+      "path": "/workspace/YOPO/YOPO/saved/yopo-minco/epoch50.pth"
+    },
+    "retrained": {
+      "metrics": {
+        "best/Acc": 0.05520060601234436,
+        "best/Feasible": 0.7847694382309913,
+        "best/Goal": 0.914817308139801,
+        "best/Safety": 2.7323910213470457,
+        "best/Smooth": 0.5222769719600677,
+        "best/Time": 2.8293583293914795,
+        "inner_reg_loss": 0.03831003317832947,
+        "mean/Acc": 0.08387112823724746,
+        "mean/Feasible": 1.7631422765731812,
+        "mean/Goal": 2.2109695251464845,
+        "mean/Safety": 3.4108499851226806,
+        "mean/Smooth": 0.7390224076271057,
+        "mean/Time": 3.0453804039001464,
+        "mean_traj_loss": 11.253235734558105,
+        "perf/AvgSpeed": 4.866422566223145,
+        "perf/Duration": 1.886238886642456,
+        "perf/MaxSpeed": 5.868075417327881,
+        "perf/MinDist": 0.4597347752332687,
+        "perf/PathLength": 9.128072379302978,
+        "radius_loss": -1.4818881135940551,
+        "rank_loss": 1.4400566674232482
+      },
+      "path": "/workspace/YOPO/YOPO/saved/yopo-minco/epoch50-retrained.pth"
+    }
+  },
+  "dataset_path": "/workspace/YOPO/dataset_minco",
+  "seed": 0
+}

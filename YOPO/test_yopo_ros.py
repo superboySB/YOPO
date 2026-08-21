@@ -36,13 +36,14 @@ except ImportError:
 class YopoNet:
     def __init__(self, config, weight):
         self.config = config
-        rospy.init_node('yopo_net', anonymous=False)
+        rospy.init_node(self.config.get('node_name', 'yopo_minco'), anonymous=False)
         # load params
         cfg["train"] = False
         self.height = cfg['image_height']
         self.width = cfg['image_width']
         self.min_dis, self.max_dis = 0.04, 20.0
         self.goal = np.array(self.config['goal'])
+        self.goal_received = not self.config.get('wait_for_goal', False)
         self.goal_length = float(cfg['goal_length'])
         self.plan_from_reference = self.config['plan_from_reference']
         self.topk = self.config.get('topk', 1)  # pick the traj closest to last inner among the top-K best
@@ -76,7 +77,7 @@ class YopoNet:
         self.radius_lambda = float(cfg["radius_warp_lambda"])
         self.radius_b_min = float(cfg["radius_b_min"])
         self.radius_b_max = float(cfg["radius_b_max"])
-        self.safe_radius = 0.05     # corridor radius (m) a traj must clear to be eligible; none clears it -> brake
+        self.safe_radius = float(self.config.get('safe_radius', 0.05))
         self.safe_mu = 1.0 - np.exp(-self.safe_radius / self.radius_lambda)   # warped, compared against μ directly
         self.brake = False
 
@@ -102,15 +103,17 @@ class YopoNet:
         self.warm_up()
 
         # ros publisher
-        self.lattice_traj_pub = rospy.Publisher("/yopo_net/lattice_trajs_visual", MarkerArray, queue_size=1)
-        self.best_traj_pub = rospy.Publisher("/yopo_net/best_traj_visual", MarkerArray, queue_size=1)
-        self.corridor_pub = rospy.Publisher("/yopo_net/corridor_visual", MarkerArray, queue_size=1)
-        self.all_trajs_pub = rospy.Publisher("/yopo_net/trajs_visual", MarkerArray, queue_size=1)
+        viz_prefix = self.config.get('viz_prefix', '/yopo_minco').rstrip('/')
+        self.lattice_traj_pub = rospy.Publisher(viz_prefix + "/lattice_trajs_visual", MarkerArray, queue_size=1)
+        self.best_traj_pub = rospy.Publisher(viz_prefix + "/best_traj_visual", MarkerArray, queue_size=1)
+        self.corridor_pub = rospy.Publisher(viz_prefix + "/corridor_visual", MarkerArray, queue_size=1)
+        self.all_trajs_pub = rospy.Publisher(viz_prefix + "/trajs_visual", MarkerArray, queue_size=1)
         self.ctrl_pub = rospy.Publisher(self.config["ctrl_topic"], PositionCommand, queue_size=1)
         # ros subscriber
         self.odom_sub = rospy.Subscriber(self.config['odom_topic'], Odometry, self.callback_odometry, queue_size=1, tcp_nodelay=True)
         self.depth_sub = rospy.Subscriber(self.config['depth_topic'], Image, self.callback_depth, queue_size=1, tcp_nodelay=True)
-        self.goal_sub = rospy.Subscriber("/move_base_simple/goal", PoseStamped, self.callback_set_goal, queue_size=1)
+        self.goal_sub = rospy.Subscriber(self.config.get('goal_topic', '/move_base_simple/goal'),
+                                         PoseStamped, self.callback_set_goal, queue_size=1)
         # ros timer
         rospy.sleep(1.0)
         self.timer_ctrl = rospy.Timer(rospy.Duration(self.ctrl_dt), self.control_pub)
@@ -127,6 +130,7 @@ class YopoNet:
 
     def callback_set_goal(self, data):
         self.goal = np.asarray([data.pose.position.x, data.pose.position.y, 2])
+        self.goal_received = True
         self.arrive = False
         print(f"New Goal: ({data.pose.position.x:.1f}, {data.pose.position.y:.1f})")
 
@@ -176,7 +180,7 @@ class YopoNet:
     @torch.inference_mode()
     def callback_depth(self, data):
         """Depth subscriber: the plan-once-per-frame pipeline (depth → inference → decode → solve → viz)."""
-        if not self.odom_init: return
+        if not self.odom_init or not self.goal_received: return
 
         # 1. depth image → normalized, inpainted (1,1,H,W)
         time0 = time.time()
@@ -553,22 +557,41 @@ def parser():
     parser.add_argument("--use_tensorrt", type=int, default=0, help="use tensorrt or not")
     parser.add_argument("--trial", type=int, default=1, help="trial number")
     parser.add_argument("--epoch", type=int, default=50, help="epoch number")
+    parser.add_argument("--weight", default="", help="explicit checkpoint path; overrides --trial/--epoch")
+    parser.add_argument("--node-name", default="yopo_minco")
+    parser.add_argument("--odom-topic", default="/sim/odom")
+    parser.add_argument("--depth-topic", default="/depth_image")
+    parser.add_argument("--ctrl-topic", default="/so3_control/pos_cmd")
+    parser.add_argument("--goal-topic", default="/move_base_simple/goal")
+    parser.add_argument("--viz-prefix", default="/yopo_minco")
+    parser.add_argument("--velocity", type=float, default=None)
+    parser.add_argument("--safe-radius", type=float, default=0.05)
+    parser.add_argument("--wait-for-goal", action="store_true",
+                        help="stay idle until the first goal message arrives")
     return parser
 
 
 if __name__ == "__main__":
     args = parser().parse_args()
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    weight = "yopo_trt.pth" if args.use_tensorrt else base_dir + "/saved/YOPO_{}/epoch{}.pth".format(args.trial, args.epoch)
+    if args.velocity is not None:
+        cfg["velocity"] = args.velocity
+    weight = args.weight or ("yopo_trt.pth" if args.use_tensorrt else
+                             base_dir + "/saved/yopo-minco/epoch{}.pth".format(args.epoch))
     print("load weight from:", weight)
 
     settings = {'use_tensorrt': args.use_tensorrt,      # run the TensorRT engine instead of PyTorch
                 'goal': [50, 0, 2],                     # initial goal (world xyz); RViz 2D Nav Goal overrides it
                 'topk': 1,                              # >=1: among the top-K scores, keep the traj closest to the last one
                 'pitch_angle_deg': -0,                  # camera pitch w.r.t. the body (upward is negative)
-                'odom_topic': '/sim/odom',              # odometry topic (FLU)
-                'depth_topic': '/depth_image',          # depth image topic
-                'ctrl_topic': '/so3_control/pos_cmd',   # control command topic (FLU)
+                'node_name': args.node_name,
+                'odom_topic': args.odom_topic,           # odometry topic (FLU)
+                'depth_topic': args.depth_topic,         # depth image topic
+                'ctrl_topic': args.ctrl_topic,           # control command topic (FLU)
+                'goal_topic': args.goal_topic,
+                'viz_prefix': args.viz_prefix,
+                'safe_radius': args.safe_radius,
+                'wait_for_goal': args.wait_for_goal,
                 'plan_from_reference': False,           # set True when flying with a position controller
                 'verbose': False                        # print the per-stage timing every frame
                 }

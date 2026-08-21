@@ -1,0 +1,236 @@
+Panels:
+  - Class: rviz/Displays
+    Name: Displays
+    Property Tree Widget:
+      Expanded:
+        - /Vehicles1
+        - /Trajectories1
+    Tree Height: 520
+  - Class: rviz/Selection
+    Name: Selection
+  - Class: rviz/Tool Properties
+    Expanded:
+      - /2D Nav Goal1
+    Name: Tool Properties
+  - Class: rviz/Views
+    Name: Views
+  - Class: rviz/Time
+    Name: Time
+Preferences:
+  PromptSaveOnExit: true
+Toolbars:
+  toolButtonStyle: 2
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Alpha: 0.45
+      Cell Size: 5
+      Class: rviz/Grid
+      Color: 160; 160; 164
+      Enabled: true
+      Line Style:
+        Line Width: 0.03
+        Value: Lines
+      Name: Grid
+      Normal Cell Count: 0
+      Offset: {X: 0, Y: 0, Z: 0}
+      Plane: XY
+      Plane Cell Count: 20
+      Reference Frame: <Fixed Frame>
+      Value: true
+    - Alpha: 0.8
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: 0
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz/PointCloud2
+      Color: 180; 180; 180
+      Color Transformer: FlatColor
+      Decay Time: 0
+      Enabled: true
+      Name: Shared deterministic map
+      Position Transformer: XYZ
+      Queue Size: 2
+      Selectable: false
+      Size (Pixels): 2
+      Size (m): 0.08
+      Style: Flat Squares
+      Topic: /yopo_minco/mock_map
+      Unreliable: false
+      Use Fixed Frame: true
+      Value: true
+    - Class: rviz/Group
+      Displays:
+        - Class: rviz/Marker
+          Enabled: true
+          Marker Topic: /yopo_simple/uav
+          Name: yopo-simple aircraft (orange)
+          Namespaces: {mesh: true}
+          Queue Size: 10
+          Value: true
+        - Class: rviz/Marker
+          Enabled: true
+          Marker Topic: /yopo_minco/uav
+          Name: yopo-minco aircraft (cyan)
+          Namespaces: {mesh: true}
+          Queue Size: 10
+          Value: true
+        - Class: rviz/MarkerArray
+          Enabled: true
+          Marker Topic: /yopo_compare/markers
+          Name: labels, trails and metrics
+          Namespaces:
+            comparison_summary: true
+            executed_trails: true
+            vehicle_labels: true
+          Queue Size: 10
+          Value: true
+      Enabled: true
+      Name: Vehicles
+    - Class: rviz/Group
+      Displays:
+        - Alpha: 1
+          Buffer Length: 1
+          Class: rviz/Path
+          Color: 255; 90; 8
+          Enabled: true
+          Head Diameter: 0.3
+          Head Length: 0.2
+          Length: 0.3
+          Line Style: Lines
+          Line Width: 0.08
+          Name: yopo-simple best trajectory
+          Offset: {X: 0, Y: 0, Z: 0}
+          Pose Color: 255; 90; 8
+          Pose Style: None
+          Radius: 0.03
+          Shaft Diameter: 0.1
+          Shaft Length: 0.1
+          Topic: /yopo_simple/best_traj_visual
+          Value: true
+        - Class: rviz/MarkerArray
+          Enabled: true
+          Marker Topic: /yopo_minco/best_traj_visual
+          Name: yopo-minco best MINCO trajectory
+          Namespaces: {}
+          Queue Size: 10
+          Value: true
+        - Class: rviz/MarkerArray
+          Enabled: true
+          Marker Topic: /yopo_minco/corridor_visual
+          Name: yopo-minco safe corridor
+          Namespaces: {}
+          Queue Size: 10
+          Value: true
+        - Class: rviz/MarkerArray
+          Enabled: false
+          Marker Topic: /yopo_simple/trajs_visual
+          Name: yopo-simple all candidates
+          Namespaces: {}
+          Queue Size: 10
+          Value: false
+        - Class: rviz/MarkerArray
+          Enabled: false
+          Marker Topic: /yopo_minco/trajs_visual
+          Name: yopo-minco all candidates
+          Namespaces: {}
+          Queue Size: 10
+          Value: false
+      Enabled: true
+      Name: Trajectories
+    - Alpha: 1
+      Axes Length: 0.6
+      Axes Radius: 0.05
+      Class: rviz/Pose
+      Color: 255; 255; 0
+      Enabled: true
+      Head Length: 0.3
+      Head Radius: 0.1
+      Name: Shared Nav Goal
+      Queue Size: 10
+      Shaft Length: 1
+      Shaft Radius: 0.05
+      Shape: Axes
+      Topic: /move_base_simple/goal
+      Unreliable: false
+      Value: true
+    - Class: rviz/Image
+      Enabled: true
+      Image Topic: /yopo_simple/depth_image
+      Max Value: 20
+      Median window: 5
+      Min Value: 0
+      Name: yopo-simple depth
+      Normalize Range: true
+      Queue Size: 2
+      Transport Hint: raw
+      Unreliable: false
+      Value: true
+    - Class: rviz/Image
+      Enabled: true
+      Image Topic: /yopo_minco/depth_image
+      Max Value: 20
+      Median window: 5
+      Min Value: 0
+      Name: yopo-minco depth
+      Normalize Range: true
+      Queue Size: 2
+      Transport Hint: raw
+      Unreliable: false
+      Value: true
+  Enabled: true
+  Global Options:
+    Background Color: 35; 35; 35
+    Default Light: true
+    Fixed Frame: world
+    Frame Rate: 30
+  Name: root
+  Tools:
+    - Class: rviz/Interact
+      Hide Inactive Objects: true
+    - Class: rviz/MoveCamera
+    - Class: rviz/Select
+    - Class: rviz/FocusCamera
+    - Class: rviz/Measure
+    - Class: rviz/SetInitialPose
+      Theta std deviation: 0.261799
+      Topic: /initialpose
+      X std deviation: 0.5
+      Y std deviation: 0.5
+    - Class: rviz/SetGoal
+      Topic: /move_base_simple/goal
+    - Class: rviz/PublishPoint
+      Single click: true
+      Topic: /clicked_point
+  Value: true
+  Views:
+    Current:
+      Class: rviz/Orbit
+      Distance: 28
+      Enable Stereo Rendering:
+        Stereo Eye Separation: 0.06
+        Stereo Focal Distance: 1
+        Swap Stereo Eyes: false
+        Value: false
+      Field of View: 0.785398
+      Focal Point: {X: 7, Y: 0, Z: 2}
+      Focal Shape Fixed Size: false
+      Focal Shape Size: 0.05
+      Invert Z Axis: false
+      Name: Current View
+      Near Clip Distance: 0.01
+      Pitch: 0.65
+      Target Frame: world
+      Yaw: 3.14
+    Saved: ~
+Window Geometry:
+  Displays: {collapsed: false}
+  Height: 1000
+  Hide Left Dock: false
+  Hide Right Dock: false
+  Width: 1800
+  X: 20
+  Y: 20

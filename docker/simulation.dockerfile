@@ -4,15 +4,8 @@ LABEL maintainer="Zipeng Dai <daizipeng@bit.edu.cn>"
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Etc/UTC
 
-# Keep proxy config (override by --build-arg if needed)
-ARG HTTP_PROXY=http://127.0.0.1:8889
-ARG HTTPS_PROXY=http://127.0.0.1:8889
-ENV http_proxy=${HTTP_PROXY}
-ENV https_proxy=${HTTPS_PROXY}
-ENV HTTP_PROXY=${HTTP_PROXY}
-ENV HTTPS_PROXY=${HTTPS_PROXY}
-ENV no_proxy=localhost,127.0.0.1
-ENV NO_PROXY=localhost,127.0.0.1
+# Build and runtime proxy settings are injected by the Docker client config.
+# Do not bake a host-specific loopback proxy into the image.
 ARG APT_MAX_RETRIES=12
 ARG APT_RETRY_SLEEP=15
 ENV APT_MAX_RETRIES=${APT_MAX_RETRIES}
@@ -50,7 +43,7 @@ RUN ln -snf /usr/share/zoneinfo/${TZ} /etc/localtime && \
     echo ${TZ} > /etc/timezone && \
     apt-get update && \
     apt-get install -y --no-install-recommends --fix-missing \
-    tzdata ca-certificates curl wget gnupg2 lsb-release software-properties-common
+    tzdata ca-certificates curl wget gnupg2 lsb-release software-properties-common joystick
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends --fix-missing \
@@ -116,9 +109,6 @@ RUN python3 -m pip install --no-cache-dir --ignore-installed "PyYAML>=6.0.1,<7" 
 # RUN rm -rf /var/lib/apt/lists/* && apt-get clean
 ENV GLOG_minloglevel=2
 ENV MAGNUM_LOG=quiet
-
-# If proxy is not needed in your target machine, unset in runtime:
-#   unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
 
 WORKDIR /workspace/YOPO
 CMD ["/bin/bash"]

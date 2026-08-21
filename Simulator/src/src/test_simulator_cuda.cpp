@@ -10,6 +10,8 @@
 #include <nav_msgs/Odometry.h>
 #include <sensor_msgs/Image.h>
 #include <sensor_msgs/CameraInfo.h>
+#include <std_msgs/Bool.h>
+#include <std_msgs/Int32.h>
 #include <geometry_msgs/TransformStamped.h>
 #include <tf2_ros/static_transform_broadcaster.h>
 #include <pcl_ros/point_cloud.h>
@@ -27,6 +29,7 @@ using namespace raycast;
 class SensorSimulator {
 public:
     SensorSimulator(ros::NodeHandle &nh) : nh_(nh) {
+        ros::NodeHandle pnh("~");
         YAML::Node config = YAML::LoadFile(CONFIG_FILE_PATH);
         // 读取camera参数
         camera = new CameraParams();
@@ -64,6 +67,17 @@ public:
         std::string lidar_topic = config["lidar_topic"].as<std::string>();
         if (config["stereo_topic"]) stereo_depth_topic_ = config["stereo_topic"].as<std::string>();
         if (config["camera_info_topic"]) camera_info_topic_ = config["camera_info_topic"].as<std::string>();
+        pnh.param("odom_topic", odom_topic, odom_topic);
+        pnh.param("depth_topic", depth_topic, depth_topic);
+        pnh.param("lidar_topic", lidar_topic, lidar_topic);
+        pnh.param("stereo_topic", stereo_depth_topic_, stereo_depth_topic_);
+        pnh.param("camera_info_topic", camera_info_topic_, camera_info_topic_);
+        pnh.param("map_topic", map_topic_, std::string("mock_map"));
+        pnh.param("collision_topic", collision_topic_, std::string("collision_count"));
+        pnh.param("collision_samples_topic", collision_samples_topic_, std::string("collision_samples"));
+        pnh.param("collision_state_topic", collision_state_topic_, std::string("collision_state"));
+        pnh.param("camera_frame", camera_frame_, std::string("camera_link"));
+        pnh.param("body_frame", body_frame_, std::string("odom"));
 
         // 读取伪双目参数（用世界散斑纹理模拟结构光，供 simsense 计算类 RealSense 深度）
         // 双目相机与上面的深度真值相机解耦，使用独立的分辨率/内参。
@@ -102,7 +116,7 @@ public:
         bool use_random_map = config["random_map"].as<bool>();
         float resolution = config["resolution"].as<float>();
         int occupy_threshold = config["occupy_threshold"].as<int>();
-        pcl_pub = nh.advertise<sensor_msgs::PointCloud2>("mock_map", 1);
+        pcl_pub = nh.advertise<sensor_msgs::PointCloud2>(map_topic_, 1, true);
         int seed = config["seed"].as<int>();
         int sizeX = config["x_length"].as<int>();
         int sizeY = config["y_length"].as<int>();
@@ -150,6 +164,9 @@ public:
         stereo_depth_pub_ = nh_.advertise<sensor_msgs::Image>(stereo_depth_topic_, 1);
         point_cloud_pub_ = nh_.advertise<sensor_msgs::PointCloud2>(lidar_topic, 1);
         camera_info_pub_ = nh_.advertise<sensor_msgs::CameraInfo>(camera_info_topic_, 1, true);
+        collision_pub_ = nh_.advertise<std_msgs::Int32>(collision_topic_, 1, true);
+        collision_samples_pub_ = nh_.advertise<std_msgs::Int32>(collision_samples_topic_, 1, true);
+        collision_state_pub_ = nh_.advertise<std_msgs::Bool>(collision_state_topic_, 1, true);
         odom_sub_ = nh_.subscribe(odom_topic, 1, &SensorSimulator::odomCallback, this, ros::TransportHints().tcpNoDelay());
         timer_map_   = nh_.createTimer(ros::Duration(1), &SensorSimulator::timerMapCallback, this);
 
@@ -182,8 +199,12 @@ private:
     TextureParams tex;            // 散斑纹理参数
     std::string stereo_depth_topic_{"/stereo/depth"};
     std::string camera_info_topic_{"/camera_info"};
-    static constexpr const char* CAMERA_FRAME = "camera_link";   // 光学系: z 前 x 右 y 下 (深度图的 frame_id)
-    static constexpr const char* BODY_FRAME = "odom";            // 机体系: x 前 y 左 z 上
+    std::string map_topic_{"mock_map"};
+    std::string collision_topic_{"collision_count"};
+    std::string collision_samples_topic_{"collision_samples"};
+    std::string collision_state_topic_{"collision_state"};
+    std::string camera_frame_{"camera_link"};   // 光学系: z 前 x 右 y 下
+    std::string body_frame_{"odom"};            // 机体系: x 前 y 左 z 上
     Eigen::Vector3f t_bc{0.0f, 0.0f, 0.05f};                     // 仅为 rviz 显示抬升, 真实相机无此偏移(渲染用 odom 位置)
     simsense::DepthSensorEngine* stereo_engine{nullptr};  // 内置双目匹配引擎
     Eigen::Quaternionf quat;
@@ -199,6 +220,7 @@ private:
     ros::NodeHandle nh_;
     ros::Publisher image_pub_, stereo_depth_pub_, point_cloud_pub_;
     ros::Publisher camera_info_pub_;
+    ros::Publisher collision_pub_, collision_samples_pub_, collision_state_pub_;
     ros::Publisher pcl_pub;
     sensor_msgs::CameraInfo camera_info_;
     tf2_ros::StaticTransformBroadcaster static_tf_broadcaster_;
@@ -209,6 +231,8 @@ private:
     ros::Duration depth_pub_duration, lidar_pub_duration;
     double depth_time{0.0}, lidar_time{0.0};
     int depth_count{0}, lidar_count{0};
+    int collision_count_{0}, collision_samples_{0};
+    bool collision_state_{false};
     // mocka::Maps map;
 };
 
@@ -216,7 +240,7 @@ private:
 
 // 相机内参: 直接取自 config 的 camera 段, 与实际渲染的深度图保证一致
 void SensorSimulator::buildCameraInfo() {
-    camera_info_.header.frame_id = CAMERA_FRAME;
+    camera_info_.header.frame_id = camera_frame_;
     camera_info_.width = camera->image_width;
     camera_info_.height = camera->image_height;
     camera_info_.distortion_model = "plumb_bob";
@@ -240,8 +264,8 @@ void SensorSimulator::publishStaticCameraTF() {
 
     geometry_msgs::TransformStamped tf;
     tf.header.stamp = ros::Time::now();
-    tf.header.frame_id = BODY_FRAME;
-    tf.child_frame_id = CAMERA_FRAME;
+    tf.header.frame_id = body_frame_;
+    tf.child_frame_id = camera_frame_;
     tf.transform.translation.x = t_bc.x();
     tf.transform.translation.y = t_bc.y();
     tf.transform.translation.z = t_bc.z();
@@ -273,7 +297,7 @@ void SensorSimulator::renderDepthCallback(const ros::Time stamp) {
         cv_image.encoding = sensor_msgs::image_encodings::TYPE_32FC1;
         cv_image.image = depth_image;
         cv_image.toImageMsg(ros_image);
-        ros_image.header.frame_id = CAMERA_FRAME;
+        ros_image.header.frame_id = camera_frame_;
         image_pub_.publish(ros_image);
 
         camera_info_.header.stamp = stamp;
@@ -297,7 +321,7 @@ void SensorSimulator::renderDepthCallback(const ros::Time stamp) {
         cv_image.encoding = sensor_msgs::image_encodings::TYPE_32FC1;
         cv_image.image = stereo_depth;
         cv_image.toImageMsg(ros_image);
-        ros_image.header.frame_id = CAMERA_FRAME;
+        ros_image.header.frame_id = camera_frame_;
         stereo_depth_pub_.publish(ros_image);
     }
 
@@ -332,7 +356,7 @@ void SensorSimulator::renderLidarCallback(const ros::Time stamp) {
     sensor_msgs::PointCloud2 output;
     pcl::toROSMsg(lidar_points, output);
     output.header.stamp = stamp;
-    output.header.frame_id = "odom";
+    output.header.frame_id = body_frame_;
     point_cloud_pub_.publish(output);
 }
 
@@ -346,6 +370,23 @@ void SensorSimulator::odomCallback(const nav_msgs::Odometry::ConstPtr& msg) {
     pos.x() = msg->pose.pose.position.x;
     pos.y() = msg->pose.pose.position.y;
     pos.z() = msg->pose.pose.position.z;
+
+    const bool occupied = grid_map->mapQueryHost(Vector3f(pos.x(), pos.y(), pos.z())) == 1;
+    if (occupied) collision_samples_++;
+    if (occupied && !collision_state_) {
+        collision_count_++;
+        ROS_WARN("Collision entered at (%.2f, %.2f, %.2f), total=%d",
+                 pos.x(), pos.y(), pos.z(), collision_count_);
+    }
+    collision_state_ = occupied;
+    std_msgs::Int32 collision_msg;
+    collision_msg.data = collision_count_;
+    collision_pub_.publish(collision_msg);
+    collision_msg.data = collision_samples_;
+    collision_samples_pub_.publish(collision_msg);
+    std_msgs::Bool state_msg;
+    state_msg.data = collision_state_;
+    collision_state_pub_.publish(state_msg);
 
     ros::Time tnow = ros::Time::now();
 

@@ -25,6 +25,7 @@ class YopoTrainer:
             tensorboard_path=None,
             checkpoint_path=None,
             save_on_exit=False,
+            num_workers=8,
     ):
         self.batch_size = batch_size
         self.max_grad_norm = 0.1
@@ -66,9 +67,9 @@ class YopoTrainer:
 
         # Dataset (you can adjust num_workers according to your training speed)
         self.train_dataloader = DataLoader(YOPODataset(mode='train'), batch_size=self.batch_size, shuffle=True,
-                                           num_workers=8, pin_memory=True)
+                                           num_workers=num_workers, pin_memory=True)
         self.val_dataloader = DataLoader(YOPODataset(mode='valid'), batch_size=self.batch_size, shuffle=False,
-                                         num_workers=8, pin_memory=True)
+                                         num_workers=num_workers, pin_memory=True)
         print("Dataset Loaded!")
 
     def train(self, epoch, save_interval=None):
@@ -149,14 +150,18 @@ class YopoTrainer:
         # empty-safe: if the val set has no full batch (all skipped), means→nan instead of KeyError
         def _mean(k):
             return float(np.mean(running[k])) if running[k] else float("nan")
-        self.progress_log.console.log(f"Eval: {epoch}, MeanTraj: {_mean('mean_traj_loss'):.3g}")
-        self.tensorboard_log.add_scalar("Eval/MeanTrajLoss", _mean("mean_traj_loss"), epoch)
-        self.tensorboard_log.add_scalar("Eval/RankLoss", _mean("rank_loss"), epoch)
+        summary = {k: _mean(k) for k in running}
+        summary["mean_traj_loss"] = _mean("mean_traj_loss")
+        summary["rank_loss"] = _mean("rank_loss")
+        self.progress_log.console.log(f"Eval: {epoch}, MeanTraj: {summary['mean_traj_loss']:.3g}")
+        self.tensorboard_log.add_scalar("Eval/MeanTrajLoss", summary["mean_traj_loss"], epoch)
+        self.tensorboard_log.add_scalar("Eval/RankLoss", summary["rank_loss"], epoch)
         for k in running:                                          # best-traj performance → Eval/<metric>
             if k.startswith("perf/"):
                 self.tensorboard_log.add_scalar("Eval/" + k[len("perf/"):], _mean(k), epoch)
         self._log_rank_pmf("Eval/PredBestRank", rank_buf, epoch)
         self.progress_log.remove_task(one_epoch_progress)
+        return summary
 
     def forward_and_compute_loss(self, depth, pos, rot, obs_b, map_id):
         depth, pos, rot, obs_b, map_id = [x.to(self.device) for x in [depth, pos, rot, obs_b, map_id]]

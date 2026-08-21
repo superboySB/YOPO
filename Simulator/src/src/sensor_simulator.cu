@@ -1,5 +1,6 @@
 #include "sensor_simulator.cuh"
 #include <simsense/core.h>   // 矢量化后的 simsense 引擎（去 pybind 原生 C++ 版）
+#include <algorithm>
 
 namespace raycast
 {
@@ -21,6 +22,7 @@ namespace raycast
         grid_size.y = ceil(map_size.y / resolution);
         grid_size.z = ceil(map_size.z / resolution);
         int grid_total_size = grid_size.x * grid_size.y * grid_size.z;
+        grid_total_size_ = grid_total_size;
 
         resolution_   = resolution;
         grid_size_x_  = grid_size.x, 
@@ -41,6 +43,8 @@ namespace raycast
         }
         cudaMalloc((void **)&map_cuda_, grid_total_size * sizeof(int));
         cudaMemcpy(map_cuda_, h_map.data(), grid_total_size * sizeof(int), cudaMemcpyHostToDevice);
+        map_host_ = new int[grid_total_size];
+        std::copy(h_map.begin(), h_map.end(), map_host_);
     }
 
     __host__ __device__ Vector3i GridMap::Pos2Vox(const Vector3f &pos)
@@ -101,6 +105,28 @@ namespace raycast
         if (map_cuda_[idx] > occupy_threshold_)
             return 1;
         return 0;        
+    }
+
+    int GridMap::mapQueryHost(const Vector3f &pos) const {
+        auto symmetric_index = [](int index, int length) {
+            if (length <= 1) return 0;
+            index %= (2 * length - 2);
+            if (index < 0) index += 2 * length - 2;
+            return index >= length ? 2 * length - 2 - index : index;
+        };
+
+        Vector3i vox;
+        vox.x = static_cast<int>(std::floor((pos.x - origin_x_) / resolution_));
+        vox.y = static_cast<int>(std::floor((pos.y - origin_y_) / resolution_));
+        vox.z = static_cast<int>(std::floor((pos.z - origin_z_) / resolution_));
+        vox.x = symmetric_index(vox.x, grid_size_x_);
+        vox.y = symmetric_index(vox.y, grid_size_y_);
+        if (vox.z >= grid_size_z_) return 0;
+        if (vox.z <= 0) return 1;
+
+        const int idx = vox.x * grid_size_yz_ + vox.y * grid_size_z_ + vox.z;
+        return idx >= 0 && idx < grid_total_size_ &&
+               map_host_[idx] > occupy_threshold_ ? 1 : 0;
     }
 
     // 整数哈希 (Wang hash)，把一个整数打散成均匀分布

@@ -42,7 +42,8 @@ void quadToImuMsg(const QuadrotorSimulator::Quadrotor& quad,
 void odomToTF(const nav_msgs::Odometry& odom_msg,
               geometry_msgs::TransformStamped& transformStamped);
 void odomToMesh(const nav_msgs::Odometry& odom_msg, 
-                visualization_msgs::Marker& meshROS);
+                visualization_msgs::Marker& meshROS,
+                double color_r, double color_g, double color_b, double mesh_scale);
 
 static Control
 getControl(const QuadrotorSimulator::Quadrotor& quad, const Command& cmd)
@@ -255,7 +256,13 @@ main(int argc, char** argv)
 
   nav_msgs::Odometry odom_msg;
   odom_msg.header.frame_id = "world";
-  odom_msg.child_frame_id  = "/" + quad_name;
+  odom_msg.child_frame_id  = quad_name;
+
+  double mesh_color_r, mesh_color_g, mesh_color_b, mesh_scale;
+  n.param("mesh/color_r", mesh_color_r, 1.0);
+  n.param("mesh/color_g", mesh_color_g, 1.0);
+  n.param("mesh/color_b", mesh_color_b, 1.0);
+  n.param("mesh/scale", mesh_scale, 2.0);
 
   sensor_msgs::Imu imu;
   imu.header.frame_id = "world";
@@ -313,7 +320,7 @@ main(int argc, char** argv)
       imu_pub.publish(imu);
       tf_broadcaster.sendTransform(transformStamped);
       if (mesh_pub.getNumSubscribers() > 0) {
-        odomToMesh(odom_msg, meshROS);
+        odomToMesh(odom_msg, meshROS, mesh_color_r, mesh_color_g, mesh_color_b, mesh_scale);
         mesh_pub.publish(meshROS);
       }
     }
@@ -376,7 +383,7 @@ void
 odomToTF(const nav_msgs::Odometry& odom_msg, geometry_msgs::TransformStamped& transformStamped) {
   transformStamped.header.stamp = odom_msg.header.stamp;
   transformStamped.header.frame_id = "world";
-  transformStamped.child_frame_id = "odom";
+  transformStamped.child_frame_id = odom_msg.child_frame_id;
 
   transformStamped.transform.translation.x = odom_msg.pose.pose.position.x;
   transformStamped.transform.translation.y = odom_msg.pose.pose.position.y;
@@ -386,9 +393,10 @@ odomToTF(const nav_msgs::Odometry& odom_msg, geometry_msgs::TransformStamped& tr
 }
 
 void 
-odomToMesh(const nav_msgs::Odometry& odom_msg, visualization_msgs::Marker& meshROS) {
+odomToMesh(const nav_msgs::Odometry& odom_msg, visualization_msgs::Marker& meshROS,
+           double color_r, double color_g, double color_b, double mesh_scale) {
   meshROS.mesh_resource = "file://" + ros::package::getPath("so3_quadrotor_simulator") + "/config/uav.dae";
-  meshROS.mesh_use_embedded_materials = true;
+  meshROS.mesh_use_embedded_materials = false;
 
   meshROS.header = odom_msg.header;
   meshROS.header.frame_id = "world";
@@ -400,11 +408,11 @@ odomToMesh(const nav_msgs::Odometry& odom_msg, visualization_msgs::Marker& meshR
 
   meshROS.pose = odom_msg.pose.pose;
 
-  meshROS.scale.x = 2.0;
-  meshROS.scale.y = 2.0;
-  meshROS.scale.z = 2.0;
-  meshROS.color.r = 1.0;
-  meshROS.color.g = 1.0;
-  meshROS.color.b = 1.0;
+  meshROS.scale.x = mesh_scale;
+  meshROS.scale.y = mesh_scale;
+  meshROS.scale.z = mesh_scale;
+  meshROS.color.r = color_r;
+  meshROS.color.g = color_g;
+  meshROS.color.b = color_b;
   meshROS.color.a = 1.0;
 }
