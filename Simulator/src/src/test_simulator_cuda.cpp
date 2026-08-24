@@ -11,12 +11,16 @@
 #include <sensor_msgs/Image.h>
 #include <sensor_msgs/CameraInfo.h>
 #include <std_msgs/Bool.h>
+#include <std_msgs/Float32.h>
 #include <std_msgs/Int32.h>
 #include <geometry_msgs/TransformStamped.h>
 #include <tf2_ros/static_transform_broadcaster.h>
 #include <pcl_ros/point_cloud.h>
 #include <cv_bridge/cv_bridge.h>
 #include <iostream>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
 #include <vector>
 #include <yaml-cpp/yaml.h>
 #include "sensor_simulator.cuh"
@@ -76,6 +80,7 @@ public:
         pnh.param("collision_topic", collision_topic_, std::string("collision_count"));
         pnh.param("collision_samples_topic", collision_samples_topic_, std::string("collision_samples"));
         pnh.param("collision_state_topic", collision_state_topic_, std::string("collision_state"));
+        pnh.param("clearance_topic", clearance_topic_, std::string("clearance"));
         pnh.param("camera_frame", camera_frame_, std::string("camera_link"));
         pnh.param("body_frame", body_frame_, std::string("odom"));
 
@@ -122,6 +127,10 @@ public:
         int sizeY = config["y_length"].as<int>();
         int sizeZ = config["z_length"].as<int>();
         int type = config["maze_type"].as<int>();
+        // Benchmark overrides.  Keeping these as private ROS parameters makes
+        // map sweeps reproducible without editing the shared YAML between runs.
+        pnh.param("map_seed", seed, seed);
+        pnh.param("maze_type", type, type);
         double scale = 1 / resolution;
         sizeX = sizeX * scale;
         sizeY = sizeY * scale;
@@ -167,6 +176,7 @@ public:
         collision_pub_ = nh_.advertise<std_msgs::Int32>(collision_topic_, 1, true);
         collision_samples_pub_ = nh_.advertise<std_msgs::Int32>(collision_samples_topic_, 1, true);
         collision_state_pub_ = nh_.advertise<std_msgs::Bool>(collision_state_topic_, 1, true);
+        clearance_pub_ = nh_.advertise<std_msgs::Float32>(clearance_topic_, 1, true);
         odom_sub_ = nh_.subscribe(odom_topic, 1, &SensorSimulator::odomCallback, this, ros::TransportHints().tcpNoDelay());
         timer_map_   = nh_.createTimer(ros::Duration(1), &SensorSimulator::timerMapCallback, this);
 
@@ -176,7 +186,14 @@ public:
         camera_info_pub_.publish(camera_info_);   // 先发一帧, 保证不渲染深度时内参也可用
 
         printf("3.Simulation Ready! \n");
+        clearance_worker_ = std::thread(&SensorSimulator::clearanceWorker, this);
         ros::spin();
+        {
+            std::lock_guard<std::mutex> lock(clearance_mutex_);
+            clearance_shutdown_ = true;
+        }
+        clearance_cv_.notify_one();
+        clearance_worker_.join();
     }
 
     void odomCallback(const nav_msgs::Odometry::ConstPtr &msg);
@@ -191,6 +208,8 @@ public:
 
     void timerMapCallback(const ros::TimerEvent &);
 
+    void clearanceWorker();
+
 private:
     bool render_depth{false};
     bool render_lidar{false};
@@ -203,6 +222,7 @@ private:
     std::string collision_topic_{"collision_count"};
     std::string collision_samples_topic_{"collision_samples"};
     std::string collision_state_topic_{"collision_state"};
+    std::string clearance_topic_{"clearance"};
     std::string camera_frame_{"camera_link"};   // 光学系: z 前 x 右 y 下
     std::string body_frame_{"odom"};            // 机体系: x 前 y 左 z 上
     Eigen::Vector3f t_bc{0.0f, 0.0f, 0.05f};                     // 仅为 rviz 显示抬升, 真实相机无此偏移(渲染用 odom 位置)
@@ -221,6 +241,7 @@ private:
     ros::Publisher image_pub_, stereo_depth_pub_, point_cloud_pub_;
     ros::Publisher camera_info_pub_;
     ros::Publisher collision_pub_, collision_samples_pub_, collision_state_pub_;
+    ros::Publisher clearance_pub_;
     ros::Publisher pcl_pub;
     sensor_msgs::CameraInfo camera_info_;
     tf2_ros::StaticTransformBroadcaster static_tf_broadcaster_;
@@ -233,6 +254,13 @@ private:
     int depth_count{0}, lidar_count{0};
     int collision_count_{0}, collision_samples_{0};
     bool collision_state_{false};
+    int clearance_counter_{0};
+    std::thread clearance_worker_;
+    std::mutex clearance_mutex_;
+    std::condition_variable clearance_cv_;
+    Vector3f clearance_position_;
+    bool clearance_pending_{false};
+    bool clearance_shutdown_{false};
     // mocka::Maps map;
 };
 
@@ -360,6 +388,28 @@ void SensorSimulator::renderLidarCallback(const ros::Time stamp) {
     point_cloud_pub_.publish(output);
 }
 
+// The bounded voxel search is deliberately kept off the odometry callback.
+// If a query is still running, coalesce queued samples and process the newest
+// pose next; safety measurement must never perturb the controller being measured.
+void SensorSimulator::clearanceWorker() {
+    while (true) {
+        Vector3f query_position;
+        {
+            std::unique_lock<std::mutex> lock(clearance_mutex_);
+            clearance_cv_.wait(lock, [this] {
+                return clearance_pending_ || clearance_shutdown_;
+            });
+            if (clearance_shutdown_) return;
+            query_position = clearance_position_;
+            clearance_pending_ = false;
+        }
+
+        std_msgs::Float32 clearance_msg;
+        clearance_msg.data = grid_map->clearanceQueryHost(query_position, 3.0f);
+        clearance_pub_.publish(clearance_msg);
+    }
+}
+
 void SensorSimulator::odomCallback(const nav_msgs::Odometry::ConstPtr& msg) {
     quat.x() = msg->pose.pose.orientation.x;
     quat.y() = msg->pose.pose.orientation.y;
@@ -387,6 +437,17 @@ void SensorSimulator::odomCallback(const nav_msgs::Odometry::ConstPtr& msg) {
     std_msgs::Bool state_msg;
     state_msg.data = collision_state_;
     collision_state_pub_.publish(state_msg);
+    // Request a common, model-independent safety sample at up to 10 Hz.  The
+    // worker coalesces samples when needed, so this callback stays non-blocking.
+    if (++clearance_counter_ >= 10) {
+        clearance_counter_ = 0;
+        {
+            std::lock_guard<std::mutex> lock(clearance_mutex_);
+            clearance_position_ = Vector3f(pos.x(), pos.y(), pos.z());
+            clearance_pending_ = true;
+        }
+        clearance_cv_.notify_one();
+    }
 
     ros::Time tnow = ros::Time::now();
 

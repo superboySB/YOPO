@@ -1,0 +1,55 @@
+{
+  "bootstrap_resamples": 10000,
+  "bootstrap_seed": 20260824,
+  "checks": {
+    "all_conditions_have_both_lane_orders": true,
+    "all_maps_identical_between_lanes": true,
+    "condition_clusters": 120,
+    "invalid_start_runs": 0,
+    "lane_order_counts": {
+      "normal": 120,
+      "swapped": 120
+    },
+    "map_seeds": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "max_initial_position_delta_m": 0.0008174715864992521,
+    "maze_types": [
+      1,
+      2,
+      5,
+      7
+    ],
+    "run_count": 240,
+    "runs_per_experiment": {
+      "corridor_calibrated": 80,
+      "inner_topk3": 80,
+      "jerk_topk3": 80
+    },
+    "scenarios": [
+      "dynamic",
+      "straight"
+    ],
+    "unique_configs_per_experiment_role": {
+      "corridor_calibrated:corridor_calibrated": 1,
+      "corridor_calibrated:minco-baseline": 1,
+      "inner_topk3:inner_topk3": 1,
+      "inner_topk3:minco-baseline": 1,
+      "jerk_topk3:jerk_topk3": 1,
+      "jerk_topk3:minco-baseline": 1
+    }
+  },
+  "corridor_stall_example": "results/minco_ablation_raw/corridor_calibrated/maze5_seed5_straight.json",
+  "corridor_stall_selection": "minimum active-command fraction among baseline-success/variant-failure runs",
+  "experiments": [
+    "inner_topk3",
+    "jerk_topk3",
+    "corridor_calibrated"
+  ],
+  "representative": "results/minco_ablation_raw/jerk_topk3/maze5_seed4_dynamic_swapped.json",
+  "representative_selection": "maximum baseline-minus-variant jerk-p95 in dynamic jerk_topk3 runs"
+}

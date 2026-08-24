@@ -1,0 +1,641 @@
+{
+  "batch_size": 16,
+  "candidate_trajectories": 150000,
+  "checkpoint": "YOPO/saved/yopo-minco/epoch50.pth",
+  "checkpoint_sha256": "2d85e712c8874d11cd4e523777698eff78914fdb8f1ffb5068b037f8f972f62f",
+  "corridor_points": 1500000,
+  "dataset_path": "../dataset_minco",
+  "dataset_split": "YOPODataset(mode=valid, val_ratio=0.1, split_seed=0)",
+  "method": "smallest sigma with empirical candidate precision >= target on fixed validation split",
+  "min_admissions": 1000,
+  "processed_batches": 625,
+  "radius_num": 10,
+  "radius_warp_lambda_m": 2.0,
+  "safe_radius_m": 0.05,
+  "selected_metrics": {
+    "admission_precision": 0.9909439517923785,
+    "admission_precision_wilson95_lower": 0.990142799019231,
+    "admission_rate": 0.38942666666666664,
+    "admitted_candidates": 58414,
+    "pointwise_coverage": 0.9818833333333333,
+    "safe_candidate_recall": 0.527204998360596,
+    "sigma": 1.8,
+    "unsafe_admissions": 529
+  },
+  "selected_sigma": 1.8,
+  "state_seed": 0,
+  "sweep": [
+    {
+      "admission_precision": 0.8757057476585297,
+      "admission_precision_wilson95_lower": 0.8738346687325085,
+      "admission_rate": 0.8064733333333334,
+      "admitted_candidates": 120971,
+      "pointwise_coverage": 0.725464,
+      "safe_candidate_recall": 0.9648347845094539,
+      "sigma": 0.0,
+      "unsafe_admissions": 15036
+    },
+    {
+      "admission_precision": 0.8898828251220218,
+      "admission_precision_wilson95_lower": 0.8880809736798532,
+      "admission_rate": 0.7840133333333333,
+      "admitted_candidates": 117602,
+      "pointwise_coverage": 0.771662,
+      "safe_candidate_recall": 0.9531494772122846,
+      "sigma": 0.1,
+      "unsafe_admissions": 12950
+    },
+    {
+      "admission_precision": 0.9025174029158093,
+      "admission_precision_wilson95_lower": 0.9007835687340412,
+      "admission_rate": 0.7613666666666666,
+      "admitted_candidates": 114205,
+      "pointwise_coverage": 0.8052473333333333,
+      "safe_candidate_recall": 0.9387591533389195,
+      "sigma": 0.2,
+      "unsafe_admissions": 11133
+    },
+    {
+      "admission_precision": 0.9133847611314115,
+      "admission_precision_wilson95_lower": 0.9117145024249041,
+      "admission_rate": 0.7389,
+      "admitted_candidates": 110835,
+      "pointwise_coverage": 0.8332186666666667,
+      "safe_candidate_recall": 0.9220281248861525,
+      "sigma": 0.30000000000000004,
+      "unsafe_admissions": 9600
+    },
+    {
+      "admission_precision": 0.9234663434644789,
+      "admission_precision_wilson95_lower": 0.921860149448386,
+      "admission_rate": 0.7150666666666666,
+      "admitted_candidates": 107260,
+      "pointwise_coverage": 0.8568766666666666,
+      "safe_candidate_recall": 0.9021366898611971,
+      "sigma": 0.4,
+      "unsafe_admissions": 8209
+    },
+    {
+      "admission_precision": 0.932682747902972,
+      "admission_precision_wilson95_lower": 0.9311408384829819,
+      "admission_rate": 0.69066,
+      "admitted_candidates": 103599,
+      "pointwise_coverage": 0.8768173333333333,
+      "safe_candidate_recall": 0.8800411672556377,
+      "sigma": 0.5,
+      "unsafe_admissions": 6974
+    },
+    {
+      "admission_precision": 0.9411481959924295,
+      "admission_precision_wilson95_lower": 0.9396714713460099,
+      "admission_rate": 0.66574,
+      "admitted_candidates": 99861,
+      "pointwise_coverage": 0.8939806666666666,
+      "safe_candidate_recall": 0.8559874676673103,
+      "sigma": 0.6000000000000001,
+      "unsafe_admissions": 5877
+    },
+    {
+      "admission_precision": 0.9490616901027301,
+      "admission_precision_wilson95_lower": 0.9476533499147513,
+      "admission_rate": 0.6405133333333334,
+      "admitted_candidates": 96077,
+      "pointwise_coverage": 0.9084106666666667,
+      "safe_candidate_recall": 0.8304765200918066,
+      "sigma": 0.7000000000000001,
+      "unsafe_admissions": 4894
+    },
+    {
+      "admission_precision": 0.9558040987959381,
+      "admission_precision_wilson95_lower": 0.9544588705263138,
+      "admission_rate": 0.61514,
+      "admitted_candidates": 92271,
+      "pointwise_coverage": 0.9208353333333333,
+      "safe_candidate_recall": 0.8032441983314511,
+      "sigma": 0.8,
+      "unsafe_admissions": 4078
+    },
+    {
+      "admission_precision": 0.9624362273691814,
+      "admission_precision_wilson95_lower": 0.9611640229348599,
+      "admission_rate": 0.59064,
+      "admitted_candidates": 88596,
+      "pointwise_coverage": 0.9314233333333334,
+      "safe_candidate_recall": 0.7766038835658858,
+      "sigma": 0.9,
+      "unsafe_admissions": 3328
+    },
+    {
+      "admission_precision": 0.9679231285547745,
+      "admission_precision_wilson95_lower": 0.96671669509838,
+      "admission_rate": 0.56614,
+      "admitted_candidates": 84921,
+      "pointwise_coverage": 0.940676,
+      "safe_candidate_recall": 0.7486338300120223,
+      "sigma": 1.0,
+      "unsafe_admissions": 2724
+    },
+    {
+      "admission_precision": 0.972621256620421,
+      "admission_precision_wilson95_lower": 0.9714775703672618,
+      "admission_rate": 0.5425133333333333,
+      "admitted_candidates": 81377,
+      "pointwise_coverage": 0.94876,
+      "safe_candidate_recall": 0.7208732558563153,
+      "sigma": 1.1,
+      "unsafe_admissions": 2228
+    },
+    {
+      "admission_precision": 0.9767979353115651,
+      "admission_precision_wilson95_lower": 0.9757168836420068,
+      "admission_rate": 0.5192066666666667,
+      "admitted_candidates": 77881,
+      "pointwise_coverage": 0.9557046666666666,
+      "safe_candidate_recall": 0.6928667711027724,
+      "sigma": 1.2000000000000002,
+      "unsafe_admissions": 1807
+    },
+    {
+      "admission_precision": 0.980038341399327,
+      "admission_precision_wilson95_lower": 0.9790096080836932,
+      "admission_rate": 0.49728666666666665,
+      "admitted_candidates": 74593,
+      "pointwise_coverage": 0.9618133333333333,
+      "safe_candidate_recall": 0.6658166053408139,
+      "sigma": 1.3,
+      "unsafe_admissions": 1489
+    },
+    {
+      "admission_precision": 0.9830286839145107,
+      "admission_precision_wilson95_lower": 0.9820529850735664,
+      "admission_rate": 0.47413333333333335,
+      "admitted_candidates": 71120,
+      "pointwise_coverage": 0.967066,
+      "safe_candidate_recall": 0.6367536157965682,
+      "sigma": 1.4000000000000001,
+      "unsafe_admissions": 1207
+    },
+    {
+      "admission_precision": 0.9859148704197546,
+      "admission_precision_wilson95_lower": 0.9850004261609931,
+      "admission_rate": 0.45248666666666665,
+      "admitted_candidates": 67873,
+      "pointwise_coverage": 0.971616,
+      "safe_candidate_recall": 0.6094666472366935,
+      "sigma": 1.5,
+      "unsafe_admissions": 956
+    },
+    {
+      "admission_precision": 0.9876947305037904,
+      "admission_precision_wilson95_lower": 0.9868163127576586,
+      "admission_rate": 0.4317933333333333,
+      "admitted_candidates": 64769,
+      "pointwise_coverage": 0.975618,
+      "safe_candidate_recall": 0.5826441764727313,
+      "sigma": 1.6,
+      "unsafe_admissions": 797
+    },
+    {
+      "admission_precision": 0.9896584193778817,
+      "admission_precision_wilson95_lower": 0.98882839651102,
+      "admission_rate": 0.41064,
+      "admitted_candidates": 61596,
+      "pointwise_coverage": 0.9789653333333334,
+      "safe_candidate_recall": 0.5552023753142191,
+      "sigma": 1.7000000000000002,
+      "unsafe_admissions": 637
+    },
+    {
+      "admission_precision": 0.9909439517923785,
+      "admission_precision_wilson95_lower": 0.990142799019231,
+      "admission_rate": 0.38942666666666664,
+      "admitted_candidates": 58414,
+      "pointwise_coverage": 0.9818833333333333,
+      "safe_candidate_recall": 0.527204998360596,
+      "sigma": 1.8,
+      "unsafe_admissions": 529
+    },
+    {
+      "admission_precision": 0.9923359846357328,
+      "admission_precision_wilson95_lower": 0.9915733877505147,
+      "admission_rate": 0.36795333333333335,
+      "admitted_candidates": 55193,
+      "pointwise_coverage": 0.984414,
+      "safe_candidate_recall": 0.49883420161025904,
+      "sigma": 1.9000000000000001,
+      "unsafe_admissions": 423
+    },
+    {
+      "admission_precision": 0.9933718689788054,
+      "admission_precision_wilson95_lower": 0.9926363282867156,
+      "admission_rate": 0.346,
+      "admitted_candidates": 51900,
+      "pointwise_coverage": 0.9866646666666666,
+      "safe_candidate_recall": 0.4695617326678568,
+      "sigma": 2.0,
+      "unsafe_admissions": 344
+    },
+    {
+      "admission_precision": 0.9944883185258309,
+      "admission_precision_wilson95_lower": 0.9937900642083424,
+      "admission_rate": 0.32416,
+      "admitted_candidates": 48624,
+      "pointwise_coverage": 0.9885573333333333,
+      "safe_candidate_recall": 0.4404167729243324,
+      "sigma": 2.1,
+      "unsafe_admissions": 268
+    },
+    {
+      "admission_precision": 0.9952343303904775,
+      "admission_precision_wilson95_lower": 0.9945586377215052,
+      "admission_rate": 0.30356,
+      "admitted_candidates": 45534,
+      "pointwise_coverage": 0.9902213333333333,
+      "safe_candidate_recall": 0.4127381689679041,
+      "sigma": 2.2,
+      "unsafe_admissions": 217
+    },
+    {
+      "admission_precision": 0.9960173445821747,
+      "admission_precision_wilson95_lower": 0.9953715386420042,
+      "admission_rate": 0.28289333333333333,
+      "admitted_candidates": 42434,
+      "pointwise_coverage": 0.991508,
+      "safe_candidate_recall": 0.38494116361251773,
+      "sigma": 2.3000000000000003,
+      "unsafe_admissions": 169
+    },
+    {
+      "admission_precision": 0.9964948820197608,
+      "admission_precision_wilson95_lower": 0.9958606862589277,
+      "admission_rate": 0.26247333333333334,
+      "admitted_candidates": 39371,
+      "pointwise_coverage": 0.992656,
+      "safe_candidate_recall": 0.3573263142555284,
+      "sigma": 2.4000000000000004,
+      "unsafe_admissions": 138
+    },
+    {
+      "admission_precision": 0.9969799302638442,
+      "admission_precision_wilson95_lower": 0.9963615946446237,
+      "admission_rate": 0.24282,
+      "admitted_candidates": 36423,
+      "pointwise_coverage": 0.9936186666666667,
+      "safe_candidate_recall": 0.33073153848956244,
+      "sigma": 2.5,
+      "unsafe_admissions": 110
+    },
+    {
+      "admission_precision": 0.9974433676199537,
+      "admission_precision_wilson95_lower": 0.996843966725101,
+      "admission_rate": 0.22425333333333333,
+      "admitted_candidates": 33638,
+      "pointwise_coverage": 0.99448,
+      "safe_candidate_recall": 0.30558490291085283,
+      "sigma": 2.6,
+      "unsafe_admissions": 86
+    },
+    {
+      "admission_precision": 0.9979968337048883,
+      "admission_precision_wilson95_lower": 0.9974331246199384,
+      "admission_rate": 0.20634,
+      "admitted_candidates": 30951,
+      "pointwise_coverage": 0.9952073333333333,
+      "safe_candidate_recall": 0.2813308317242887,
+      "sigma": 2.7,
+      "unsafe_admissions": 62
+    },
+    {
+      "admission_precision": 0.9980622886133033,
+      "admission_precision_wilson95_lower": 0.997478899637418,
+      "admission_rate": 0.18922666666666665,
+      "admitted_candidates": 28384,
+      "pointwise_coverage": 0.9958046666666667,
+      "safe_candidate_recall": 0.2580148639294692,
+      "sigma": 2.8000000000000003,
+      "unsafe_admissions": 55
+    },
+    {
+      "admission_precision": 0.9985010953533956,
+      "admission_precision_wilson95_lower": 0.9979517447589985,
+      "admission_rate": 0.17346,
+      "admitted_candidates": 26019,
+      "pointwise_coverage": 0.9963086666666666,
+      "safe_candidate_recall": 0.23662064191773835,
+      "sigma": 2.9000000000000004,
+      "unsafe_admissions": 39
+    },
+    {
+      "admission_precision": 0.9988623435722411,
+      "admission_precision_wilson95_lower": 0.9983452370143356,
+      "admission_rate": 0.15822,
+      "admitted_candidates": 23733,
+      "pointwise_coverage": 0.9967513333333333,
+      "safe_candidate_recall": 0.21590950489999636,
+      "sigma": 3.0,
+      "unsafe_admissions": 27
+    },
+    {
+      "admission_precision": 0.9992620947285892,
+      "admission_precision_wilson95_lower": 0.9988015944130562,
+      "admission_rate": 0.14455333333333334,
+      "admitted_candidates": 21683,
+      "pointwise_coverage": 0.997138,
+      "safe_candidate_recall": 0.19733870086341943,
+      "sigma": 3.1,
+      "unsafe_admissions": 16
+    },
+    {
+      "admission_precision": 0.9993387589013225,
+      "admission_precision_wilson95_lower": 0.9988689087060081,
+      "admission_rate": 0.13106666666666666,
+      "admitted_candidates": 19660,
+      "pointwise_coverage": 0.9974773333333333,
+      "safe_candidate_recall": 0.17894094502531968,
+      "sigma": 3.2,
+      "unsafe_admissions": 13
+    },
+    {
+      "admission_precision": 0.9994931290831268,
+      "admission_precision_wilson95_lower": 0.9990368738356131,
+      "admission_rate": 0.11837333333333333,
+      "admitted_candidates": 17756,
+      "pointwise_coverage": 0.997784,
+      "safe_candidate_recall": 0.1616361251776021,
+      "sigma": 3.3000000000000003,
+      "unsafe_admissions": 9
+    },
+    {
+      "admission_precision": 0.9995642158998942,
+      "admission_precision_wilson95_lower": 0.9991006611121412,
+      "admission_rate": 0.10708666666666666,
+      "admitted_candidates": 16063,
+      "pointwise_coverage": 0.99803,
+      "safe_candidate_recall": 0.14623483551313346,
+      "sigma": 3.4000000000000004,
+      "unsafe_admissions": 7
+    },
+    {
+      "admission_precision": 0.9995874871089722,
+      "admission_precision_wilson95_lower": 0.9991002248813496,
+      "admission_rate": 0.09696666666666667,
+      "admitted_candidates": 14545,
+      "pointwise_coverage": 0.998246,
+      "safe_candidate_recall": 0.13241830303471894,
+      "sigma": 3.5,
+      "unsafe_admissions": 6
+    },
+    {
+      "admission_precision": 0.9995432747202557,
+      "admission_precision_wilson95_lower": 0.9990038242957385,
+      "admission_rate": 0.08758,
+      "admitted_candidates": 13137,
+      "pointwise_coverage": 0.9984666666666666,
+      "safe_candidate_recall": 0.11959452074756821,
+      "sigma": 3.6,
+      "unsafe_admissions": 6
+    },
+    {
+      "admission_precision": 0.9995769881556683,
+      "admission_precision_wilson95_lower": 0.9990100587313049,
+      "admission_rate": 0.0788,
+      "admitted_candidates": 11820,
+      "pointwise_coverage": 0.9986426666666667,
+      "safe_candidate_recall": 0.10760865605304383,
+      "sigma": 3.7,
+      "unsafe_admissions": 5
+    },
+    {
+      "admission_precision": 0.9997166068392216,
+      "admission_precision_wilson95_lower": 0.9991670536858845,
+      "admission_rate": 0.07057333333333334,
+      "admitted_candidates": 10586,
+      "pointwise_coverage": 0.9987926666666667,
+      "safe_candidate_recall": 0.09638784655178695,
+      "sigma": 3.8000000000000003,
+      "unsafe_admissions": 3
+    },
+    {
+      "admission_precision": 0.9996845094121358,
+      "admission_precision_wilson95_lower": 0.9990727563341477,
+      "admission_rate": 0.06339333333333333,
+      "admitted_candidates": 9509,
+      "pointwise_coverage": 0.998924,
+      "safe_candidate_recall": 0.08657874603810703,
+      "sigma": 3.9000000000000004,
+      "unsafe_admissions": 3
+    },
+    {
+      "admission_precision": 0.9997644842204427,
+      "admission_precision_wilson95_lower": 0.9991416131736136,
+      "admission_rate": 0.056613333333333335,
+      "admitted_candidates": 8492,
+      "pointwise_coverage": 0.9990486666666667,
+      "safe_candidate_recall": 0.07732522131953805,
+      "sigma": 4.0,
+      "unsafe_admissions": 2
+    },
+    {
+      "admission_precision": 0.9998676898650437,
+      "admission_precision_wilson95_lower": 0.9992508647942084,
+      "admission_rate": 0.05038666666666667,
+      "admitted_candidates": 7558,
+      "pointwise_coverage": 0.9991473333333334,
+      "safe_candidate_recall": 0.06882764399431673,
+      "sigma": 4.1000000000000005,
+      "unsafe_admissions": 1
+    },
+    {
+      "admission_precision": 0.9998516760605162,
+      "admission_precision_wilson95_lower": 0.9991602485052185,
+      "admission_rate": 0.04494666666666667,
+      "admitted_candidates": 6742,
+      "pointwise_coverage": 0.999242,
+      "safe_candidate_recall": 0.06139567925971802,
+      "sigma": 4.2,
+      "unsafe_admissions": 1
+    },
+    {
+      "admission_precision": 0.9998312521093486,
+      "admission_precision_wilson95_lower": 0.9990446934893302,
+      "admission_rate": 0.03950666666666667,
+      "admitted_candidates": 5926,
+      "pointwise_coverage": 0.9993213333333333,
+      "safe_candidate_recall": 0.05396371452511931,
+      "sigma": 4.3,
+      "unsafe_admissions": 1
+    },
+    {
+      "admission_precision": 0.9998094149037545,
+      "admission_precision_wilson95_lower": 0.9989211632245542,
+      "admission_rate": 0.03498,
+      "admitted_candidates": 5247,
+      "pointwise_coverage": 0.9993993333333333,
+      "safe_candidate_recall": 0.04777951837954024,
+      "sigma": 4.4,
+      "unsafe_admissions": 1
+    },
+    {
+      "admission_precision": 0.9997843433254259,
+      "admission_precision_wilson95_lower": 0.998779362887309,
+      "admission_rate": 0.030913333333333334,
+      "admitted_candidates": 4637,
+      "pointwise_coverage": 0.999474,
+      "safe_candidate_recall": 0.04222376042843091,
+      "sigma": 4.5,
+      "unsafe_admissions": 1
+    },
+    {
+      "admission_precision": 1.0,
+      "admission_precision_wilson95_lower": 0.9990632510768171,
+      "admission_rate": 0.027313333333333332,
+      "admitted_candidates": 4097,
+      "pointwise_coverage": 0.9995313333333333,
+      "safe_candidate_recall": 0.037314656271631025,
+      "sigma": 4.6000000000000005,
+      "unsafe_admissions": 0
+    },
+    {
+      "admission_precision": 1.0,
+      "admission_precision_wilson95_lower": 0.9989422834492502,
+      "admission_rate": 0.024186666666666665,
+      "admitted_candidates": 3628,
+      "pointwise_coverage": 0.9995853333333333,
+      "safe_candidate_recall": 0.03304309810922074,
+      "sigma": 4.7,
+      "unsafe_admissions": 0
+    },
+    {
+      "admission_precision": 1.0,
+      "admission_precision_wilson95_lower": 0.9987877402922759,
+      "admission_rate": 0.0211,
+      "admitted_candidates": 3165,
+      "pointwise_coverage": 0.99963,
+      "safe_candidate_recall": 0.028826186746329557,
+      "sigma": 4.800000000000001,
+      "unsafe_admissions": 0
+    },
+    {
+      "admission_precision": 1.0,
+      "admission_precision_wilson95_lower": 0.9986075826110224,
+      "admission_rate": 0.018366666666666667,
+      "admitted_candidates": 2755,
+      "pointwise_coverage": 0.9996733333333333,
+      "safe_candidate_recall": 0.0250919887791905,
+      "sigma": 4.9,
+      "unsafe_admissions": 0
+    },
+    {
+      "admission_precision": 1.0,
+      "admission_precision_wilson95_lower": 0.9984164427536161,
+      "admission_rate": 0.016146666666666667,
+      "admitted_candidates": 2422,
+      "pointwise_coverage": 0.9997053333333333,
+      "safe_candidate_recall": 0.022059091405879996,
+      "sigma": 5.0,
+      "unsafe_admissions": 0
+    },
+    {
+      "admission_precision": 1.0,
+      "admission_precision_wilson95_lower": 0.9981305327453833,
+      "admission_rate": 0.013673333333333332,
+      "admitted_candidates": 2051,
+      "pointwise_coverage": 0.9997453333333334,
+      "safe_candidate_recall": 0.01868009763561514,
+      "sigma": 5.1000000000000005,
+      "unsafe_admissions": 0
+    },
+    {
+      "admission_precision": 1.0,
+      "admission_precision_wilson95_lower": 0.997828262786618,
+      "admission_rate": 0.011766666666666667,
+      "admitted_candidates": 1765,
+      "pointwise_coverage": 0.999774,
+      "safe_candidate_recall": 0.016075266858537652,
+      "sigma": 5.2,
+      "unsafe_admissions": 0
+    },
+    {
+      "admission_precision": 1.0,
+      "admission_precision_wilson95_lower": 0.9974198335236196,
+      "admission_rate": 0.0099,
+      "admitted_candidates": 1485,
+      "pointwise_coverage": 0.9998013333333333,
+      "safe_candidate_recall": 0.013525082880979271,
+      "sigma": 5.300000000000001,
+      "unsafe_admissions": 0
+    },
+    {
+      "admission_precision": 1.0,
+      "admission_precision_wilson95_lower": 0.9969508394934945,
+      "admission_rate": 0.008373333333333333,
+      "admitted_candidates": 1256,
+      "pointwise_coverage": 0.9998213333333333,
+      "safe_candidate_recall": 0.01143939669933331,
+      "sigma": 5.4,
+      "unsafe_admissions": 0
+    },
+    {
+      "admission_precision": 1.0,
+      "admission_precision_wilson95_lower": 0.9963478727820814,
+      "admission_rate": 0.006986666666666667,
+      "admitted_candidates": 1048,
+      "pointwise_coverage": 0.9998326666666667,
+      "safe_candidate_recall": 0.009544974316004226,
+      "sigma": 5.5,
+      "unsafe_admissions": 0
+    },
+    {
+      "admission_precision": 1.0,
+      "admission_precision_wilson95_lower": 0.9955887965808423,
+      "admission_rate": 0.00578,
+      "admitted_candidates": 867,
+      "pointwise_coverage": 0.999846,
+      "safe_candidate_recall": 0.00789646253051113,
+      "sigma": 5.6000000000000005,
+      "unsafe_admissions": 0
+    },
+    {
+      "admission_precision": 1.0,
+      "admission_precision_wilson95_lower": 0.994641131908004,
+      "admission_rate": 0.004753333333333333,
+      "admitted_candidates": 713,
+      "pointwise_coverage": 0.9998553333333333,
+      "safe_candidate_recall": 0.00649386134285402,
+      "sigma": 5.7,
+      "unsafe_admissions": 0
+    },
+    {
+      "admission_precision": 1.0,
+      "admission_precision_wilson95_lower": 0.9934540091485461,
+      "admission_rate": 0.0038866666666666667,
+      "admitted_candidates": 583,
+      "pointwise_coverage": 0.99987,
+      "safe_candidate_recall": 0.005309847353273343,
+      "sigma": 5.800000000000001,
+      "unsafe_admissions": 0
+    },
+    {
+      "admission_precision": 1.0,
+      "admission_precision_wilson95_lower": 0.9921255999234248,
+      "admission_rate": 0.0032266666666666667,
+      "admitted_candidates": 484,
+      "pointwise_coverage": 0.9998833333333333,
+      "safe_candidate_recall": 0.0044081751612080585,
+      "sigma": 5.9,
+      "unsafe_admissions": 0
+    },
+    {
+      "admission_precision": 1.0,
+      "admission_precision_wilson95_lower": 0.9904403621468829,
+      "admission_rate": 0.0026533333333333335,
+      "admitted_candidates": 398,
+      "pointwise_coverage": 0.9998906666666667,
+      "safe_candidate_recall": 0.0036249043681008414,
+      "sigma": 6.0,
+      "unsafe_admissions": 0
+    }
+  ],
+  "target_precision": 0.99,
+  "validation_images": 10000
+}

@@ -108,6 +108,7 @@ namespace raycast
             __device__ int symmetricIndex(int index, int length);
             __device__ int mapQuery(const Vector3f &pos);
             int mapQueryHost(const Vector3f &pos) const;
+            float clearanceQueryHost(const Vector3f &pos, float max_distance) const;
 
             float raycast_step_; // raycast step
         private:

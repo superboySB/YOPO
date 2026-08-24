@@ -1,0 +1,782 @@
+{
+  "corridor_calibrated": {
+    "all": {
+      "metrics": {
+        "collision_events": {
+          "bootstrap_95ci": [
+            0.0,
+            0.0
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 0.0,
+          "paired_episodes": 80
+        },
+        "collision_free_success": {
+          "bootstrap_95ci": [
+            -0.1875,
+            0.025
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": -0.075,
+          "paired_episodes": 80
+        },
+        "command_acc_rms_mps2": {
+          "bootstrap_95ci": [
+            -0.08325692339916978,
+            -0.0005162365711820938
+          ],
+          "condition_clusters": 34,
+          "mean_variant_minus_baseline": -0.03910374114027845,
+          "paired_episodes": 68
+        },
+        "command_active_fraction": {
+          "bootstrap_95ci": [
+            -0.33162583502193305,
+            -0.11736065367546199
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": -0.21866062927890084,
+          "paired_episodes": 80
+        },
+        "command_jerk_p95_mps3": {
+          "bootstrap_95ci": [
+            -0.34667641948685146,
+            0.702058131664225
+          ],
+          "condition_clusters": 34,
+          "mean_variant_minus_baseline": 0.15964817524650568,
+          "paired_episodes": 68
+        },
+        "min_clearance_m": {
+          "bootstrap_95ci": [
+            -0.06684259419562295,
+            0.09492247821297495
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 0.011897260416299104,
+          "paired_episodes": 80
+        },
+        "path_efficiency": {
+          "bootstrap_95ci": [
+            0.017764841765602245,
+            0.17371281198766858
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 0.09437638480488136,
+          "paired_episodes": 80
+        },
+        "timeout_penalized_s": {
+          "bootstrap_95ci": [
+            -0.22469727037126314,
+            2.4061746820918612
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 1.0087825818749867,
+          "paired_episodes": 80
+        },
+        "turn_response_penalized_s": {
+          "bootstrap_95ci": [
+            -0.7953567781037475,
+            4.069092780150001
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 1.636275290075001,
+          "paired_episodes": 80
+        }
+      },
+      "paired_episodes": 80
+    },
+    "dynamic": {
+      "metrics": {
+        "collision_events": {
+          "bootstrap_95ci": [
+            0.0,
+            0.0
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.0,
+          "paired_episodes": 40
+        },
+        "collision_free_success": {
+          "bootstrap_95ci": [
+            -0.1,
+            0.125
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.0,
+          "paired_episodes": 40
+        },
+        "command_acc_rms_mps2": {
+          "bootstrap_95ci": [
+            -0.10825272999234674,
+            0.006043046921336843
+          ],
+          "condition_clusters": 19,
+          "mean_variant_minus_baseline": -0.046561088523451276,
+          "paired_episodes": 38
+        },
+        "command_active_fraction": {
+          "bootstrap_95ci": [
+            -0.22969141312412172,
+            -0.029891013531022612
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.1141434644221316,
+          "paired_episodes": 40
+        },
+        "command_jerk_p95_mps3": {
+          "bootstrap_95ci": [
+            -0.3696190342403525,
+            1.3463780108554317
+          ],
+          "condition_clusters": 19,
+          "mean_variant_minus_baseline": 0.47161644792690594,
+          "paired_episodes": 38
+        },
+        "min_clearance_m": {
+          "bootstrap_95ci": [
+            -0.15934694616589692,
+            0.056050215642899234
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.03955719340592623,
+          "paired_episodes": 40
+        },
+        "path_efficiency": {
+          "bootstrap_95ci": [
+            -0.03590490584714246,
+            0.15385366229312641
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.05514727890039293,
+          "paired_episodes": 40
+        },
+        "timeout_penalized_s": {
+          "bootstrap_95ci": [
+            -0.9911318053500607,
+            1.5397105797537218
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.2703326637499737,
+          "paired_episodes": 40
+        },
+        "turn_response_penalized_s": {
+          "bootstrap_95ci": [
+            -4.279646235453746,
+            2.074034435257499
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -1.0383244198499975,
+          "paired_episodes": 40
+        }
+      },
+      "paired_episodes": 40
+    },
+    "straight": {
+      "metrics": {
+        "collision_events": {
+          "bootstrap_95ci": [
+            0.0,
+            0.0
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.0,
+          "paired_episodes": 40
+        },
+        "collision_free_success": {
+          "bootstrap_95ci": [
+            -0.325,
+            0.0
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.15,
+          "paired_episodes": 40
+        },
+        "command_acc_rms_mps2": {
+          "bootstrap_95ci": [
+            -0.09879723766875756,
+            0.023375338105671235
+          ],
+          "condition_clusters": 15,
+          "mean_variant_minus_baseline": -0.02965776778825955,
+          "paired_episodes": 30
+        },
+        "command_active_fraction": {
+          "bootstrap_95ci": [
+            -0.5036616453816464,
+            -0.152843189511496
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.32317779413567005,
+          "paired_episodes": 40
+        },
+        "command_jerk_p95_mps3": {
+          "bootstrap_95ci": [
+            -0.6660098174987553,
+            0.1785790906198722
+          ],
+          "condition_clusters": 15,
+          "mean_variant_minus_baseline": -0.23551163681533466,
+          "paired_episodes": 30
+        },
+        "min_clearance_m": {
+          "bootstrap_95ci": [
+            -0.00941845086403191,
+            0.18893942482769485
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.06335171423852444,
+          "paired_episodes": 40
+        },
+        "path_efficiency": {
+          "bootstrap_95ci": [
+            0.012353469419254514,
+            0.256641954434208
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.1336054907093698,
+          "paired_episodes": 40
+        },
+        "timeout_penalized_s": {
+          "bootstrap_95ci": [
+            -0.29445499999999997,
+            4.1706339375
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 1.7472325000000002,
+          "paired_episodes": 40
+        },
+        "turn_response_penalized_s": {
+          "bootstrap_95ci": [
+            1.43456570625,
+            7.825593837499998
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 4.310874999999999,
+          "paired_episodes": 40
+        }
+      },
+      "paired_episodes": 40
+    }
+  },
+  "inner_topk3": {
+    "all": {
+      "metrics": {
+        "collision_events": {
+          "bootstrap_95ci": [
+            0.0,
+            0.0375
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 0.0125,
+          "paired_episodes": 80
+        },
+        "collision_free_success": {
+          "bootstrap_95ci": [
+            -0.2125,
+            0.0375
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": -0.0875,
+          "paired_episodes": 80
+        },
+        "command_acc_rms_mps2": {
+          "bootstrap_95ci": [
+            -0.2103769520156316,
+            -0.05856835366141723
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": -0.13117791630649803,
+          "paired_episodes": 80
+        },
+        "command_active_fraction": {
+          "bootstrap_95ci": [
+            -0.028850027657632137,
+            0.021881661007902238
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": -0.00457533959405357,
+          "paired_episodes": 80
+        },
+        "command_jerk_p95_mps3": {
+          "bootstrap_95ci": [
+            -1.5541529349181182,
+            0.07397620545969447
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": -0.7471150981843837,
+          "paired_episodes": 80
+        },
+        "min_clearance_m": {
+          "bootstrap_95ci": [
+            -0.13053897184319793,
+            -0.02148309742799029
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": -0.07565973652526736,
+          "paired_episodes": 80
+        },
+        "path_efficiency": {
+          "bootstrap_95ci": [
+            -0.14057154517043266,
+            -0.008066767949934352
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": -0.07660413840682725,
+          "paired_episodes": 80
+        },
+        "timeout_penalized_s": {
+          "bootstrap_95ci": [
+            0.2604817922544348,
+            3.5003186662987824
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 1.8685793355000544,
+          "paired_episodes": 80
+        },
+        "turn_response_penalized_s": {
+          "bootstrap_95ci": [
+            0.5647300609012339,
+            5.009869046251858
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 2.7503537374624853,
+          "paired_episodes": 80
+        }
+      },
+      "paired_episodes": 80
+    },
+    "dynamic": {
+      "metrics": {
+        "collision_events": {
+          "bootstrap_95ci": [
+            0.0,
+            0.075
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.025,
+          "paired_episodes": 40
+        },
+        "collision_free_success": {
+          "bootstrap_95ci": [
+            -0.275,
+            0.125
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.075,
+          "paired_episodes": 40
+        },
+        "command_acc_rms_mps2": {
+          "bootstrap_95ci": [
+            -0.23975006311910205,
+            -0.029942894670277474
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.13423767725650013,
+          "paired_episodes": 40
+        },
+        "command_active_fraction": {
+          "bootstrap_95ci": [
+            -0.04876590537608845,
+            0.05204955570745044
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.0018942163201428775,
+          "paired_episodes": 40
+        },
+        "command_jerk_p95_mps3": {
+          "bootstrap_95ci": [
+            -1.0178554517554501,
+            1.1517635203684744
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.056724624599334826,
+          "paired_episodes": 40
+        },
+        "min_clearance_m": {
+          "bootstrap_95ci": [
+            -0.1812212115433067,
+            -0.01153064283542343
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.09693732745945453,
+          "paired_episodes": 40
+        },
+        "path_efficiency": {
+          "bootstrap_95ci": [
+            -0.12065258845058113,
+            0.07116658279522424
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.03555599717217602,
+          "paired_episodes": 40
+        },
+        "timeout_penalized_s": {
+          "bootstrap_95ci": [
+            -1.7061214556160842,
+            3.0933092022264876
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.821196171000109,
+          "paired_episodes": 40
+        },
+        "turn_response_penalized_s": {
+          "bootstrap_95ci": [
+            -1.260692378200007,
+            5.711402641099321
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 2.26009147492497,
+          "paired_episodes": 40
+        }
+      },
+      "paired_episodes": 40
+    },
+    "straight": {
+      "metrics": {
+        "collision_events": {
+          "bootstrap_95ci": [
+            0.0,
+            0.0
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.0,
+          "paired_episodes": 40
+        },
+        "collision_free_success": {
+          "bootstrap_95ci": [
+            -0.25,
+            0.025
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.1,
+          "paired_episodes": 40
+        },
+        "command_acc_rms_mps2": {
+          "bootstrap_95ci": [
+            -0.24944088865807537,
+            -0.020738521647481436
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.1281181553564959,
+          "paired_episodes": 40
+        },
+        "command_active_fraction": {
+          "bootstrap_95ci": [
+            -0.014808341329644982,
+            -0.0011086778082422981
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.007256462867964261,
+          "paired_episodes": 40
+        },
+        "command_jerk_p95_mps3": {
+          "bootstrap_95ci": [
+            -2.611535920766814,
+            -0.4941783971014014
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -1.5509548209681023,
+          "paired_episodes": 40
+        },
+        "min_clearance_m": {
+          "bootstrap_95ci": [
+            -0.1276483774697408,
+            0.009266199087724088
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.05438214559108019,
+          "paired_episodes": 40
+        },
+        "path_efficiency": {
+          "bootstrap_95ci": [
+            -0.21070301634809036,
+            -0.0400522435897604
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.11765227964147848,
+          "paired_episodes": 40
+        },
+        "timeout_penalized_s": {
+          "bootstrap_95ci": [
+            0.99347925,
+            5.183211124999999
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 2.9159625,
+          "paired_episodes": 40
+        },
+        "turn_response_penalized_s": {
+          "bootstrap_95ci": [
+            0.8322542375000048,
+            6.352338656249999
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 3.2406159999999993,
+          "paired_episodes": 40
+        }
+      },
+      "paired_episodes": 40
+    }
+  },
+  "jerk_topk3": {
+    "all": {
+      "metrics": {
+        "collision_events": {
+          "bootstrap_95ci": [
+            -0.0375,
+            0.0
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": -0.0125,
+          "paired_episodes": 80
+        },
+        "collision_free_success": {
+          "bootstrap_95ci": [
+            -0.175,
+            0.1
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": -0.0375,
+          "paired_episodes": 80
+        },
+        "command_acc_rms_mps2": {
+          "bootstrap_95ci": [
+            -0.06710274663228553,
+            0.052036333706215215
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": -0.0070244729469752295,
+          "paired_episodes": 80
+        },
+        "command_active_fraction": {
+          "bootstrap_95ci": [
+            -0.01732358810424709,
+            0.030416084457424667
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 0.005408126504766865,
+          "paired_episodes": 80
+        },
+        "command_jerk_p95_mps3": {
+          "bootstrap_95ci": [
+            -2.1142736443429597,
+            -0.6018158541978096
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": -1.3449563685497226,
+          "paired_episodes": 80
+        },
+        "min_clearance_m": {
+          "bootstrap_95ci": [
+            -0.12289118876680731,
+            -0.03395766051486135
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": -0.07609693203121423,
+          "paired_episodes": 80
+        },
+        "path_efficiency": {
+          "bootstrap_95ci": [
+            -0.12452869208141427,
+            -0.020461615534797396
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": -0.07050036718872262,
+          "paired_episodes": 80
+        },
+        "timeout_penalized_s": {
+          "bootstrap_95ci": [
+            -0.17051246351994603,
+            2.668312001270662
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 1.227465444700043,
+          "paired_episodes": 80
+        },
+        "turn_response_penalized_s": {
+          "bootstrap_95ci": [
+            0.7113431898759406,
+            4.50403444691969
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 2.5156077460125235,
+          "paired_episodes": 80
+        }
+      },
+      "paired_episodes": 80
+    },
+    "dynamic": {
+      "metrics": {
+        "collision_events": {
+          "bootstrap_95ci": [
+            -0.075,
+            0.0
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.025,
+          "paired_episodes": 40
+        },
+        "collision_free_success": {
+          "bootstrap_95ci": [
+            -0.35,
+            0.1
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.125,
+          "paired_episodes": 40
+        },
+        "command_acc_rms_mps2": {
+          "bootstrap_95ci": [
+            -0.13927985159025966,
+            0.030243359006120216
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.053102993822755504,
+          "paired_episodes": 40
+        },
+        "command_active_fraction": {
+          "bootstrap_95ci": [
+            -0.027172838306208556,
+            0.06343659879793678
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.016573199831695487,
+          "paired_episodes": 40
+        },
+        "command_jerk_p95_mps3": {
+          "bootstrap_95ci": [
+            -2.462705028956658,
+            -0.2782733569565132
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -1.3312037488836073,
+          "paired_episodes": 40
+        },
+        "min_clearance_m": {
+          "bootstrap_95ci": [
+            -0.15994859928265212,
+            -0.015199379548430474
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.08303218632936478,
+          "paired_episodes": 40
+        },
+        "path_efficiency": {
+          "bootstrap_95ci": [
+            -0.14764553246661738,
+            -0.028836101253529135
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.08601166690169545,
+          "paired_episodes": 40
+        },
+        "timeout_penalized_s": {
+          "bootstrap_95ci": [
+            -0.311818641610585,
+            3.56479715349311
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 1.5789733894000857,
+          "paired_episodes": 40
+        },
+        "turn_response_penalized_s": {
+          "bootstrap_95ci": [
+            -0.2910325624631583,
+            5.922562170577523
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 2.758649742025047,
+          "paired_episodes": 40
+        }
+      },
+      "paired_episodes": 40
+    },
+    "straight": {
+      "metrics": {
+        "collision_events": {
+          "bootstrap_95ci": [
+            0.0,
+            0.0
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.0,
+          "paired_episodes": 40
+        },
+        "collision_free_success": {
+          "bootstrap_95ci": [
+            -0.1,
+            0.225
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.05,
+          "paired_episodes": 40
+        },
+        "command_acc_rms_mps2": {
+          "bootstrap_95ci": [
+            -0.040626734936111644,
+            0.11393172976393438
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.03905404792880505,
+          "paired_episodes": 40
+        },
+        "command_active_fraction": {
+          "bootstrap_95ci": [
+            -0.017385729550053398,
+            0.005094556919741873
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.005756946822161757,
+          "paired_episodes": 40
+        },
+        "command_jerk_p95_mps3": {
+          "bootstrap_95ci": [
+            -2.4154088656015325,
+            -0.3317885245210204
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -1.3587089882158379,
+          "paired_episodes": 40
+        },
+        "min_clearance_m": {
+          "bootstrap_95ci": [
+            -0.12044182658195494,
+            -0.02185324965976181
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.0691616777330637,
+          "paired_episodes": 40
+        },
+        "path_efficiency": {
+          "bootstrap_95ci": [
+            -0.14446813374045714,
+            0.025736004376584506
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.05498906747574974,
+          "paired_episodes": 40
+        },
+        "timeout_penalized_s": {
+          "bootstrap_95ci": [
+            -1.2636391250000003,
+            2.9098654999999995
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.8759575,
+          "paired_episodes": 40
+        },
+        "turn_response_penalized_s": {
+          "bootstrap_95ci": [
+            0.35201981875000005,
+            4.646206481249997
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 2.2725657500000005,
+          "paired_episodes": 40
+        }
+      },
+      "paired_episodes": 40
+    }
+  }
+}

@@ -1,0 +1,209 @@
+{
+  "all": {
+    "metrics": {
+      "collision_events": {
+        "bootstrap_95ci": [
+          0.0,
+          0.0
+        ],
+        "mean_minco_minus_simple": 0.0,
+        "n": 40
+      },
+      "collision_free_success": {
+        "bootstrap_95ci": [
+          -0.175,
+          0.175
+        ],
+        "mean_minco_minus_simple": 0.0,
+        "n": 40
+      },
+      "command_acc_rms_mps2": {
+        "bootstrap_95ci": [
+          0.07294586143013172,
+          0.4251347582803889
+        ],
+        "mean_minco_minus_simple": 0.2495577911655821,
+        "n": 40
+      },
+      "command_jerk_p95_mps3": {
+        "bootstrap_95ci": [
+          3.8634177066651936,
+          6.3031440323758625
+        ],
+        "mean_minco_minus_simple": 5.119748501525964,
+        "n": 40
+      },
+      "min_clearance_m": {
+        "bootstrap_95ci": [
+          -0.13483474839478732,
+          0.012930768337100721
+        ],
+        "mean_minco_minus_simple": -0.06172874215990305,
+        "n": 40
+      },
+      "path_efficiency": {
+        "bootstrap_95ci": [
+          -0.04766564838150975,
+          0.1116067782845334
+        ],
+        "mean_minco_minus_simple": 0.03291447636803565,
+        "n": 40
+      },
+      "timeout_penalized_s": {
+        "bootstrap_95ci": [
+          -2.7916150811456517,
+          0.9673651491137345
+        ],
+        "mean_minco_minus_simple": -0.9439591970000185,
+        "n": 40
+      },
+      "turn_response_penalized_s": {
+        "bootstrap_95ci": [
+          -3.565580613506855,
+          0.8646710226987595
+        ],
+        "mean_minco_minus_simple": -1.312228606174991,
+        "n": 40
+      }
+    },
+    "paired_episodes": 40
+  },
+  "dynamic": {
+    "metrics": {
+      "collision_events": {
+        "bootstrap_95ci": [
+          0.0,
+          0.0
+        ],
+        "mean_minco_minus_simple": 0.0,
+        "n": 20
+      },
+      "collision_free_success": {
+        "bootstrap_95ci": [
+          -0.15,
+          0.35
+        ],
+        "mean_minco_minus_simple": 0.1,
+        "n": 20
+      },
+      "command_acc_rms_mps2": {
+        "bootstrap_95ci": [
+          0.059524417960350164,
+          0.562256304081858
+        ],
+        "mean_minco_minus_simple": 0.31902884677197735,
+        "n": 20
+      },
+      "command_jerk_p95_mps3": {
+        "bootstrap_95ci": [
+          4.248732096189561,
+          7.667312593036811
+        ],
+        "mean_minco_minus_simple": 6.088921516045976,
+        "n": 20
+      },
+      "min_clearance_m": {
+        "bootstrap_95ci": [
+          -0.21652240890078245,
+          0.05659690673463045
+        ],
+        "mean_minco_minus_simple": -0.08148918561637401,
+        "n": 20
+      },
+      "path_efficiency": {
+        "bootstrap_95ci": [
+          -0.01204162035972534,
+          0.19741296837715014
+        ],
+        "mean_minco_minus_simple": 0.0886979269223819,
+        "n": 20
+      },
+      "timeout_penalized_s": {
+        "bootstrap_95ci": [
+          -4.827544700138822,
+          0.02600967855244722
+        ],
+        "mean_minco_minus_simple": -2.420088394000037,
+        "n": 20
+      },
+      "turn_response_penalized_s": {
+        "bootstrap_95ci": [
+          -6.848310356891215,
+          1.4617674320874994
+        ],
+        "mean_minco_minus_simple": -2.7866847123499827,
+        "n": 20
+      }
+    },
+    "paired_episodes": 20
+  },
+  "straight": {
+    "metrics": {
+      "collision_events": {
+        "bootstrap_95ci": [
+          0.0,
+          0.0
+        ],
+        "mean_minco_minus_simple": 0.0,
+        "n": 20
+      },
+      "collision_free_success": {
+        "bootstrap_95ci": [
+          -0.35,
+          0.15
+        ],
+        "mean_minco_minus_simple": -0.1,
+        "n": 20
+      },
+      "command_acc_rms_mps2": {
+        "bootstrap_95ci": [
+          -0.04646049380831971,
+          0.43073408467600877
+        ],
+        "mean_minco_minus_simple": 0.18008673555918678,
+        "n": 20
+      },
+      "command_jerk_p95_mps3": {
+        "bootstrap_95ci": [
+          2.50448254945616,
+          5.7704270289890705
+        ],
+        "mean_minco_minus_simple": 4.150575487005954,
+        "n": 20
+      },
+      "min_clearance_m": {
+        "bootstrap_95ci": [
+          -0.09495759150013328,
+          0.01605671894736586
+        ],
+        "mean_minco_minus_simple": -0.041968298703432085,
+        "n": 20
+      },
+      "path_efficiency": {
+        "bootstrap_95ci": [
+          -0.13850385830371795,
+          0.10127733807240745
+        ],
+        "mean_minco_minus_simple": -0.0228689741863106,
+        "n": 20
+      },
+      "timeout_penalized_s": {
+        "bootstrap_95ci": [
+          -2.2010105,
+          3.292159874999998
+        ],
+        "mean_minco_minus_simple": 0.5321700000000003,
+        "n": 20
+      },
+      "turn_response_penalized_s": {
+        "bootstrap_95ci": [
+          -0.7668926625000001,
+          0.847603275
+        ],
+        "mean_minco_minus_simple": 0.16222749999999997,
+        "n": 20
+      }
+    },
+    "paired_episodes": 20
+  }
+}

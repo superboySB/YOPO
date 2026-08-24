@@ -91,7 +91,7 @@ class MincoTraj:
         return total if self._batched else float(total[0])
 
     def _eval(self, t, deriv):
-        """Evaluate the trajectory (deriv 0/1/2 = pos/vel/acc) at time(s) t, per-batch piece selection
+        """Evaluate the trajectory (deriv 0/1/2/3 = pos/vel/acc/jerk) at time(s) t, per-batch piece selection
         with time clamped to [0, total]. Returns (3,)/(K,3) for single, (B,3)/(B,K,3) for batched."""
         if np.isscalar(t):
             t_arr = np.array([t], dtype=np.float64)
@@ -114,6 +114,9 @@ class MincoTraj:
             powers = np.stack([np.zeros_like(rel_t), np.ones_like(rel_t), 2 * rel_t, 3 * rel_t ** 2, 4 * rel_t ** 3, 5 * rel_t ** 4], axis=-1)
         elif deriv == 2:
             powers = np.stack([np.zeros_like(rel_t), np.zeros_like(rel_t), 2 * np.ones_like(rel_t), 6 * rel_t, 12 * rel_t ** 2, 20 * rel_t ** 3], axis=-1)
+        elif deriv == 3:
+            powers = np.stack([np.zeros_like(rel_t), np.zeros_like(rel_t), np.zeros_like(rel_t),
+                               6 * np.ones_like(rel_t), 24 * rel_t, 60 * rel_t ** 2], axis=-1)
         else:
             raise ValueError(f"unsupported deriv={deriv}")
         # powers: (B, K, 6)
@@ -134,13 +137,14 @@ class MincoTraj:
     def position(self, t):     return self._eval(t, 0)
     def velocity(self, t):     return self._eval(t, 1)
     def acceleration(self, t): return self._eval(t, 2)
+    def jerk(self, t):         return self._eval(t, 3)
 
 
 def wrap_to_pi(angle):
     """将角度限制在 [-pi, pi]"""
     return (angle + np.pi) % (2 * np.pi) - np.pi
 
-def calculate_yaw(vel_dir, goal_dir, last_yaw, dt, max_yaw_rate=0.5):
+def calculate_yaw(vel_dir, goal_dir, last_yaw, dt, max_yaw_rate=0.5, goal_weight_scale=2.0):
     """Desired yaw + yaw-rate: blend the velocity heading with the goal heading (goal weight grows
     with heading error, ~equal at 60°), then rate-limit the change to max_yaw_rate·π per second."""
     # Normalize velocity and goal directions
@@ -151,7 +155,7 @@ def calculate_yaw(vel_dir, goal_dir, last_yaw, dt, max_yaw_rate=0.5):
     # Goal yaw and weighting
     goal_yaw = np.arctan2(goal_dir[1], goal_dir[0])
     delta_yaw = wrap_to_pi(goal_yaw - last_yaw)
-    weight = 2 * abs(delta_yaw) / np.pi  # equal weight at 90°, goal weight increases as delta_yaw grows
+    weight = goal_weight_scale * abs(delta_yaw) / np.pi
 
     # Desired direction and yaw
     dir_des = vel_dir + weight * goal_dir
@@ -167,4 +171,3 @@ def calculate_yaw(vel_dir, goal_dir, last_yaw, dt, max_yaw_rate=0.5):
     yawdot = yaw_change / dt
 
     return yaw, yawdot
-

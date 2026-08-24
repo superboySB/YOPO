@@ -41,6 +41,8 @@ class YopoNet:
         self.use_trt = self.config['use_tensorrt']
         self.verbose = self.config['verbose']
         self.visualize = self.config['visualize']
+        self.arrival_radius = float(self.config.get('arrival_radius', 5.0))
+        self.yaw_goal_weight = float(self.config.get('yaw_goal_weight', 6.0))
         self.Rotation_bc = R.from_euler('ZYX', [0, self.config['pitch_angle_deg'], 0], degrees=True).as_matrix()
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -121,7 +123,7 @@ class YopoNet:
         self.odom_init = True
 
         pos = np.array((self.odom.pose.pose.position.x, self.odom.pose.pose.position.y, self.odom.pose.pose.position.z))
-        if np.linalg.norm(pos - self.goal) < 5 and not self.arrive:
+        if np.linalg.norm(pos - self.goal) < self.arrival_radius and not self.arrive:
             print("Arrive!")
             self.arrive = True
 
@@ -236,7 +238,8 @@ class YopoNet:
             self.desire_vel = np.array([control_msg.velocity.x, control_msg.velocity.y, control_msg.velocity.z])
             self.desire_acc = np.array([control_msg.acceleration.x, control_msg.acceleration.y, control_msg.acceleration.z])
             goal_dir = self.goal - self.desire_pos
-            yaw, yaw_dot = calculate_yaw(self.desire_vel, goal_dir, self.last_yaw, self.ctrl_dt)
+            yaw, yaw_dot = calculate_yaw(self.desire_vel, goal_dir, self.last_yaw, self.ctrl_dt,
+                                         goal_weight_scale=self.yaw_goal_weight)
             self.last_yaw = yaw
             control_msg.yaw = yaw
             control_msg.yaw_dot = yaw_dot
@@ -391,6 +394,8 @@ def parser():
     parser.add_argument("--goal-topic", default="/move_base_simple/goal")
     parser.add_argument("--viz-prefix", default="/yopo_simple")
     parser.add_argument("--velocity", type=float, default=None)
+    parser.add_argument("--arrival-radius", type=float, default=5.0)
+    parser.add_argument("--yaw-goal-weight", type=float, default=6.0)
     parser.add_argument("--wait-for-goal", action="store_true",
                         help="stay idle until the first goal message arrives")
     return parser
@@ -415,6 +420,8 @@ if __name__ == "__main__":
                 'goal_topic': args.goal_topic,
                 'viz_prefix': args.viz_prefix,
                 'wait_for_goal': args.wait_for_goal,
+                'arrival_radius': args.arrival_radius,
+                'yaw_goal_weight': args.yaw_goal_weight,
                 'plan_from_reference': False,   # 从参考状态规划？位置控制器: True, 神经网络直接控制: False
                 'verbose': False,               # 打印耗时？
                 'visualize': True               # 可视化所有轨迹？(实飞改为False节省计算)

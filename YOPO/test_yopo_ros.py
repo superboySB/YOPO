@@ -46,7 +46,10 @@ class YopoNet:
         self.goal_received = not self.config.get('wait_for_goal', False)
         self.goal_length = float(cfg['goal_length'])
         self.plan_from_reference = self.config['plan_from_reference']
-        self.topk = self.config.get('topk', 1)  # pick the traj closest to last inner among the top-K best
+        self.topk = int(self.config.get('topk', 1))
+        self.continuity_mode = self.config.get('continuity_mode', 'inner')
+        if self.continuity_mode not in ('none', 'inner', 'jerk'):
+            raise ValueError("continuity_mode must be one of: none, inner, jerk")
         self.use_trt = self.config['use_tensorrt']
         self.verbose = self.config['verbose']
         self.Rotation_bc = R.from_euler('ZYX', [0, self.config['pitch_angle_deg'], 0], degrees=True).as_matrix()
@@ -78,6 +81,11 @@ class YopoNet:
         self.radius_b_min = float(cfg["radius_b_min"])
         self.radius_b_max = float(cfg["radius_b_max"])
         self.safe_radius = float(self.config.get('safe_radius', 0.05))
+        self.corridor_sigma = float(self.config.get('corridor_sigma', 1.0))
+        if self.corridor_sigma < 0.0:
+            raise ValueError("corridor_sigma must be non-negative")
+        self.arrival_radius = float(self.config.get('arrival_radius', 5.0))
+        self.yaw_goal_weight = float(self.config.get('yaw_goal_weight', 2.0))
         self.safe_mu = 1.0 - np.exp(-self.safe_radius / self.radius_lambda)   # warped, compared against μ directly
         self.brake = False
 
@@ -147,7 +155,7 @@ class YopoNet:
         self.odom_init = True
 
         pos = self._odom_pos()
-        if np.linalg.norm(pos - self.goal) < 5 and not self.arrive:
+        if np.linalg.norm(pos - self.goal) < self.arrival_radius and not self.arrive:
             print("Arrive!")
             self.arrive = True
 
@@ -245,11 +253,14 @@ class YopoNet:
             start_vel = self.desire_vel if self.plan_from_reference else self._odom_vel()
             head_pva_w = np.stack([start_pos, start_vel, self.desire_acc], axis=0)  # (3, 3)
 
-            action_id, brake = self.select_action(score, inner_pos_w + start_pos, mu_lo)
-            # inner/tail world positions are body-frame offsets rotated, plus drone position
-            best_inner_w = inner_pos_w[action_id] + start_pos
-            best_tail_pva_w = tail_pva_w[action_id].copy()
-            best_tail_pva_w[0] += start_pos                # only position needs translation
+            # Absolute candidate boundary conditions are also used by the jerk-continuity ablation.
+            inner_abs_w = inner_pos_w + start_pos
+            tail_abs_w = tail_pva_w.copy()
+            tail_abs_w[:, 0] += start_pos                  # only position needs translation
+            action_id, brake = self.select_action(
+                score, inner_abs_w, mu_lo, head_pva_w, tail_abs_w, durations_b)
+            best_inner_w = inner_abs_w[action_id]
+            best_tail_pva_w = tail_abs_w[action_id]
             best_durations = durations_b[action_id]        # (2,) per-piece durations
 
             self.optimal_traj = MincoTraj().solve(head_pva_w, best_tail_pva_w, best_inner_w, durations=best_durations)
@@ -263,7 +274,7 @@ class YopoNet:
         """Tightest conservative corridor per candidate, warped: min over the nr balls of (μ − b).
         Subtracting b discounts the model's uncertainty. Returns (N,), image order."""
         m = radius_pred[0].reshape(2 * self.radius_num, -1)                 # (2nr, N)
-        return (m[:self.radius_num] - m[self.radius_num:]).min(axis=0)
+        return (m[:self.radius_num] - self.corridor_sigma * m[self.radius_num:]).min(axis=0)
 
     def _publish_corridor(self, radius_pred, sel_img, durations):
         """Selected traj's predicted corridor (map-free): μ/b at radius_num time-uniform instants;
@@ -307,7 +318,8 @@ class YopoNet:
             return
         if self.brake and self.last_control_msg is not None:
             goal_dir = self.goal - self._odom_pos()
-            yaw, yawdot = calculate_yaw(goal_dir, goal_dir, self.last_yaw, self.ctrl_dt)
+            yaw, yawdot = calculate_yaw(goal_dir, goal_dir, self.last_yaw, self.ctrl_dt,
+                                        goal_weight_scale=self.yaw_goal_weight)
             self.last_yaw = yaw
             self.last_control_msg.trajectory_flag = self.last_control_msg.TRAJECTORY_STATUS_EMPTY
             self.last_control_msg.yaw, self.last_control_msg.yaw_dot = yaw, yawdot
@@ -331,7 +343,8 @@ class YopoNet:
             self.desire_vel = np.array(vel)
             self.desire_acc = np.array(acc)
             goal_dir = self.goal - self.desire_pos
-            yaw, yaw_dot = calculate_yaw(self.desire_vel, goal_dir, self.last_yaw, self.ctrl_dt)
+            yaw, yaw_dot = calculate_yaw(self.desire_vel, goal_dir, self.last_yaw, self.ctrl_dt,
+                                         goal_weight_scale=self.yaw_goal_weight)
             self.last_yaw = yaw
             control_msg.yaw = yaw
             control_msg.yaw_dot = yaw_dot
@@ -339,18 +352,29 @@ class YopoNet:
             self.last_control_msg = control_msg
             self.ctrl_pub.publish(control_msg)
 
-    def select_action(self, score, inner_w, mu_lo):
-        """Highest score among the trajs whose conservative corridor clears safe_mu (with topk > 1:
-        among their top-K, the inner waypoint closest to the last executed one).
+    def select_action(self, score, inner_w, mu_lo, head_pva_w=None, tail_pva_w=None, durations=None):
+        """Highest score among candidates that clear the corridor.  For topk > 1, optionally choose
+        either the nearest inner waypoint or the smallest old/new initial-jerk jump among the top-K.
         Returns (action_id, brake); brake means none cleared it, so the best-scoring traj is used."""
         cand = np.flatnonzero(mu_lo >= self.safe_mu)
         if cand.size == 0:
             return int(np.argmax(score)), True
-        if self.topk <= 1 or self.best_inner_w is None:
+        if self.topk <= 1 or self.continuity_mode == 'none' or self.optimal_traj is None:
             return int(cand[np.argmax(score[cand])]), False
         k = min(self.topk, cand.size)
         topk_ids = cand[np.argpartition(score[cand], -k)[-k:]]
-        dists = np.linalg.norm(inner_w[topk_ids] - self.best_inner_w, axis=1)
+        if self.continuity_mode == 'inner':
+            dists = np.linalg.norm(inner_w[topk_ids] - self.best_inner_w, axis=1)
+        else:
+            if head_pva_w is None or tail_pva_w is None or durations is None:
+                raise ValueError("jerk continuity requires candidate boundary conditions")
+            head_batch = np.broadcast_to(head_pva_w, (len(score), 3, 3)).copy()
+            candidate_traj = MincoTraj().solve(head_batch, tail_pva_w, inner_w, durations)
+            candidate_jerk = candidate_traj.jerk(0.0)
+            old_t = min(max(float(self.ctrl_time or 0.0), 0.0),
+                        max(float(self.optimal_traj.total_time) - 1e-6, 0.0))
+            old_jerk = self.optimal_traj.jerk(old_t)
+            dists = np.linalg.norm(candidate_jerk[topk_ids] - old_jerk, axis=1)
         return int(topk_ids[np.argmin(dists)]), False
 
     def process_output(self, endstate_pred, score_pred):
@@ -566,6 +590,12 @@ def parser():
     parser.add_argument("--viz-prefix", default="/yopo_minco")
     parser.add_argument("--velocity", type=float, default=None)
     parser.add_argument("--safe-radius", type=float, default=0.05)
+    parser.add_argument("--corridor-sigma", type=float, default=1.0,
+                        help="uncertainty multiplier k in the lower bound mu-k*b")
+    parser.add_argument("--topk", type=int, default=1)
+    parser.add_argument("--continuity-mode", choices=("none", "inner", "jerk"), default="inner")
+    parser.add_argument("--arrival-radius", type=float, default=5.0)
+    parser.add_argument("--yaw-goal-weight", type=float, default=2.0)
     parser.add_argument("--wait-for-goal", action="store_true",
                         help="stay idle until the first goal message arrives")
     return parser
@@ -582,7 +612,8 @@ if __name__ == "__main__":
 
     settings = {'use_tensorrt': args.use_tensorrt,      # run the TensorRT engine instead of PyTorch
                 'goal': [50, 0, 2],                     # initial goal (world xyz); RViz 2D Nav Goal overrides it
-                'topk': 1,                              # >=1: among the top-K scores, keep the traj closest to the last one
+                'topk': args.topk,
+                'continuity_mode': args.continuity_mode,
                 'pitch_angle_deg': -0,                  # camera pitch w.r.t. the body (upward is negative)
                 'node_name': args.node_name,
                 'odom_topic': args.odom_topic,           # odometry topic (FLU)
@@ -591,6 +622,9 @@ if __name__ == "__main__":
                 'goal_topic': args.goal_topic,
                 'viz_prefix': args.viz_prefix,
                 'safe_radius': args.safe_radius,
+                'corridor_sigma': args.corridor_sigma,
+                'arrival_radius': args.arrival_radius,
+                'yaw_goal_weight': args.yaw_goal_weight,
                 'wait_for_goal': args.wait_for_goal,
                 'plan_from_reference': False,           # set True when flying with a position controller
                 'verbose': False                        # print the per-stage timing every frame

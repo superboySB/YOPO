@@ -1,0 +1,82 @@
+{
+  "episode_files": 40,
+  "identical_map_fingerprints": 40,
+  "invalid_start_episodes": 0,
+  "map_seeds": [
+    1,
+    2,
+    3,
+    4,
+    5
+  ],
+  "maze_types": [
+    1,
+    2,
+    5,
+    7
+  ],
+  "paired_vehicle_rollouts": 80,
+  "protocol": {
+    "arrival_radius_m": 1.0,
+    "common_yaw_goal_weight": 6.0,
+    "dynamic_final_goal": [
+      10.0,
+      15.0,
+      2.0
+    ],
+    "dynamic_initial_goal": [
+      20.0,
+      0.0,
+      2.0
+    ],
+    "dynamic_switch_s": 2.5,
+    "episode_timeout_s": 20.0,
+    "requested_velocity_mps": 6.0,
+    "same_start": [
+      0.0,
+      0.0,
+      2.0
+    ],
+    "straight_goal": [
+      20.0,
+      0.0,
+      2.0
+    ]
+  },
+  "scenarios": [
+    "dynamic",
+    "straight"
+  ],
+  "selected_examples": {
+    "candidate_panel": "maze5_seed5_straight.json",
+    "dynamic_gif": "maze1_seed1_dynamic.json",
+    "trajectory_panels": {
+      "1": "maze1_seed5_straight.json",
+      "2": "maze2_seed3_straight.json",
+      "5": "maze5_seed5_straight.json",
+      "7": "maze7_seed2_straight.json"
+    }
+  },
+  "training_curve_endpoints": {
+    "yopo-minco:Eval/MeanTrajLoss": {
+      "first": 12.611320495605469,
+      "last": 11.304010391235352,
+      "relative_change_pct": -10.366163518131676
+    },
+    "yopo-minco:Eval/RankLoss": {
+      "first": 1.8069707155227661,
+      "last": 1.44612455368042,
+      "relative_change_pct": -19.969674037465047
+    },
+    "yopo-simple:Eval/ScoreLoss": {
+      "first": 0.26229530572891235,
+      "last": 0.08987292647361755,
+      "relative_change_pct": -65.73597601228019
+    },
+    "yopo-simple:Eval/TrajLoss": {
+      "first": 3.274015188217163,
+      "last": 3.0161972045898438,
+      "relative_change_pct": -7.874672804059646
+    }
+  }
+}

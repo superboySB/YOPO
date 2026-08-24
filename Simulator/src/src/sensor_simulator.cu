@@ -129,6 +129,34 @@ namespace raycast
                map_host_[idx] > occupy_threshold_ ? 1 : 0;
     }
 
+    float GridMap::clearanceQueryHost(const Vector3f &pos, float max_distance) const {
+        if (mapQueryHost(pos) == 1) return 0.0f;
+        const int radius = static_cast<int>(std::ceil(max_distance / resolution_));
+        float best_sq = max_distance * max_distance;
+        const float resolution_sq = resolution_ * resolution_;
+        // Search Chebyshev shells from near to far.  Once the next shell is
+        // farther than the current best, no unvisited voxel can improve it.
+        for (int shell = 1; shell <= radius; ++shell) {
+            if (resolution_sq * shell * shell >= best_sq) break;
+            for (int dx = -shell; dx <= shell; ++dx) {
+                for (int dy = -shell; dy <= shell; ++dy) {
+                    for (int dz = -shell; dz <= shell; ++dz) {
+                        if (std::max(std::abs(dx), std::max(std::abs(dy), std::abs(dz))) != shell)
+                            continue;
+                        const float dist_sq = resolution_sq *
+                            static_cast<float>(dx * dx + dy * dy + dz * dz);
+                        if (dist_sq >= best_sq) continue;
+                        const Vector3f query(pos.x + dx * resolution_,
+                                             pos.y + dy * resolution_,
+                                             pos.z + dz * resolution_);
+                        if (mapQueryHost(query) == 1) best_sq = dist_sq;
+                    }
+                }
+            }
+        }
+        return std::sqrt(best_sq);
+    }
+
     // 整数哈希 (Wang hash)，把一个整数打散成均匀分布
     __device__ __forceinline__ unsigned int wangHash(unsigned int s)
     {

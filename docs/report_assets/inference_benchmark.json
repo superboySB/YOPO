@@ -1,0 +1,34 @@
+{
+  "yopo-minco": {
+    "checkpoint": "/workspace/YOPO/YOPO/saved/yopo-minco/epoch50.pth",
+    "gpu": "NVIDIA GeForce RTX 4070 Ti SUPER",
+    "head_output_channels": 35,
+    "model": "yopo-minco",
+    "network_latency_ms": {
+      "mean": 0.5499170594215393,
+      "median": 0.5345280170440674,
+      "p95": 0.7035407930612564,
+      "std": 0.07487748917844987
+    },
+    "parameters": 11310712,
+    "repeats": 500,
+    "torch": "2.4.1+cu118",
+    "warmup": 100
+  },
+  "yopo-simple": {
+    "checkpoint": "/workspace/YOPO/YOPO/saved/yopo-simple/epoch50.pth",
+    "gpu": "NVIDIA GeForce RTX 4070 Ti SUPER",
+    "head_output_channels": 10,
+    "model": "yopo-simple",
+    "network_latency_ms": {
+      "mean": 0.5419484162330628,
+      "median": 0.5243360102176666,
+      "p95": 0.7282176017761229,
+      "std": 0.0775800531366076
+    },
+    "parameters": 11304287,
+    "repeats": 500,
+    "torch": "2.4.1+cu118",
+    "warmup": 100
+  }
+}
