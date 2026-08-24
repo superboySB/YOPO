@@ -1,0 +1,69 @@
+{
+  "bootstrap_resamples": 10000,
+  "bootstrap_seed": 20260824,
+  "checks": {
+    "all_conditions_have_both_lane_orders": true,
+    "all_maps_identical_between_lanes": true,
+    "condition_clusters": 160,
+    "invalid_start_runs": 0,
+    "map_seeds": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "max_initial_position_delta_m": 0.0008158022162061407,
+    "maze_types": [
+      1,
+      2,
+      5,
+      7
+    ],
+    "run_count": 320,
+    "runs_per_experiment": {
+      "corridor": 80,
+      "duration": 80,
+      "geometry": 80,
+      "temporal": 80
+    },
+    "scenarios": [
+      "dynamic",
+      "straight"
+    ],
+    "unique_configs_per_experiment_role": {
+      "corridor:corridor_filter": 1,
+      "corridor:corridor_off": 1,
+      "duration:minco_fixed": 1,
+      "duration:minco_variable": 1,
+      "geometry:minco_fixed": 1,
+      "geometry:single_fixed": 1,
+      "temporal:jerk_top3": 1,
+      "temporal:score_top1": 1
+    }
+  },
+  "definitions": {
+    "corridor": {
+      "baseline": "corridor_off",
+      "variant": "corridor_filter"
+    },
+    "duration": {
+      "baseline": "minco_fixed",
+      "variant": "minco_variable"
+    },
+    "geometry": {
+      "baseline": "single_fixed",
+      "variant": "minco_fixed"
+    },
+    "temporal": {
+      "baseline": "score_top1",
+      "variant": "jerk_top3"
+    }
+  },
+  "representative_runs": {
+    "corridor": "results/controlled_ablation_raw/corridor/maze1_seed5_dynamic.json",
+    "duration": "results/controlled_ablation_raw/duration/maze1_seed5_dynamic.json",
+    "geometry": "results/controlled_ablation_raw/geometry/maze2_seed5_dynamic.json",
+    "temporal": "results/controlled_ablation_raw/temporal/maze1_seed3_dynamic.json"
+  }
+}

@@ -1,6 +1,101 @@
 import numpy as np
 
 
+def _poly_powers(t, deriv):
+    """Quintic basis and its first three derivatives for an arbitrary time array."""
+    if deriv == 0:
+        return np.stack([np.ones_like(t), t, t ** 2, t ** 3, t ** 4, t ** 5], axis=-1)
+    if deriv == 1:
+        return np.stack([np.zeros_like(t), np.ones_like(t), 2 * t, 3 * t ** 2,
+                         4 * t ** 3, 5 * t ** 4], axis=-1)
+    if deriv == 2:
+        return np.stack([np.zeros_like(t), np.zeros_like(t), 2 * np.ones_like(t), 6 * t,
+                         12 * t ** 2, 20 * t ** 3], axis=-1)
+    if deriv == 3:
+        return np.stack([np.zeros_like(t), np.zeros_like(t), np.zeros_like(t),
+                         6 * np.ones_like(t), 24 * t, 60 * t ** 2], axis=-1)
+    raise ValueError(f"unsupported deriv={deriv}")
+
+
+class QuinticTraj:
+    """Single quintic segment with position/velocity/acceleration boundary constraints.
+
+    This class deliberately exposes the same evaluator API as :class:`MincoTraj`.  It is used by
+    controlled decoder ablations where the MINCO network output, score and selected candidate stay
+    fixed and only the polynomial representation changes.
+    """
+    def __init__(self):
+        self.coeffs = None
+        self.durations = None
+        self._batched = False
+
+    @staticmethod
+    def _build_A(duration):
+        duration = np.asarray(duration, dtype=np.float64)
+        B = duration.shape[0]
+        A = np.zeros((B, 6, 6), dtype=np.float64)
+        A[:, 0, 0] = 1.0
+        A[:, 1, 1] = 1.0
+        A[:, 2, 2] = 2.0
+        t1, t2, t3, t4, t5 = (duration, duration ** 2, duration ** 3,
+                               duration ** 4, duration ** 5)
+        A[:, 3] = np.stack([np.ones(B), t1, t2, t3, t4, t5], axis=-1)
+        A[:, 4, 1:] = np.stack([np.ones(B), 2 * t1, 3 * t2, 4 * t3, 5 * t4], axis=-1)
+        A[:, 5, 2:] = np.stack([2 * np.ones(B), 6 * t1, 12 * t2, 20 * t3], axis=-1)
+        return A
+
+    def solve(self, head_pva, tail_pva, duration):
+        head_pva = np.asarray(head_pva, dtype=np.float64)
+        tail_pva = np.asarray(tail_pva, dtype=np.float64)
+        if head_pva.ndim == 2:
+            head_pva = head_pva[None]
+            tail_pva = tail_pva[None]
+            self._batched = False
+        else:
+            self._batched = True
+        B = head_pva.shape[0]
+        duration = np.asarray(duration, dtype=np.float64)
+        if duration.ndim == 0:
+            duration = np.full(B, float(duration))
+        elif duration.shape == (1,):
+            duration = np.full(B, float(duration[0]))
+        assert duration.shape == (B,), f"duration shape {duration.shape} != ({B},)"
+        self.durations = duration
+        rhs = np.concatenate((head_pva, tail_pva), axis=1)
+        self.coeffs = np.linalg.solve(self._build_A(duration), rhs)
+        return self
+
+    @property
+    def total_time(self):
+        return self.durations if self._batched else float(self.durations[0])
+
+    def _eval_matrix(self, times, deriv):
+        times = np.asarray(times, dtype=np.float64)
+        clamped = np.minimum(np.maximum(times, 0.0), self.durations[:, None])
+        return np.einsum('bki,bij->bkj', _poly_powers(clamped, deriv), self.coeffs)
+
+    def _eval(self, t, deriv):
+        scalar = np.isscalar(t)
+        values = np.atleast_1d(np.asarray(t, dtype=np.float64))
+        result = self._eval_matrix(np.broadcast_to(values, (self.coeffs.shape[0], values.size)), deriv)
+        if not self._batched:
+            result = result[0]
+        if scalar:
+            result = result[0] if not self._batched else result[:, 0]
+        return result
+
+    def sample(self, fractions, deriv=0):
+        """Evaluate at normalized times independently for every trajectory in a batch."""
+        fractions = np.atleast_1d(np.asarray(fractions, dtype=np.float64))
+        result = self._eval_matrix(self.durations[:, None] * fractions[None], deriv)
+        return result if self._batched else result[0]
+
+    def position(self, t):     return self._eval(t, 0)
+    def velocity(self, t):     return self._eval(t, 1)
+    def acceleration(self, t): return self._eval(t, 2)
+    def jerk(self, t):         return self._eval(t, 3)
+
+
 class MincoTraj:
     """
     Numpy 2-piece MincoS3NU evaluator for inference (single & batch). Training uses the torch
@@ -80,8 +175,7 @@ class MincoTraj:
         b[:, 3] = inner_pos
         b[:, 9:12] = tail_pva
 
-        A_inv = np.linalg.inv(self._build_A(durations[:, 0], durations[:, 1]))   # (B, 12, 12)
-        self.coeffs = np.einsum('bij,bjk->bik', A_inv, b)
+        self.coeffs = np.linalg.solve(self._build_A(durations[:, 0], durations[:, 1]), b)
         return self
 
     @property
@@ -108,17 +202,7 @@ class MincoTraj:
         piece_idx = (t_clamped >= self.durations[:, 0:1]).astype(int)            # (B, K)
         rel_t = t_clamped - piece_idx * self.durations[:, 0:1]                   # (B, K)
 
-        if deriv == 0:
-            powers = np.stack([np.ones_like(rel_t), rel_t, rel_t ** 2, rel_t ** 3, rel_t ** 4, rel_t ** 5], axis=-1)
-        elif deriv == 1:
-            powers = np.stack([np.zeros_like(rel_t), np.ones_like(rel_t), 2 * rel_t, 3 * rel_t ** 2, 4 * rel_t ** 3, 5 * rel_t ** 4], axis=-1)
-        elif deriv == 2:
-            powers = np.stack([np.zeros_like(rel_t), np.zeros_like(rel_t), 2 * np.ones_like(rel_t), 6 * rel_t, 12 * rel_t ** 2, 20 * rel_t ** 3], axis=-1)
-        elif deriv == 3:
-            powers = np.stack([np.zeros_like(rel_t), np.zeros_like(rel_t), np.zeros_like(rel_t),
-                               6 * np.ones_like(rel_t), 24 * rel_t, 60 * rel_t ** 2], axis=-1)
-        else:
-            raise ValueError(f"unsupported deriv={deriv}")
+        powers = _poly_powers(rel_t, deriv)
         # powers: (B, K, 6)
 
         # Gather the per-piece coeff block, then contract on the 6 axis.
@@ -138,6 +222,20 @@ class MincoTraj:
     def velocity(self, t):     return self._eval(t, 1)
     def acceleration(self, t): return self._eval(t, 2)
     def jerk(self, t):         return self._eval(t, 3)
+
+    def sample(self, fractions, deriv=0):
+        """Evaluate at normalized times independently for every trajectory in a batch."""
+        fractions = np.atleast_1d(np.asarray(fractions, dtype=np.float64))
+        times = self.cum_durations[:, -1:] * fractions[None]
+        piece_idx = (times >= self.durations[:, 0:1]).astype(int)
+        rel_t = times - piece_idx * self.durations[:, 0:1]
+        powers = _poly_powers(rel_t, deriv)
+        B = self.coeffs.shape[0]
+        b_idx = np.arange(B)[:, None]
+        row_idx = piece_idx[:, :, None] * 6 + np.arange(6)[None, None]
+        piece_coeffs = self.coeffs[b_idx[:, :, None], row_idx]
+        result = np.einsum('bki,bkij->bkj', powers, piece_coeffs)
+        return result if self._batched else result[0]
 
 
 def wrap_to_pi(angle):

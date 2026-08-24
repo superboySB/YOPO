@@ -34,6 +34,7 @@ def bare_selector(mode="none", topk=1):
     selector.safe_mu = 0.1
     selector.topk = topk
     selector.continuity_mode = mode
+    selector.trajectory_mode = "minco_variable"
     selector.best_inner_w = None
     selector.optimal_traj = None
     selector.ctrl_time = 0.1
@@ -60,21 +61,25 @@ def test_jerk_selection():
     tail = rng.normal(size=(count, 3, 3))
     inner = rng.normal(size=(count, 3))
     durations = np.full((count, 2), 0.8)
-    candidate = MincoTraj().solve(np.broadcast_to(head, (count, 3, 3)).copy(),
-                                  tail, inner, durations)
+    head_batch = np.broadcast_to(head, (count, 3, 3)).copy()
     desired = 2
-    target_jerk = candidate.jerk(0.0)[desired]
+    for trajectory_mode in ("single_fixed", "minco_fixed", "minco_variable"):
+        selector = bare_selector("jerk", count)
+        selector.trajectory_mode = trajectory_mode
+        candidate_durations = (np.full_like(durations, 0.8) if trajectory_mode != "minco_variable"
+                               else durations)
+        candidate = selector._make_trajectory(head_batch, tail, inner, candidate_durations)
+        target_jerk = candidate.jerk(0.0)[desired]
 
-    class Prior:
-        total_time = 1.0
-        def jerk(self, _time):
-            return target_jerk
+        class Prior:
+            total_time = 1.0
+            def jerk(self, _time):
+                return target_jerk
 
-    selector = bare_selector("jerk", count)
-    selector.optimal_traj = Prior()
-    selected, brake = selector.select_action(
-        np.arange(count, dtype=float), inner, np.ones(count), head, tail, durations)
-    assert (selected, brake) == (desired, False)
+        selector.optimal_traj = Prior()
+        selected, brake = selector.select_action(
+            np.arange(count, dtype=float), inner, np.ones(count), head, tail, candidate_durations)
+        assert (selected, brake) == (desired, False), trajectory_mode
 
 
 def test_corridor_multiplier():

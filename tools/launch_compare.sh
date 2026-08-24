@@ -9,11 +9,15 @@ SAFE_RADIUS="0.05"
 MINCO_CORRIDOR_SIGMA="1.0"
 MINCO_TOPK="1"
 MINCO_CONTINUITY_MODE="none"
+MINCO_TRAJECTORY_MODE="minco_variable"
+MINCO_CORRIDOR_MODE="filter"
 SIMPLE_POLICY="simple"
 SIMPLE_SAFE_RADIUS="0.05"
 SIMPLE_CORRIDOR_SIGMA="1.0"
 SIMPLE_TOPK="1"
 SIMPLE_CONTINUITY_MODE="none"
+SIMPLE_TRAJECTORY_MODE="minco_variable"
+SIMPLE_CORRIDOR_MODE="filter"
 ARRIVAL_RADIUS="1.0"
 MAZE_TYPE="5"
 MAP_SEED="3"
@@ -31,18 +35,22 @@ Usage (inside the retained YOPO container):
   tools/launch_compare.sh [options]
 
 Options:
-  --simple-weight PATH   YOPO-Simple checkpoint
-  --minco-weight PATH    YOPO-MINCO checkpoint
+  --simple-weight PATH   left planner checkpoint
+  --minco-weight PATH    right MINCO checkpoint
   --velocity MPS         both planners' test velocity (default: 6.0)
   --safe-radius M        MINCO corridor admission radius (default: 0.05)
   --minco-sigma K        right MINCO lower bound uses mu-K*b (default: 1.0)
   --minco-topk N         right MINCO score shortlist size (default: 1)
   --minco-continuity M   right selection: none, inner, or jerk
+  --minco-trajectory M   right decoder: single_fixed, minco_fixed, or minco_variable
+  --minco-corridor M     right learned corridor: off or filter
   --simple-policy P      left planner implementation: simple or minco
   --simple-safe-radius M left MINCO admission radius (only with --simple-policy minco)
   --simple-sigma K       left MINCO lower-bound multiplier
   --simple-topk N        left MINCO score shortlist size
   --simple-continuity M  left MINCO selection: none, inner, or jerk
+  --simple-trajectory M  left MINCO decoder (only with --simple-policy minco)
+  --simple-corridor M    left MINCO learned corridor: off or filter
   --arrival-radius M     common goal radius (default: 1.0)
   --maze-type N          random map type (supported policy: 1,2,5,7)
   --map-seed N           deterministic random map seed
@@ -67,11 +75,15 @@ while [[ $# -gt 0 ]]; do
     --minco-sigma) MINCO_CORRIDOR_SIGMA="${2:?missing value}"; shift 2 ;;
     --minco-topk) MINCO_TOPK="${2:?missing value}"; shift 2 ;;
     --minco-continuity) MINCO_CONTINUITY_MODE="${2:?missing value}"; shift 2 ;;
+    --minco-trajectory) MINCO_TRAJECTORY_MODE="${2:?missing value}"; shift 2 ;;
+    --minco-corridor) MINCO_CORRIDOR_MODE="${2:?missing value}"; shift 2 ;;
     --simple-policy) SIMPLE_POLICY="${2:?missing value}"; shift 2 ;;
     --simple-safe-radius) SIMPLE_SAFE_RADIUS="${2:?missing value}"; shift 2 ;;
     --simple-sigma) SIMPLE_CORRIDOR_SIGMA="${2:?missing value}"; shift 2 ;;
     --simple-topk) SIMPLE_TOPK="${2:?missing value}"; shift 2 ;;
     --simple-continuity) SIMPLE_CONTINUITY_MODE="${2:?missing value}"; shift 2 ;;
+    --simple-trajectory) SIMPLE_TRAJECTORY_MODE="${2:?missing value}"; shift 2 ;;
+    --simple-corridor) SIMPLE_CORRIDOR_MODE="${2:?missing value}"; shift 2 ;;
     --arrival-radius) ARRIVAL_RADIUS="${2:?missing value}"; shift 2 ;;
     --maze-type) MAZE_TYPE="${2:?missing value}"; shift 2 ;;
     --map-seed) MAP_SEED="${2:?missing value}"; shift 2 ;;
@@ -86,6 +98,16 @@ while [[ $# -gt 0 ]]; do
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1" >&2; usage; exit 2 ;;
   esac
+done
+for mode in "$SIMPLE_TRAJECTORY_MODE" "$MINCO_TRAJECTORY_MODE"; do
+  [[ "$mode" == "single_fixed" || "$mode" == "minco_fixed" || "$mode" == "minco_variable" ]] || {
+    echo "trajectory mode must be single_fixed, minco_fixed, or minco_variable" >&2; exit 2;
+  }
+done
+for mode in "$SIMPLE_CORRIDOR_MODE" "$MINCO_CORRIDOR_MODE"; do
+  [[ "$mode" == "off" || "$mode" == "filter" ]] || {
+    echo "corridor mode must be off or filter" >&2; exit 2;
+  }
 done
 
 [[ "$SIMPLE_POLICY" == "simple" || "$SIMPLE_POLICY" == "minco" ]] || {
@@ -139,9 +161,9 @@ minco_sensor_cmd="$setup; sleep 8; cd /workspace/YOPO/Simulator; source devel/se
 if [[ "$SIMPLE_POLICY" == "simple" ]]; then
   simple_planner_cmd="$setup; sleep 8; cd /workspace/YOPO/YOPO/simple_runtime; python3 test_yopo_ros.py --wait-for-goal --weight '$SIMPLE_WEIGHT' --velocity '$VELOCITY' --arrival-radius '$ARRIVAL_RADIUS' --yaw-goal-weight '$YAW_GOAL_WEIGHT' --node-name yopo_simple_planner --odom-topic /yopo_simple/odom --depth-topic /yopo_simple/depth_image --ctrl-topic /yopo_simple/pos_cmd --viz-prefix /yopo_simple"
 else
-  simple_planner_cmd="$setup; sleep 8; cd /workspace/YOPO/YOPO; python3 test_yopo_ros.py --wait-for-goal --weight '$SIMPLE_WEIGHT' --velocity '$VELOCITY' --safe-radius '$SIMPLE_SAFE_RADIUS' --corridor-sigma '$SIMPLE_CORRIDOR_SIGMA' --topk '$SIMPLE_TOPK' --continuity-mode '$SIMPLE_CONTINUITY_MODE' --arrival-radius '$ARRIVAL_RADIUS' --yaw-goal-weight '$YAW_GOAL_WEIGHT' --node-name yopo_simple_planner --odom-topic /yopo_simple/odom --depth-topic /yopo_simple/depth_image --ctrl-topic /yopo_simple/pos_cmd --viz-prefix /yopo_simple"
+  simple_planner_cmd="$setup; sleep 8; cd /workspace/YOPO/YOPO; python3 test_yopo_ros.py --wait-for-goal --weight '$SIMPLE_WEIGHT' --velocity '$VELOCITY' --safe-radius '$SIMPLE_SAFE_RADIUS' --corridor-sigma '$SIMPLE_CORRIDOR_SIGMA' --topk '$SIMPLE_TOPK' --continuity-mode '$SIMPLE_CONTINUITY_MODE' --trajectory-mode '$SIMPLE_TRAJECTORY_MODE' --corridor-mode '$SIMPLE_CORRIDOR_MODE' --arrival-radius '$ARRIVAL_RADIUS' --yaw-goal-weight '$YAW_GOAL_WEIGHT' --node-name yopo_simple_planner --odom-topic /yopo_simple/odom --depth-topic /yopo_simple/depth_image --ctrl-topic /yopo_simple/pos_cmd --viz-prefix /yopo_simple"
 fi
-minco_planner_cmd="$setup; sleep 8; cd /workspace/YOPO/YOPO; python3 test_yopo_ros.py --wait-for-goal --weight '$MINCO_WEIGHT' --velocity '$VELOCITY' --safe-radius '$SAFE_RADIUS' --corridor-sigma '$MINCO_CORRIDOR_SIGMA' --topk '$MINCO_TOPK' --continuity-mode '$MINCO_CONTINUITY_MODE' --arrival-radius '$ARRIVAL_RADIUS' --yaw-goal-weight '$YAW_GOAL_WEIGHT' --node-name yopo_minco_planner --odom-topic /yopo_minco/odom --depth-topic /yopo_minco/depth_image --ctrl-topic /yopo_minco/pos_cmd --viz-prefix /yopo_minco"
+minco_planner_cmd="$setup; sleep 8; cd /workspace/YOPO/YOPO; python3 test_yopo_ros.py --wait-for-goal --weight '$MINCO_WEIGHT' --velocity '$VELOCITY' --safe-radius '$SAFE_RADIUS' --corridor-sigma '$MINCO_CORRIDOR_SIGMA' --topk '$MINCO_TOPK' --continuity-mode '$MINCO_CONTINUITY_MODE' --trajectory-mode '$MINCO_TRAJECTORY_MODE' --corridor-mode '$MINCO_CORRIDOR_MODE' --arrival-radius '$ARRIVAL_RADIUS' --yaw-goal-weight '$YAW_GOAL_WEIGHT' --node-name yopo_minco_planner --odom-topic /yopo_minco/odom --depth-topic /yopo_minco/depth_image --ctrl-topic /yopo_minco/pos_cmd --viz-prefix /yopo_minco"
 monitor_cmd="$setup; sleep 5; cd /workspace/YOPO; python3 tools/compare_monitor.py --arrival-radius '$ARRIVAL_RADIUS'"
 rviz_prefix=""
 [[ "$RVIZ_SOFTWARE_GL" -eq 1 ]] && rviz_prefix="LIBGL_ALWAYS_SOFTWARE=1 "
@@ -161,8 +183,8 @@ fi
 tmux set-option -t "$SESSION" remain-on-exit on
 
 echo "[launch_compare] session='$SESSION' velocity=$VELOCITY m/s map=$MAZE_TYPE seed=$MAP_SEED"
-echo "[launch_compare] left=$SIMPLE_POLICY weight=$SIMPLE_WEIGHT topk=$SIMPLE_TOPK continuity=$SIMPLE_CONTINUITY_MODE sigma=$SIMPLE_CORRIDOR_SIGMA"
-echo "[launch_compare] right=minco weight=$MINCO_WEIGHT topk=$MINCO_TOPK continuity=$MINCO_CONTINUITY_MODE sigma=$MINCO_CORRIDOR_SIGMA"
+echo "[launch_compare] left=$SIMPLE_POLICY weight=$SIMPLE_WEIGHT trajectory=$SIMPLE_TRAJECTORY_MODE corridor=$SIMPLE_CORRIDOR_MODE topk=$SIMPLE_TOPK continuity=$SIMPLE_CONTINUITY_MODE sigma=$SIMPLE_CORRIDOR_SIGMA"
+echo "[launch_compare] right=minco weight=$MINCO_WEIGHT trajectory=$MINCO_TRAJECTORY_MODE corridor=$MINCO_CORRIDOR_MODE topk=$MINCO_TOPK continuity=$MINCO_CONTINUITY_MODE sigma=$MINCO_CORRIDOR_SIGMA"
 echo "[launch_compare] publish one /move_base_simple/goal; both aircraft react together."
 echo "[launch_compare] metrics: rostopic echo /yopo_compare/metrics"
 if [[ "$DETACH" -eq 1 ]]; then

@@ -1,0 +1,1054 @@
+{
+  "corridor": {
+    "all": {
+      "condition_clusters": 40,
+      "metrics": {
+        "collision_events": {
+          "bootstrap_95ci": [
+            0.0,
+            0.0
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 0.0,
+          "paired_records": 80
+        },
+        "collision_free_success": {
+          "bootstrap_95ci": [
+            -0.1125,
+            0.025
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": -0.0375,
+          "paired_records": 80
+        },
+        "command_acc_rms_mps2": {
+          "bootstrap_95ci": [
+            -0.01817575723924669,
+            0.036884054675804946
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 0.008592191006814649,
+          "paired_records": 80
+        },
+        "command_active_fraction": {
+          "bootstrap_95ci": [
+            -0.0475756338409521,
+            -0.002527411966790723
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": -0.019539365310653648,
+          "paired_records": 80
+        },
+        "command_jerk_p95_mps3": {
+          "bootstrap_95ci": [
+            -0.4749130856764945,
+            0.1722672134097904
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": -0.15097568342565565,
+          "paired_records": 80
+        },
+        "min_clearance_m": {
+          "bootstrap_95ci": [
+            -0.012653415417298674,
+            0.054356168340891596
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 0.018629833683371545,
+          "paired_records": 80
+        },
+        "path_efficiency": {
+          "bootstrap_95ci": [
+            -0.015429461991077325,
+            0.016425104744654574
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 0.001447266359722621,
+          "paired_records": 80
+        },
+        "timeout_penalized_s": {
+          "bootstrap_95ci": [
+            -0.3141543039324393,
+            0.9251239201619205
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 0.2735600432750703,
+          "paired_records": 80
+        },
+        "turn_response_penalized_s": {
+          "bootstrap_95ci": [
+            -1.0648074491855994,
+            0.8251275319250261
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": -0.13967575557497386,
+          "paired_records": 80
+        }
+      },
+      "paired_records": 80
+    },
+    "dynamic": {
+      "condition_clusters": 20,
+      "metrics": {
+        "collision_events": {
+          "bootstrap_95ci": [
+            0.0,
+            0.0
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.0,
+          "paired_records": 40
+        },
+        "collision_free_success": {
+          "bootstrap_95ci": [
+            -0.25,
+            0.025
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.1,
+          "paired_records": 40
+        },
+        "command_acc_rms_mps2": {
+          "bootstrap_95ci": [
+            0.004104304016867975,
+            0.08367138441913463
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.04182009054301389,
+          "paired_records": 40
+        },
+        "command_active_fraction": {
+          "bootstrap_95ci": [
+            -0.08242857142857143,
+            0.0
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.02945714285714286,
+          "paired_records": 40
+        },
+        "command_jerk_p95_mps3": {
+          "bootstrap_95ci": [
+            -0.39617593587195843,
+            0.5305112381209378
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.07972545600795926,
+          "paired_records": 40
+        },
+        "min_clearance_m": {
+          "bootstrap_95ci": [
+            -0.04713169926777482,
+            0.05686405884101984
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.00015347450971603394,
+          "paired_records": 40
+        },
+        "path_efficiency": {
+          "bootstrap_95ci": [
+            -0.031015972418584798,
+            0.022171399123181893
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.000653864731514888,
+          "paired_records": 40
+        },
+        "timeout_penalized_s": {
+          "bootstrap_95ci": [
+            -0.3677030529430345,
+            1.8251770730370467
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.6435150865501408,
+          "paired_records": 40
+        },
+        "turn_response_penalized_s": {
+          "bootstrap_95ci": [
+            -1.6342680611499478,
+            1.1270168062499986
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.2825115111499478,
+          "paired_records": 40
+        }
+      },
+      "paired_records": 40
+    },
+    "straight": {
+      "condition_clusters": 20,
+      "metrics": {
+        "collision_events": {
+          "bootstrap_95ci": [
+            0.0,
+            0.0
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.0,
+          "paired_records": 40
+        },
+        "collision_free_success": {
+          "bootstrap_95ci": [
+            0.0,
+            0.075
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.025,
+          "paired_records": 40
+        },
+        "command_acc_rms_mps2": {
+          "bootstrap_95ci": [
+            -0.056264433321577,
+            0.006368972126582307
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.02463570852938459,
+          "paired_records": 40
+        },
+        "command_active_fraction": {
+          "bootstrap_95ci": [
+            -0.022536380052720524,
+            -0.0008455578275004455
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.009621587764164436,
+          "paired_records": 40
+        },
+        "command_jerk_p95_mps3": {
+          "bootstrap_95ci": [
+            -0.7967475552100456,
+            0.0714322155534122
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.3816768228592705,
+          "paired_records": 40
+        },
+        "min_clearance_m": {
+          "bootstrap_95ci": [
+            0.00042711619287729395,
+            0.08115283837541937
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.037413141876459124,
+          "paired_records": 40
+        },
+        "path_efficiency": {
+          "bootstrap_95ci": [
+            -0.011037557924587237,
+            0.022792583646964296
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.003548397450960131,
+          "paired_records": 40
+        },
+        "timeout_penalized_s": {
+          "bootstrap_95ci": [
+            -0.6877070000000004,
+            0.33652806249999995
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.09639500000000008,
+          "paired_records": 40
+        },
+        "turn_response_penalized_s": {
+          "bootstrap_95ci": [
+            -1.40601499375,
+            1.41825786875
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.0031600000000000517,
+          "paired_records": 40
+        }
+      },
+      "paired_records": 40
+    }
+  },
+  "duration": {
+    "all": {
+      "condition_clusters": 40,
+      "metrics": {
+        "collision_events": {
+          "bootstrap_95ci": [
+            -0.3875,
+            -0.05
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": -0.2,
+          "paired_records": 80
+        },
+        "collision_free_success": {
+          "bootstrap_95ci": [
+            -0.025,
+            0.2375
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 0.1,
+          "paired_records": 80
+        },
+        "command_acc_rms_mps2": {
+          "bootstrap_95ci": [
+            -2.1874326774283928,
+            -1.4169750670279064
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": -1.7768861251989663,
+          "paired_records": 80
+        },
+        "command_active_fraction": {
+          "bootstrap_95ci": [
+            0.0,
+            0.0
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 0.0,
+          "paired_records": 80
+        },
+        "command_jerk_p95_mps3": {
+          "bootstrap_95ci": [
+            -30.684768219496057,
+            -21.907710946240936
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": -26.081690571934086,
+          "paired_records": 80
+        },
+        "min_clearance_m": {
+          "bootstrap_95ci": [
+            0.13550947266863658,
+            0.35369738835608583
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 0.2374707809649408,
+          "paired_records": 80
+        },
+        "path_efficiency": {
+          "bootstrap_95ci": [
+            -0.04869801596877073,
+            0.07560923612802645
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 0.012022589258465008,
+          "paired_records": 80
+        },
+        "timeout_penalized_s": {
+          "bootstrap_95ci": [
+            -1.6361543263005631,
+            1.4344454569447633
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": -0.10874072976246199,
+          "paired_records": 80
+        },
+        "turn_response_penalized_s": {
+          "bootstrap_95ci": [
+            -3.4493013478525367,
+            0.806026728432782
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": -1.3052316923251372,
+          "paired_records": 80
+        }
+      },
+      "paired_records": 80
+    },
+    "dynamic": {
+      "condition_clusters": 20,
+      "metrics": {
+        "collision_events": {
+          "bootstrap_95ci": [
+            -0.75,
+            -0.15
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.425,
+          "paired_records": 40
+        },
+        "collision_free_success": {
+          "bootstrap_95ci": [
+            0.05,
+            0.425
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.225,
+          "paired_records": 40
+        },
+        "command_acc_rms_mps2": {
+          "bootstrap_95ci": [
+            -2.398122912160344,
+            -1.1310280054924289
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -1.7071246271883578,
+          "paired_records": 40
+        },
+        "command_active_fraction": {
+          "bootstrap_95ci": [
+            0.0,
+            0.0
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.0,
+          "paired_records": 40
+        },
+        "command_jerk_p95_mps3": {
+          "bootstrap_95ci": [
+            -38.60921161801128,
+            -24.73346905416933
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -31.30519895794467,
+          "paired_records": 40
+        },
+        "min_clearance_m": {
+          "bootstrap_95ci": [
+            0.2325165201118216,
+            0.581528237950988
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.3983377398923039,
+          "paired_records": 40
+        },
+        "path_efficiency": {
+          "bootstrap_95ci": [
+            -0.01742206657727391,
+            0.16290450119895875
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.06694367808638056,
+          "paired_records": 40
+        },
+        "timeout_penalized_s": {
+          "bootstrap_95ci": [
+            -3.285783493407426,
+            1.269750699218473
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -1.0474939595249242,
+          "paired_records": 40
+        },
+        "turn_response_penalized_s": {
+          "bootstrap_95ci": [
+            -7.4953715752258185,
+            -0.5276249356880441
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -3.9865726346502752,
+          "paired_records": 40
+        }
+      },
+      "paired_records": 40
+    },
+    "straight": {
+      "condition_clusters": 20,
+      "metrics": {
+        "collision_events": {
+          "bootstrap_95ci": [
+            0.0,
+            0.075
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.025,
+          "paired_records": 40
+        },
+        "collision_free_success": {
+          "bootstrap_95ci": [
+            -0.2,
+            0.125
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.025,
+          "paired_records": 40
+        },
+        "command_acc_rms_mps2": {
+          "bootstrap_95ci": [
+            -2.261678257000461,
+            -1.427781022618841
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -1.8466476232095737,
+          "paired_records": 40
+        },
+        "command_active_fraction": {
+          "bootstrap_95ci": [
+            0.0,
+            0.0
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.0,
+          "paired_records": 40
+        },
+        "command_jerk_p95_mps3": {
+          "bootstrap_95ci": [
+            -25.10970387749625,
+            -16.862985713550955
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -20.858182185923518,
+          "paired_records": 40
+        },
+        "min_clearance_m": {
+          "bootstrap_95ci": [
+            -0.00780166083946824,
+            0.16619310612790286
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.07660382203757762,
+          "paired_records": 40
+        },
+        "path_efficiency": {
+          "bootstrap_95ci": [
+            -0.12385057486676462,
+            0.03181641572482279
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.04289849956945056,
+          "paired_records": 40
+        },
+        "timeout_penalized_s": {
+          "bootstrap_95ci": [
+            -1.1625880625000002,
+            2.941645374999999
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.8300125000000002,
+          "paired_records": 40
+        },
+        "turn_response_penalized_s": {
+          "bootstrap_95ci": [
+            -0.05995132499999995,
+            3.3468407624999985
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 1.37610925,
+          "paired_records": 40
+        }
+      },
+      "paired_records": 40
+    }
+  },
+  "geometry": {
+    "all": {
+      "condition_clusters": 40,
+      "metrics": {
+        "collision_events": {
+          "bootstrap_95ci": [
+            -0.0625,
+            0.2375
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 0.075,
+          "paired_records": 80
+        },
+        "collision_free_success": {
+          "bootstrap_95ci": [
+            -0.65,
+            -0.35
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": -0.5,
+          "paired_records": 80
+        },
+        "command_acc_rms_mps2": {
+          "bootstrap_95ci": [
+            1.180734932430086,
+            1.9172832949497742
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 1.528521987115463,
+          "paired_records": 80
+        },
+        "command_active_fraction": {
+          "bootstrap_95ci": [
+            0.0,
+            0.0
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 0.0,
+          "paired_records": 80
+        },
+        "command_jerk_p95_mps3": {
+          "bootstrap_95ci": [
+            20.12672481681644,
+            27.428405663352404
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 23.70793399939337,
+          "paired_records": 80
+        },
+        "min_clearance_m": {
+          "bootstrap_95ci": [
+            -0.259096085508354,
+            -0.04116451379144567
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": -0.14214233150705696,
+          "paired_records": 80
+        },
+        "path_efficiency": {
+          "bootstrap_95ci": [
+            -0.23687157929787725,
+            -0.10266462333773123
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": -0.17109871362825677,
+          "paired_records": 80
+        },
+        "timeout_penalized_s": {
+          "bootstrap_95ci": [
+            2.973954340406651,
+            6.572581911704904
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 4.7888149113870675,
+          "paired_records": 80
+        },
+        "turn_response_penalized_s": {
+          "bootstrap_95ci": [
+            0.2891140769751627,
+            3.38500095414305
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 1.7922280893998441,
+          "paired_records": 80
+        }
+      },
+      "paired_records": 80
+    },
+    "dynamic": {
+      "condition_clusters": 20,
+      "metrics": {
+        "collision_events": {
+          "bootstrap_95ci": [
+            -0.05,
+            0.47562499999999086
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.2,
+          "paired_records": 40
+        },
+        "collision_free_success": {
+          "bootstrap_95ci": [
+            -0.85,
+            -0.425
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.65,
+          "paired_records": 40
+        },
+        "command_acc_rms_mps2": {
+          "bootstrap_95ci": [
+            0.7306412543655709,
+            2.006380430126439
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 1.287377491351466,
+          "paired_records": 40
+        },
+        "command_active_fraction": {
+          "bootstrap_95ci": [
+            0.0,
+            0.0
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.0,
+          "paired_records": 40
+        },
+        "command_jerk_p95_mps3": {
+          "bootstrap_95ci": [
+            24.98509186019417,
+            35.12757735282506
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 30.003017626963924,
+          "paired_records": 40
+        },
+        "min_clearance_m": {
+          "bootstrap_95ci": [
+            -0.4564139483915642,
+            -0.08295675544999548
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.25434353575110435,
+          "paired_records": 40
+        },
+        "path_efficiency": {
+          "bootstrap_95ci": [
+            -0.23044266795544943,
+            -0.07509168217047282
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.15682403817577378,
+          "paired_records": 40
+        },
+        "timeout_penalized_s": {
+          "bootstrap_95ci": [
+            3.0798943302290587,
+            7.502962771909862
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 5.402394822774135,
+          "paired_records": 40
+        },
+        "turn_response_penalized_s": {
+          "bootstrap_95ci": [
+            0.39579508136722563,
+            6.244062781135931
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 3.345354678799688,
+          "paired_records": 40
+        }
+      },
+      "paired_records": 40
+    },
+    "straight": {
+      "condition_clusters": 20,
+      "metrics": {
+        "collision_events": {
+          "bootstrap_95ci": [
+            -0.15,
+            0.0
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.05,
+          "paired_records": 40
+        },
+        "collision_free_success": {
+          "bootstrap_95ci": [
+            -0.55,
+            -0.15
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.35,
+          "paired_records": 40
+        },
+        "command_acc_rms_mps2": {
+          "bootstrap_95ci": [
+            1.4275238345178942,
+            2.1102723598941906
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 1.7696664828794593,
+          "paired_records": 40
+        },
+        "command_active_fraction": {
+          "bootstrap_95ci": [
+            0.0,
+            0.0
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.0,
+          "paired_records": 40
+        },
+        "command_jerk_p95_mps3": {
+          "bootstrap_95ci": [
+            14.064571078110548,
+            21.034256966616084
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 17.41285037182281,
+          "paired_records": 40
+        },
+        "min_clearance_m": {
+          "bootstrap_95ci": [
+            -0.12755864989943802,
+            0.05540338729042558
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.02994112726300955,
+          "paired_records": 40
+        },
+        "path_efficiency": {
+          "bootstrap_95ci": [
+            -0.29657838936768927,
+            -0.07768301095635705
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.18537338908073972,
+          "paired_records": 40
+        },
+        "timeout_penalized_s": {
+          "bootstrap_95ci": [
+            1.4895156250000001,
+            6.941929875
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 4.175235,
+          "paired_records": 40
+        },
+        "turn_response_penalized_s": {
+          "bootstrap_95ci": [
+            -0.04942911250000001,
+            0.6877086749999999
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.2391015,
+          "paired_records": 40
+        }
+      },
+      "paired_records": 40
+    }
+  },
+  "temporal": {
+    "all": {
+      "condition_clusters": 40,
+      "metrics": {
+        "collision_events": {
+          "bootstrap_95ci": [
+            -0.025,
+            0.3625
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 0.15,
+          "paired_records": 80
+        },
+        "collision_free_success": {
+          "bootstrap_95ci": [
+            -0.2,
+            0.0
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": -0.1,
+          "paired_records": 80
+        },
+        "command_acc_rms_mps2": {
+          "bootstrap_95ci": [
+            -0.008133570603730664,
+            0.19225217026681268
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 0.08911015619818463,
+          "paired_records": 80
+        },
+        "command_active_fraction": {
+          "bootstrap_95ci": [
+            0.0,
+            0.0
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 0.0,
+          "paired_records": 80
+        },
+        "command_jerk_p95_mps3": {
+          "bootstrap_95ci": [
+            -1.584711925586878,
+            0.6051779283033166
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": -0.5492044768071727,
+          "paired_records": 80
+        },
+        "min_clearance_m": {
+          "bootstrap_95ci": [
+            -0.20995042636990546,
+            -0.06813348039984704
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": -0.13611997570842505,
+          "paired_records": 80
+        },
+        "path_efficiency": {
+          "bootstrap_95ci": [
+            -0.15338864375239267,
+            -0.04753903993164738
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": -0.09835002222839755,
+          "paired_records": 80
+        },
+        "timeout_penalized_s": {
+          "bootstrap_95ci": [
+            0.7761142916082718,
+            3.4536358194172907
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 2.073197416675073,
+          "paired_records": 80
+        },
+        "turn_response_penalized_s": {
+          "bootstrap_95ci": [
+            -0.3469739418354065,
+            3.3080537883142913
+          ],
+          "condition_clusters": 40,
+          "mean_variant_minus_baseline": 1.474294113462377,
+          "paired_records": 80
+        }
+      },
+      "paired_records": 80
+    },
+    "dynamic": {
+      "condition_clusters": 20,
+      "metrics": {
+        "collision_events": {
+          "bootstrap_95ci": [
+            -0.15,
+            0.525
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.15,
+          "paired_records": 40
+        },
+        "collision_free_success": {
+          "bootstrap_95ci": [
+            -0.25,
+            0.05
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.1,
+          "paired_records": 40
+        },
+        "command_acc_rms_mps2": {
+          "bootstrap_95ci": [
+            -0.07472624137962201,
+            0.2746459315914897
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.09142423961582673,
+          "paired_records": 40
+        },
+        "command_active_fraction": {
+          "bootstrap_95ci": [
+            0.0,
+            0.0
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.0,
+          "paired_records": 40
+        },
+        "command_jerk_p95_mps3": {
+          "bootstrap_95ci": [
+            -1.655843675316727,
+            2.1977473436887496
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.132502504180228,
+          "paired_records": 40
+        },
+        "min_clearance_m": {
+          "bootstrap_95ci": [
+            -0.2515221669152379,
+            -0.05172680546529597
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.14975083209574222,
+          "paired_records": 40
+        },
+        "path_efficiency": {
+          "bootstrap_95ci": [
+            -0.13406054427864694,
+            -0.025767427510931213
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.0756975028312912,
+          "paired_records": 40
+        },
+        "timeout_penalized_s": {
+          "bootstrap_95ci": [
+            0.14125580290315168,
+            3.387338619585032
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 1.6243998333501455,
+          "paired_records": 40
+        },
+        "turn_response_penalized_s": {
+          "bootstrap_95ci": [
+            -0.7745453113852981,
+            3.610345904508617
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 1.4920627269247542,
+          "paired_records": 40
+        }
+      },
+      "paired_records": 40
+    },
+    "straight": {
+      "condition_clusters": 20,
+      "metrics": {
+        "collision_events": {
+          "bootstrap_95ci": [
+            0.0,
+            0.4
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.15,
+          "paired_records": 40
+        },
+        "collision_free_success": {
+          "bootstrap_95ci": [
+            -0.25,
+            0.025
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.1,
+          "paired_records": 40
+        },
+        "command_acc_rms_mps2": {
+          "bootstrap_95ci": [
+            -0.012582285911048482,
+            0.1838427899158989
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.08679607278054254,
+          "paired_records": 40
+        },
+        "command_active_fraction": {
+          "bootstrap_95ci": [
+            0.0,
+            0.0
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 0.0,
+          "paired_records": 40
+        },
+        "command_jerk_p95_mps3": {
+          "bootstrap_95ci": [
+            -2.1550499664760774,
+            -0.3437286764309448
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -1.230911457794573,
+          "paired_records": 40
+        },
+        "min_clearance_m": {
+          "bootstrap_95ci": [
+            -0.22816728321835397,
+            -0.02959921868517998
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.12248911932110787,
+          "paired_records": 40
+        },
+        "path_efficiency": {
+          "bootstrap_95ci": [
+            -0.2127178585105246,
+            -0.035218365423919984
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": -0.1210025416255039,
+          "paired_records": 40
+        },
+        "timeout_penalized_s": {
+          "bootstrap_95ci": [
+            0.49791881250000014,
+            4.757644187499998
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 2.5219949999999995,
+          "paired_records": 40
+        },
+        "turn_response_penalized_s": {
+          "bootstrap_95ci": [
+            -1.5346120250000002,
+            4.47941774375
+          ],
+          "condition_clusters": 20,
+          "mean_variant_minus_baseline": 1.4565255000000001,
+          "paired_records": 40
+        }
+      },
+      "paired_records": 40
+    }
+  }
+}

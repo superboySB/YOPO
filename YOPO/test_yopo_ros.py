@@ -24,7 +24,7 @@ from scipy.spatial.transform import Rotation as R
 from config.config import cfg
 from control_msg import PositionCommand
 from policy.yopo_network import YopoNetwork
-from policy.poly_solver import MincoTraj, calculate_yaw
+from policy.poly_solver import MincoTraj, QuinticTraj, calculate_yaw
 from policy.state_transform import *
 
 try:
@@ -50,6 +50,14 @@ class YopoNet:
         self.continuity_mode = self.config.get('continuity_mode', 'inner')
         if self.continuity_mode not in ('none', 'inner', 'jerk'):
             raise ValueError("continuity_mode must be one of: none, inner, jerk")
+        self.trajectory_mode = self.config.get('trajectory_mode', 'minco_variable')
+        if self.trajectory_mode not in ('single_fixed', 'minco_fixed', 'minco_variable'):
+            raise ValueError("trajectory_mode must be single_fixed, minco_fixed, or minco_variable")
+        self.corridor_mode = self.config.get('corridor_mode', 'filter')
+        if self.corridor_mode not in ('off', 'filter'):
+            raise ValueError("corridor_mode must be off or filter")
+        if self.corridor_mode == 'filter' and self.trajectory_mode != 'minco_variable':
+            raise ValueError("the learned corridor is defined on minco_variable; use --corridor-mode off for decoder ablations")
         self.use_trt = self.config['use_tensorrt']
         self.verbose = self.config['verbose']
         self.Rotation_bc = R.from_euler('ZYX', [0, self.config['pitch_angle_deg'], 0], degrees=True).as_matrix()
@@ -210,8 +218,9 @@ class YopoNet:
         inner_pos_w = inner_pos_b @ self.Rotation_wc.T                    # (N, 3)
         tail_pva_w = np.einsum('ij,...kj->...ki', self.Rotation_wc, tail_pva_b)  # rotate each pva row
 
-        # 4. select the best traj (corridor admission + score) + solve its MINCO (under the control lock)
-        mu_lo = self._corridor_mu_lo(radius_pred)
+        # 4. select by optional corridor + common score, then solve the configured decoder
+        mu_lo = (self._corridor_mu_lo(radius_pred) if self.corridor_mode == 'filter'
+                 else np.full(score.shape, np.inf))
         start_pos, start_vel, action_id, best_durations, brake = self._solve_best_traj(
             score, inner_pos_w, tail_pva_w, durations_b, mu_lo)
         time4 = time.time()
@@ -221,7 +230,7 @@ class YopoNet:
         self.brake = brake
 
         # predicted safety corridor (lazy: only when subscribed) + trajectory viz + timing
-        if self.corridor_pub.get_num_connections() > 0:
+        if self.corridor_mode == 'filter' and self.corridor_pub.get_num_connections() > 0:
             self._publish_corridor(radius_pred, action_id, best_durations)
         self.visualize_trajectory(score, inner_pos_w, tail_pva_w, durations_b, start_pos, start_vel)
         time5 = time.time()
@@ -246,7 +255,7 @@ class YopoNet:
         return inpainted.reshape([1, 1, self.height, self.width])
 
     def _solve_best_traj(self, score, inner_pos_w, tail_pva_w, durations_b, mu_lo):
-        """Pick the best traj (safety admission + score + top-k inner continuity) and solve its MINCO,
+        """Pick the best traj (optional corridor + score + top-k continuity) and solve its trajectory,
         storing the result for control_pub. Runs under the control lock."""
         with self.lock:
             start_pos = self.desire_pos if self.plan_from_reference else self._odom_pos()
@@ -257,18 +266,36 @@ class YopoNet:
             inner_abs_w = inner_pos_w + start_pos
             tail_abs_w = tail_pva_w.copy()
             tail_abs_w[:, 0] += start_pos                  # only position needs translation
+            effective_durations = self._effective_durations(durations_b)
             action_id, brake = self.select_action(
-                score, inner_abs_w, mu_lo, head_pva_w, tail_abs_w, durations_b)
+                score, inner_abs_w, mu_lo, head_pva_w, tail_abs_w, effective_durations)
             best_inner_w = inner_abs_w[action_id]
             best_tail_pva_w = tail_abs_w[action_id]
-            best_durations = durations_b[action_id]        # (2,) per-piece durations
+            best_durations = effective_durations[action_id]
 
-            self.optimal_traj = MincoTraj().solve(head_pva_w, best_tail_pva_w, best_inner_w, durations=best_durations)
-            self.best_inner_w = best_inner_w
+            self.optimal_traj = self._make_trajectory(
+                head_pva_w, best_tail_pva_w, best_inner_w, best_durations)
+            # For the one-segment control, show a point on the actual curve, not the unused predicted inner point.
+            self.best_inner_w = (self.optimal_traj.sample([0.5])[0]
+                                 if self.trajectory_mode == 'single_fixed' else best_inner_w)
             self.best_tail_pos_w = best_tail_pva_w[0]
-            self.best_total_time = float(best_durations.sum())
+            self.best_total_time = float(self.optimal_traj.total_time)
             self.ctrl_time = 0.0
         return start_pos, start_vel, action_id, best_durations, brake
+
+    def _effective_durations(self, durations):
+        durations = np.asarray(durations, dtype=np.float64)
+        if self.trajectory_mode == 'minco_variable':
+            return durations
+        return np.full_like(durations, self.piece_duration)
+
+    def _make_trajectory(self, head_pva, tail_pva, inner_pos, durations):
+        """The only switch used by representation ablations; all network outputs remain identical."""
+        if self.trajectory_mode == 'single_fixed':
+            duration = (np.asarray(durations).sum(axis=-1) if np.asarray(durations).ndim > 1
+                        else float(np.asarray(durations).sum()))
+            return QuinticTraj().solve(head_pva, tail_pva, duration)
+        return MincoTraj().solve(head_pva, tail_pva, inner_pos, durations)
 
     def _corridor_mu_lo(self, radius_pred):
         """Tightest conservative corridor per candidate, warped: min over the nr balls of (μ − b).
@@ -353,7 +380,7 @@ class YopoNet:
             self.ctrl_pub.publish(control_msg)
 
     def select_action(self, score, inner_w, mu_lo, head_pva_w=None, tail_pva_w=None, durations=None):
-        """Highest score among candidates that clear the corridor.  For topk > 1, optionally choose
+        """Highest score among admitted candidates (all are admitted when corridor_mode=off). For topk > 1, choose
         either the nearest inner waypoint or the smallest old/new initial-jerk jump among the top-K.
         Returns (action_id, brake); brake means none cleared it, so the best-scoring traj is used."""
         cand = np.flatnonzero(mu_lo >= self.safe_mu)
@@ -369,7 +396,7 @@ class YopoNet:
             if head_pva_w is None or tail_pva_w is None or durations is None:
                 raise ValueError("jerk continuity requires candidate boundary conditions")
             head_batch = np.broadcast_to(head_pva_w, (len(score), 3, 3)).copy()
-            candidate_traj = MincoTraj().solve(head_batch, tail_pva_w, inner_w, durations)
+            candidate_traj = self._make_trajectory(head_batch, tail_pva_w, inner_w, durations)
             candidate_jerk = candidate_traj.jerk(0.0)
             old_t = min(max(float(self.ctrl_time or 0.0), 0.0),
                         max(float(self.optimal_traj.total_time) - 1e-6, 0.0))
@@ -431,12 +458,17 @@ class YopoNet:
             inner_w_batch = inner_pos_w_all + start_pos
             tail_pva_batch = tail_pva_w_all.copy()
             tail_pva_batch[:, 0] += start_pos
-            traj_batch = MincoTraj().solve(head_pva_batch, tail_pva_batch, inner_w_batch, durations=durations_all)
-            t_max_all = float(durations_all.sum(axis=-1).max())
+            effective_durations = self._effective_durations(durations_all)
+            traj_batch = self._make_trajectory(
+                head_pva_batch, tail_pva_batch, inner_w_batch, effective_durations)
+            t_max_all = float(np.asarray(traj_batch.total_time).max())
             t_values_all = np.arange(0, t_max_all, t_max_all / 20.0)
             pts = traj_batch.position(t_values_all)  # (N, K, 3)
 
-            self.all_trajs_pub.publish(self._build_all_traj_markers(pts, scores, inner_w_batch))
+            marker_inner = (traj_batch.sample([0.5])[:, 0]
+                            if self.trajectory_mode == 'single_fixed' else inner_w_batch)
+
+            self.all_trajs_pub.publish(self._build_all_traj_markers(pts, scores, marker_inner))
 
     def _build_best_traj_markers(self, line_pts, inner_pt, tail_pt):
         """
@@ -565,7 +597,7 @@ class YopoNet:
                   f"visualize-trajectory: \033[32m{1000 * self.time_visualize / self.count:.2f} ms\033[0m")
 
     def warm_up(self):
-        """Run one dummy forward + MINCO solve to pay the first-call CUDA / BLAS init cost up front."""
+        """Run one dummy forward + both solvers to pay first-call CUDA / BLAS costs up front."""
         depth = torch.zeros((1, 1, self.height, self.width), dtype=torch.float32, device=self.device)
         obs = torch.zeros((1, 9), dtype=torch.float32, device=self.device)
         obs = self.state_transform.prepare_input(obs)
@@ -573,6 +605,8 @@ class YopoNet:
         _ = self.state_transform.pred_to_traj_params(endstate_pred)
         _ = MincoTraj().solve(np.zeros((3, 3)), np.array([[1.0, 0, 0], [0, 0, 0], [0, 0, 0]]),
             np.array([0.5, 0, 0]), durations=np.array([self.piece_duration, self.piece_duration]))
+        _ = QuinticTraj().solve(np.zeros((3, 3)),
+            np.array([[1.0, 0, 0], [0, 0, 0], [0, 0, 0]]), self.traj_time)
 
 
 
@@ -594,6 +628,9 @@ def parser():
                         help="uncertainty multiplier k in the lower bound mu-k*b")
     parser.add_argument("--topk", type=int, default=1)
     parser.add_argument("--continuity-mode", choices=("none", "inner", "jerk"), default="inner")
+    parser.add_argument("--trajectory-mode", choices=("single_fixed", "minco_fixed", "minco_variable"),
+                        default="minco_variable")
+    parser.add_argument("--corridor-mode", choices=("off", "filter"), default="filter")
     parser.add_argument("--arrival-radius", type=float, default=5.0)
     parser.add_argument("--yaw-goal-weight", type=float, default=2.0)
     parser.add_argument("--wait-for-goal", action="store_true",
@@ -614,6 +651,8 @@ if __name__ == "__main__":
                 'goal': [50, 0, 2],                     # initial goal (world xyz); RViz 2D Nav Goal overrides it
                 'topk': args.topk,
                 'continuity_mode': args.continuity_mode,
+                'trajectory_mode': args.trajectory_mode,
+                'corridor_mode': args.corridor_mode,
                 'pitch_angle_deg': -0,                  # camera pitch w.r.t. the body (upward is negative)
                 'node_name': args.node_name,
                 'odom_topic': args.odom_topic,           # odometry topic (FLU)
